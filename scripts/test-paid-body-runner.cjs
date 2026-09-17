@@ -1,0 +1,20 @@
+const {app,BrowserWindow}=require('electron'),fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const dir=process.argv[2],base=process.argv[3];app.setPath('userData',path.join(dir,'browser'));app.on('window-all-closed',()=>{});
+app.whenReady().then(async()=>{let win;try{
+ win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const js=c=>win.webContents.executeJavaScript(c);
+ const wait=async c=>{for(let i=0;i<150;i++){if(await js(`!!(${c})`))return;await new Promise(r=>setTimeout(r,100))}throw Error('Timeout '+c)};
+ const click=async t=>{const c=`Array.from(document.querySelectorAll('button')).find(x=>x.textContent.trim()===${JSON.stringify(t)}&&!x.disabled)`;await wait(c);await js(c+'.click()')};
+ await win.loadURL(base);
+ await js(`(async()=>{const d=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'paid@example.test',password:'paid-fixture-password',name:'付费批次验收'})}).then(r=>r.json());sessionStorage.setItem('tijian-session',d.token);const h={Authorization:'Bearer '+d.token,'Content-Type':'application/json'};const post=(p,b,method='POST')=>fetch('/api'+p,{method,headers:h,body:JSON.stringify(b)}).then(r=>r.json());await post('/workspace',{});const b=await post('/objects/benchmark',{title:'付费测试公众号',platform:'公众号'});await post('/wechat/settings',{app_id:'ui-fixture-id',app_secret:'ui-fixture-secret'},'PUT');await post('/wechat/resolve',{benchmark_id:b.id,url:'https://mp.weixin.qq.com/s/ui-fixture',confirmed:true});let run=await post('/wechat/runs',{benchmark_id:b.id});run=await post('/wechat/runs/'+run.id+'/next',{confirmed:true,version:run.version});await post('/wechat/runs/'+run.id+'/next',{confirmed:true,version:run.version});})()`);
+ await win.loadURL(base+'/?paid-test=1#benchmark');await click('文章库与订阅');await wait("document.querySelectorAll('.cimi-articles .discovery-entry').length===4");
+ const count=()=>js("fetch('/fixture/stats').then(r=>r.json()).then(x=>x.paid)");
+ await click('选择当前结果（最多100篇）');await click('次幂正文补采（计费）');await wait("document.querySelector('dialog[open]')");
+ assert.ok((await js("document.querySelector('dialog').innerText")).includes('0.08'));
+ assert.ok((await js("document.querySelector('dialog').innerText")).includes('长链接需先转换'));
+ await click('取消，不调用');assert.equal(await count(),3);
+ await click('次幂正文补采（计费）');await click('确认扣费并继续');
+ await wait("document.body.innerText.includes('正文已保存 4 篇')");assert.equal(await count(),11);assert.equal(await js("document.querySelectorAll('dialog[open]').length"),0);
+ await click('选择当前结果（最多100篇）');await click('次幂正文补采（计费）');await click('确认扣费并继续');await wait("document.querySelector('.collection-feedback')?.innerText.includes('成功 4 篇')");assert.equal(await count(),11);
+ fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,one_batch_confirmation:true,conversion_fee_shown:true,cancel_no_charge:true,four_bodies_saved:true,saved_cache_no_charge:true}));
+ }catch(e){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,error:e.message}));process.exitCode=1}finally{win?.destroy();app.exit(process.exitCode||0)}});

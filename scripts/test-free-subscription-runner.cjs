@@ -1,0 +1,21 @@
+const {app,BrowserWindow,ipcMain}=require('electron'),fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const dir=process.argv[2],base=process.argv[3];let main,login;
+app.setPath('userData',path.join(dir,'browser'));app.on('window-all-closed',()=>{});ipcMain.handle('remember-login',()=>null);
+require('../desktop/weread.cjs')(()=>main,()=>base);
+app.on('browser-window-created',(_e,win)=>{if(!main)return;login=win;win.webContents.session.protocol.handle('https',()=>new Response('<h1>微信读书登录测试页：无真实账号</h1>',{headers:{'content-type':'text/html; charset=utf-8'}}))});
+app.whenReady().then(async()=>{try{
+ main=new BrowserWindow({show:false,width:1500,height:1050,webPreferences:{preload:path.resolve('desktop/preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const js=c=>main.webContents.executeJavaScript(c);const wait=async c=>{for(let i=0;i<200;i++){if(await js(`!!(${c})`))return;await new Promise(r=>setTimeout(r,100))}throw Error('Timeout '+c+' '+await js('document.body.innerText'))};
+ const click=async t=>{const c=`Array.from(document.querySelectorAll('button')).find(x=>x.textContent.trim()===${JSON.stringify(t)}&&!x.disabled)`;await wait(c);await js(c+'.click()')};
+ await main.loadURL(base);await js(`(async()=>{const d=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'free@example.test',password:'free-fixture-password',name:'免费订阅验收'})}).then(r=>r.json());sessionStorage.setItem('tijian-session',d.token);const h={Authorization:'Bearer '+d.token,'Content-Type':'application/json'};for(const [p,b] of [['/workspace',{}],['/objects/benchmark',{title:'免费订阅测试号',platform:'公众号',url:'https://mp.weixin.qq.com/s/test-free'}]])await fetch('/api'+p,{method:'POST',headers:h,body:JSON.stringify(b)});})()`);
+ await main.loadURL(base+'/?free-test=1#benchmark');await click('文章库与订阅');await click('免费识别发布账号');await wait("document.body.innerText.includes('账号标识 MzIyMzA5NjEyMA==')");
+ await click('打开微信读书登录');await wait("document.body.innerText.includes('返回保存连接')");assert.ok(login&&!login.isDestroyed());
+ await login.webContents.session.cookies.set({url:'https://weread.qq.com/',name:'wr_skey',value:'isolated-session-only',secure:true});
+ await click('保存已登录的连接');await click('开启免费订阅');await click('立即免费检查');await wait("document.body.innerText.includes('正文已保存 1 篇')");assert.ok(!(await js("document.body.innerText")).includes('免费订阅新增 · 1'));
+ await js("fetch('/fixture/new',{method:'POST'})");await click('立即免费检查');await wait("document.body.innerText.includes('正文已保存 2 篇')");await wait("document.body.innerText.includes('免费订阅新增 · 1')");
+ assert.equal(await js("document.querySelectorAll('dialog[open]').length"),0);
+ assert.equal(await js("document.querySelector('details:has(.cimi-subscription)')?.open"),false);
+ await click('暂停免费订阅');await wait("document.querySelector('[aria-label=免费公众号订阅] .block-heading strong').innerText==='未开启'");
+ fs.writeFileSync(path.join(dir,'free-subscription.png'),(await main.webContents.capturePage()).toPNG());
+ fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,desktop_session_bridge:true,free_bind:true,baseline_no_old_notice:true,new_article_saved_and_notified:true,paid_fallback_closed:true,pause:true,real_wechat:false}));
+ }catch(e){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,error:e.message}));process.exitCode=1}finally{for(const w of BrowserWindow.getAllWindows())w.destroy();app.exit(process.exitCode||0)}});

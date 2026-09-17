@@ -1,0 +1,13 @@
+import {build} from 'esbuild';
+import {createRequire} from 'node:module';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import assert from 'node:assert/strict';
+globalThis.sessionStorage={getItem:()=>'',setItem:()=>{}};
+await build({entryPoints:['src/PlatformAccounts.tsx'],bundle:true,platform:'node',format:'cjs',packages:'external',outfile:'.runtime/accounts-ui-check.cjs'});
+const {PlatformAccounts}=createRequire(import.meta.url)('../.runtime/accounts-ui-check.cjs');
+const html=renderToStaticMarkup(React.createElement(PlatformAccounts,{list:()=>[{id:'a',platform:'wechat',title:'测试公众号'},{id:'b',platform:'channels',title:'测试视频号'},{id:'c',platform:'weibo',title:'测试微博'}]}));
+assert.equal((html.match(/class="account-card"/g)||[]).length,3);
+assert.ok(!html.includes('最近验证：'));
+assert.ok(html.includes('正在检查')&&html.includes('编辑名称')&&html.includes('检查状态'));
+console.log('PASS: three account cards, honest initial checking state, scoped actions');

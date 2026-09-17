@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict');
+const {createRun,advance,pageOf,scopeOf}=require('../desktop/wechat-list.cjs');
+const account={name:'Publisher',biz:'TARGET_BIZ'};
+const record=(id,biz=account.biz)=>({publish_info:JSON.stringify({sent_info:{time:1704067200},appmsgex:[1,2].map(idx=>({title:'Article '+id+'/'+idx,link:`https://mp.weixin.qq.com/s?__biz=${biz}&mid=${id}&idx=${idx}`,appmsgid:id,itemidx:idx}))})});
+const response=(start,total=20)=>({base_resp:{ret:0},publish_page:JSON.stringify({total_count:total,publish_list:Array.from({length:Math.min(5,total-start)},(_,i)=>record(start+i+1))})});
+(async()=>{
+ let calls=0;const fetchPage=async begin=>{calls++;return response(begin)};
+ const r=createRun(account,{});while(!r.needs_confirmation&&!r.done)await advance(r,fetchPage);
+ assert.equal(r.items.length,30);assert.equal(r.needs_confirmation,true);assert.equal(r.done,false);
+ const oldCalls=calls;await advance(r,fetchPage);assert.equal(calls,oldCalls);assert.equal(r.items.length,30);
+ await advance(r,fetchPage,true);while(!r.done)await advance(r,fetchPage);assert.equal(r.items.length,40);assert.equal(r.reason,'end');
+ const limited=createRun(account,{limit:7});while(!limited.done)await advance(limited,fetchPage);assert.equal(limited.items.length,7);assert.equal(limited.needs_confirmation,false);
+ const dates=createRun(account,{since:'2024-01-01',until:'2024-01-01'});while(!dates.done)await advance(dates,fetchPage);assert.equal(dates.items.length,40);assert.equal(dates.needs_confirmation,false);
+ assert.throws(()=>scopeOf({limit:-1}));assert.throws(()=>scopeOf({since:'2024-02-30'}));assert.throws(()=>scopeOf({since:'2024-02-01',until:'2024-01-01'}));
+ assert.throws(()=>pageOf({base_resp:{ret:0},publish_page:{total_count:1,publish_list:[record(1,'OTHER_BIZ')]}},account.biz,account.name),/发布账号/);
+ const interrupted=createRun(account,{});await advance(interrupted,fetchPage);const offset=interrupted.offset;
+ await assert.rejects(()=>advance(interrupted,async()=>{throw Error('network interruption')}));assert.equal(interrupted.offset,offset);assert.equal(interrupted.items.length,10);await advance(interrupted,fetchPage);assert.equal(interrupted.items.length,20);
+ await assert.rejects(()=>advance(interrupted,async()=>response(0)),/重复/);assert.equal(interrupted.done,false);
+ await assert.rejects(()=>advance(interrupted,async()=>({base_resp:{ret:0},publish_page:{total_count:20,publish_list:[]}})),/空页/);
+ assert.throws(()=>pageOf({base_resp:{ret:200013}},account.biz,account.name),/频率/);
+ assert.throws(()=>pageOf({base_resp:{ret:0},publish_page:{total_count:1,publish_list:[{publish_info:'invalid'}]}},account.biz,account.name),/解析/);
+ const exact=createRun(account,{});while(!exact.done)await advance(exact,async begin=>response(begin,15));assert.equal(exact.items.length,30);assert.equal(exact.needs_confirmation,false);
+ console.log('PASS: publisher identity, multi-article posts, 30/31 confirmation, explicit scope, pagination, retry cursor, repeated/empty page, malformed data and platform failure');
+})().catch(e=>{console.error(e);process.exitCode=1});

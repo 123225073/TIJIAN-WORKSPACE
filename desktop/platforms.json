@@ -1,0 +1,14 @@
+[
+ {"value":"wechat","label":"微信公众号","url":"https://mp.weixin.qq.com/"},
+ {"value":"channels","label":"微信视频号","url":"https://channels.weixin.qq.com/platform"},
+ {"value":"toutiao","label":"今日头条","url":"https://mp.toutiao.com/"},
+ {"value":"weibo","label":"微博","url":"https://weibo.com/"},
+ {"value":"zhihu","label":"知乎","url":"https://www.zhihu.com/"},
+ {"value":"xiaohongshu","label":"小红书","url":"https://www.xiaohongshu.com/"},
+ {"value":"douyin","label":"抖音","url":"https://www.douyin.com/"},
+ {"value":"bilibili","label":"哔哩哔哩","url":"https://www.bilibili.com/"},
+ {"value":"kuaishou","label":"快手","url":"https://www.kuaishou.com/"},
+ {"value":"github","label":"GitHub","url":"https://github.com/login"},
+ {"value":"x","label":"X / Twitter","url":"https://x.com/"},
+ {"value":"xianyu","label":"闲鱼","url":"https://www.goofish.com/"}
+]

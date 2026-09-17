@@ -1,0 +1,24 @@
+const {app,BrowserWindow}=require('electron'),fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const dir=process.argv[2],base=process.argv[3];app.setPath('userData',path.join(dir,'browser'));app.on('window-all-closed',()=>{});
+app.whenReady().then(async()=>{let win;try{
+ win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+ const js=c=>win.webContents.executeJavaScript(c);
+ const wait=async c=>{for(let i=0;i<100;i++){if(await js(`!!(${c})`))return;await new Promise(r=>setTimeout(r,100))}throw Error('Timeout '+c)};
+ const click=async t=>{const c=`Array.from(document.querySelectorAll('button')).find(x=>x.textContent.trim()===${JSON.stringify(t)})`;await wait(c);await js(c+'.click()')};
+ const day=()=>js("(()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')})()");
+ await win.loadURL(base);
+ await js(`(async()=>{const d=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'dates@example.test',password:'date-fixture-password',name:'日期验收'})}).then(r=>r.json());sessionStorage.setItem('tijian-session',d.token);const h={Authorization:'Bearer '+d.token,'Content-Type':'application/json'};for(const [p,b] of [['/workspace',{}],['/objects/benchmark',{title:'日期公众号',platform:'公众号'}],['/objects/content',{title:'日期稿件',body:'正文',status:'final',format:'公众号'}]])await fetch('/api'+p,{method:'POST',headers:h,body:JSON.stringify(b)});})()`);
+ await win.loadURL(base+'/?date-test=1#knowledge');await click('添加资料');
+ const today=await day();assert.equal(await js("document.querySelector('input[name=published]').value"),today);
+ await js("document.querySelector('input[name=published]').value='2020-02-29'");assert.equal(await js("document.querySelector('input[name=published]').value"),'2020-02-29');
+ await click('取消');await click('添加资料');assert.equal(await js("document.querySelector('input[name=published]').value"),today);await click('取消');
+ await win.loadURL(base+'/#content');await click('内容计划');await click('添加选题');assert.equal(await js("document.querySelector('input[name=date]').value"),today);await click('取消');
+ await click('全部作品');await click('交付');await click('登记已发布');assert.ok((await js("document.querySelector('input[name=date]').value")).startsWith(today+'T'));await click('取消');
+ await win.loadURL(base+'/#review');await click('登记数据');assert.equal(await js("document.querySelector('input[name=period]').value"),today);await click('取消');
+ await win.loadURL(base+'/#records');await wait("document.querySelector('input[type=date]')");assert.equal(await js("document.querySelector('input[type=date]').value"),today);
+ await js(`(async()=>{const h={Authorization:'Bearer '+sessionStorage.getItem('tijian-session'),'Content-Type':'application/json'};const state=await fetch('/api/state',{headers:h}).then(r=>r.json());const b=state.objects.find(x=>x.kind==='benchmark');await fetch('/api/wechat/settings',{method:'PUT',headers:h,body:JSON.stringify({app_id:'ui-fixture-id',app_secret:'ui-fixture-secret'})});await fetch('/api/wechat/resolve',{method:'POST',headers:h,body:JSON.stringify({benchmark_id:b.id,url:'https://mp.weixin.qq.com/s/ui-fixture',confirmed:true})});})()`);
+ await win.loadURL(base+'/#benchmark');await click('文章库与订阅');await wait("document.querySelector('input[aria-label=\"文章库开始日期\"]')");
+ assert.deepEqual(await js("Array.from(document.querySelectorAll('.cimi-filters input[type=date]')).map(x=>x.value)"),[today.slice(0,8)+'01',today]);
+ await win.loadURL(base+'/#radar');await wait("document.querySelector('select[aria-label=发布时间]')");assert.equal(await js("document.querySelector('select[aria-label=发布时间]').value"),'month');
+ fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,today,import:true,editable:true,reopen:true,plan:true,publication:true,metrics:true,records:true,article_range:true,radar_month:true}));
+ }catch(e){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,error:e.message}));process.exitCode=1}finally{win?.destroy();app.exit(process.exitCode||0)}});

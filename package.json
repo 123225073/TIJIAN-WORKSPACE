@@ -1,0 +1,54 @@
+{
+  "name": "elevator-workbench",
+  "version": "0.5.4",
+  "private": true,
+  "description": "Elevator industry personal content workbench",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "desktop": "electron .",
+    "package": "npm run build && powershell -NoProfile -File scripts/package-backend.ps1 && electron-builder --win --dir",
+    "test": "powershell -NoProfile -File scripts/test-backend.ps1"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "lucide-react": "^0.468.0",
+    "marked": "^15.0.0",
+    "dompurify": "^3.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.fengsha.elevator.workbench",
+    "productName": "梯见工作台",
+    "directories": {
+      "output": "release/${version}"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".runtime/backend-dist",
+        "to": "backend"
+      }
+    ],
+    "win": {
+      "icon": "build/tijian.ico",
+      "target": "nsis"
+    }
+  }
+}

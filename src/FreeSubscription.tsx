@@ -1,0 +1,21 @@
+import {useEffect,useState} from 'react';
+import {api,getToken} from './api';
+import {DeleteRecord} from './DeleteRecord';
+export function FreeSubscription({account,bound,t,onChange}:any){
+ const [state,setState]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[url,setUrl]=useState(account.url||''),[minutes,setMinutes]=useState('60'),[autoBody,setAutoBody]=useState(true);
+ const refresh=async()=>{const d=await api('/weread/status/'+account.id);setState(d);return d};
+ useEffect(()=>{let active=true;api('/weread/status/'+account.id).then(d=>{if(active){setState(d);if(d.subscription){setMinutes(String(d.subscription.interval_minutes));setAutoBody(d.subscription.auto_body)}}}).catch(e=>active&&setError(e.message));const timer=setInterval(()=>{if(active)void refresh().catch(()=>{})},3000);return()=>{active=false;clearInterval(timer)}},[account.id]);
+ const run=async(fn:()=>Promise<any>,message='')=>{setBusy(true);setError('');setNotice('');try{await fn();await refresh();await t.refresh?.();await onChange?.();setNotice(message)}catch(e){setError((e as Error).message)}finally{setBusy(false)}};
+ const bridge=(action:string)=>{const b=(window as any).tijianDesktop;if(!b?.wereadSession)throw Error('请使用新版桌面软件连接微信读书');return b.wereadSession({action,token:getToken()})};
+ const sub=state?.subscription;const job=t.list('job').find((j:any)=>j.input?.action==='weread_sync'&&j.input?.benchmark_id===account.id);const running=job&&['queued','running'].includes(job.status);
+ return <section className="surface cimi-subscription" aria-label="免费公众号订阅"><div className="block-heading"><h3>免费订阅 · 微信读书</h3><strong>{state?.error?'等待重新登录':sub?.enabled?'已开启':'未开启'}</strong></div><p>定时发现新文章并保存到同一个文章库，不收次幂接口费。工作台关闭或休眠时暂停；这不是微信官方实时推送。需要你自行登录微信读书，账号风险不能保证为零。</p>
+ <div className="button-row"><button disabled={busy} onClick={()=>void run(()=>bridge('open'),'请在微信读书窗口登录，然后返回保存连接')}>打开微信读书登录</button><button disabled={busy} onClick={()=>void run(()=>bridge('save'),'会话已在本机加密保存；开启或立即检查后验证可用性')}>保存已登录的连接</button><span>{state?.configured?'连接已保存':'尚未连接'}</span></div>
+ {!bound&&<><label className="field"><span>该公众号的一篇文章链接</span><input value={url} onChange={e=>setUrl(e.target.value)}/></label><button disabled={busy||!url} onClick={()=>void run(()=>api('/weread/bind/'+account.id,{url}),'已从原文确认发布账号')}>免费识别发布账号</button></>}
+ <div className="button-row"><label className="field"><span>检查间隔（分钟）</span><input aria-label="免费订阅检查间隔" type="number" min="30" max="1440" value={minutes} onChange={e=>setMinutes(e.target.value)}/></label><label><input type="checkbox" checked={autoBody} onChange={e=>setAutoBody(e.target.checked)}/>自动免费保存正文</label></div>
+ <p className="muted">首轮建立基线，不提醒旧文；后续新增在此提醒。列表失效时可能只能取得最新一篇，会明确标记可能漏文；遇到登录失效暂停，网络或限流错误延后再检查。不会自动切换付费。若微信读书未收录该号，请手动选择下方付费备用。</p>
+ <div className="button-row"><button className="primary" disabled={busy||!bound||!state?.configured||!!state?.error} onClick={()=>void run(()=>api('/weread/subscription/'+account.id,{enabled:true,interval_minutes:Number(minutes),auto_body:autoBody},'PUT'),'免费订阅已开启，将在工作台运行期间自动检查')}>{sub?.enabled?'保存免费订阅设置':'开启免费订阅'}</button>{sub&&<button disabled={busy||running} onClick={()=>void run(()=>api('/weread/check/'+account.id,{}),'已提交免费检查')}>立即免费检查</button>}{sub?.enabled&&<button disabled={busy} onClick={()=>void run(()=>api('/weread/subscription/'+account.id,{enabled:false},'PUT'),'免费订阅已暂停')}>暂停免费订阅</button>}</div>
+ {running&&<p role="status">{job.progress}…</p>}{sub&&<div className="cimi-coverage"><p>{sub.coverage||'尚未成功检查'} · 上次新增 {sub.last_added||0} 篇</p><small>上次成功：{sub.last_success?new Date(sub.last_success).toLocaleString('zh-CN'):'尚未成功'} · 下次检查：{sub.enabled&&sub.next_check?new Date(sub.next_check*1000).toLocaleString('zh-CN'):'已暂停'}</small>{sub.error&&<p className="form-error">{sub.error}</p>}<DeleteRecord item={sub} t={t} onDeleted={()=>void refresh()}/></div>}
+ {!!state?.notices?.length&&<div><h4>免费订阅新增 · {state.notices.length}</h4>{state.notices.map((n:any)=><div className="button-row" key={n.id}><a href={n.url} target="_blank" rel="noreferrer">{n.title}</a><button onClick={()=>void run(()=>api('/wechat/notices/'+n.id+'/read',{}))}>标为已读</button></div>)}</div>}
+ {(error||state?.error)&&<p className="form-error" role="alert">{error||state.error}</p>}{notice&&<p role="status">{notice}</p>}
+ </section>
+}
