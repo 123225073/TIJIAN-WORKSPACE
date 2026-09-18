@@ -34,6 +34,7 @@ require('./weread.cjs')(()=>win,()=>base);
 require('./wechat-body.cjs')(()=>win,()=>base);
 require('./wechat-discovery.cjs')(()=>win,()=>base);
 require('./discovery.cjs')(()=>win,()=>base);
+require('./douyin.cjs')(()=>win,()=>base);
 require('./accounts.cjs')(()=>win,()=>base);
 require('./remember.cjs')(()=>win,()=>base);
 app.whenReady().then(start).catch(e=>{dialog.showErrorBox('梯见启动失败',e.message);app.quit();});

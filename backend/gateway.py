@@ -12,7 +12,14 @@ def cipher():
     return Fernet(KEYFILE.read_bytes())
 
 def providers():return s.config('providers',[])
-def public_providers():return [{k:v for k,v in p.items() if k!='secret'}|{'has_key':bool(p.get('secret'))} for p in providers()]
+def public_providers():
+    values=[{k:v for k,v in p.items() if k!='secret'}|{'has_key':bool(p.get('secret'))} for p in providers()]
+    from urllib.parse import urlsplit
+    matches=[p for p in values if urlsplit(p.get('base_url','')).hostname=='api.deepseek.com']
+    if not matches:
+        matches=[{'id':'preset-deepseek','title':'DeepSeek','base_url':'https://api.deepseek.com','protocol':'chat','has_key':False,'preset':True}];values+=matches
+    for p in matches:p.update(api_key_url='https://platform.deepseek.com/api_keys',docs_url='https://api-docs.deepseek.com/')
+    return values
 def save_provider(data):
     values=providers();old=next((x for x in values if x['id']==data.get('id')),None)
     url=data['base_url'].strip().rstrip('/')
@@ -76,8 +83,12 @@ def generate(id,messages,probe=False):
 
 def verify(id):
     m,p=model_record(id)
-    if m['capability']!='text':raise ValueError('当前验证入口用于文本模型，请勿将图片模型标记为写作能力')
-    start=time.monotonic();text=generate(id,[{'role':'user','content':'只回答：连接正常'}],probe=True)
+    start=time.monotonic()
+    if m['capability']=='image':
+        from .illustrations import generate as image_generate
+        image_generate(id,'A simple green leaf on a white background. No text.',probe=True)
+        text='已实际生成并校验一张测试图片'
+    else:text=generate(id,[{'role':'user','content':'只回答：连接正常'}],probe=True)
     models=s.config('models',[])
     for x in models:
         if x['id']==id:x.update(verified=True,tested_at=s.now(),latency=round(time.monotonic()-start,2))

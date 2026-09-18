@@ -29,7 +29,7 @@ export function PlatformAccounts(t:any){
   t.action(async()=>{try{const r=await request(x.id,action);setStates(v=>({...v,[x.id]:r}))}finally{active.current.delete(x.id);setBusy(v=>({...v,[x.id]:''}))}},'');
  };
  return <section className="accounts-page">
-  <header className="page-heading"><div><div className="eyebrow">CONNECTED ACCOUNTS</div><h1>平台账号</h1><p>管理自己的运营账号。每个账号独立保存登录资料，扫码后自动检查。</p></div><button className="primary" onClick={()=>t.newItem('channel','添加平台账号',fields)}><Plus size={16}/>添加账号</button></header>
+  <header className={t.embedded?'accounts-toolbar':'page-heading'}><div>{!t.embedded&&<><div className="eyebrow">CONNECTED ACCOUNTS</div><h1>平台账号</h1></>}<p>管理自己的运营账号，共 {accounts.length} 个。每个账号独立保存登录资料。</p></div><button className="primary" onClick={()=>t.newItem('channel','添加平台账号',fields)}><Plus size={16}/>添加账号</button></header>
   <div className="accounts-summary"><ShieldCheck size={18}/><span>登录资料保存在本机 · 授权在平台页面完成</span><small>状态每 5 秒更新</small></div>
   <div className="account-grid">{accounts.map(x=>{
    const s=states[x.id],working=!!busy[x.id],label=platforms.find(p=>p.value===x.platform)?.label||x.platform;

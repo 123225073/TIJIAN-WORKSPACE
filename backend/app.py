@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
-from . import store as s, gateway as g, jobs, upstream, network, resources, maintenance, wechat, weread
+from . import store as s, gateway as g, jobs, upstream, network, resources, maintenance, wechat, weread, library, synthesis
 
 def error(status,msg):raise HTTPException(status,msg)
 
@@ -30,9 +30,14 @@ async def lifespan(app):
         while True:
             await asyncio.sleep(30)
             await asyncio.to_thread(wechat.tick)
+    async def knowledge_schedule():
+        while True:
+            await asyncio.sleep(30)
+            await asyncio.to_thread(synthesis.tick)
     subscription_task=asyncio.create_task(subscriptions())
+    knowledge_task=asyncio.create_task(knowledge_schedule())
     yield
-    task.cancel();subscription_task.cancel()
+    task.cancel();subscription_task.cancel();knowledge_task.cancel()
 
 app=FastAPI(title='梯见工作台',lifespan=lifespan,docs_url=None,redoc_url=None)
 
@@ -59,6 +64,13 @@ def admin(u=Depends(user)):
     if u['role']!='admin':error(403,'仅管理员可操作')
     return u
 
+from . import capabilities
+capabilities.register(app,admin)
+from . import douyin
+douyin.register(app,user,error)
+library.register(app,user)
+synthesis.register(app,user)
+
 class Auth(BaseModel):
     email:str=Field(min_length=3,max_length=200)
     password:str=Field(min_length=10,max_length=200)
@@ -71,7 +83,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.5.4','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.12.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -101,7 +113,11 @@ def logout(request:Request,u=Depends(user)):
 @app.get('/api/state')
 def state(u=Depends(user)):
     data=s.list_(u['id'])
-    return {'user':u,'objects':data,'workspace':s.config('workspace:'+u['id']),'settings':s.config('settings:'+u['id'],{'auto_memory':False,'retention':0}),'preferences':s.config('prefs:'+u['id'],{}),'models':[m for m in s.config('models',[]) if m['verified'] and m['published']],'skills':upstream.catalogue(),'bindings':s.config('bindings',{})}
+    data=[{k:v for k,v in x.items() if k!='data_uri'} if x['kind']=='illustration' else x for x in data]
+    catalogue={x['id']:x for x in data}
+    data=[{**x,'freshness_warning':library.freshness(x,catalogue)} if x['kind'] in ['knowledge','memory'] else x for x in data]
+    names={p['id']:p['title'] for p in g.public_providers()}
+    return {'user':u,'objects':data,'workspace':s.config('workspace:'+u['id']),'settings':s.config('settings:'+u['id'],{'auto_memory':False,'retention':0}),'preferences':s.config('prefs:'+u['id'],{}),'models':[{**m,'provider_title':names.get(m['provider'],'')} for m in s.config('models',[]) if m['verified'] and m['published']],'skills':upstream.catalogue(),'bindings':s.config('bindings',{})}
 
 @app.post('/api/workspace')
 def workspace(data:dict,u=Depends(user)):
@@ -123,13 +139,14 @@ def validate_subscription(data,old=None):
         if (urlparse(url).hostname or '').lower()=='mp.weixin.qq.com':
             error(400,'这里需要RSS订阅地址，不能填写公众号文章链接。请将文章链接粘贴到“获取文章”；没有订阅服务时，RSS可以留空。')
 
-PUBLIC_KINDS={'profile','source','content','task','benchmark','feed','publication','metric','plan','feedback','memory','channel'}
+PUBLIC_KINDS={'profile','source','content','task','benchmark','feed','publication','metric','plan','feedback','memory','channel','folder'}
 
 @app.post('/api/objects/{kind}')
 def create(kind:str,data:dict,u=Depends(user)):
     validate_subscription(data)
     if kind not in PUBLIC_KINDS:error(400,'不支持此对象类型')
     if not str(data.get('title','')).strip():error(400,'请填写名称或标题')
+    if kind in ['folder','source','knowledge','memory']:library.validate_folder(u['id'],kind,data)
     if kind=='memory':data['status']='accepted'
     if kind=='task':data={**data,'messages':[]};data.pop('content_id',None)
     if kind=='publication':
@@ -144,11 +161,14 @@ def create(kind:str,data:dict,u=Depends(user)):
 @app.patch('/api/objects/{id}')
 def update(id:str,data:dict,u=Depends(user)):
     old=s.get(u['id'],id)
+    if old['kind'] in ['folder','source','knowledge','memory']:library.validate_folder(u['id'],old['kind'],{**old,**data},id)
+    if old['kind']=='folder' and data.get('library',old.get('library'))!=old.get('library'):error(400,'文件夹不能切换资料类型')
+    if old['kind']=='task' and 'reference_scope' in data:data['reference_scope']=library.normalize_scope(u['id'],data['reference_scope'])
     validate_subscription(data,old)
     if old['kind']=='channel' and data.get('platform',old.get('platform'))!=old.get('platform'):
         error(400,'平台账号创建后不能切换平台，请新增账号以隔离登录资料')
     if old['kind'] not in PUBLIC_KINDS|{'knowledge'}:error(400,'此对象请使用对应工作流程')
-    forbidden={'id','kind','owner','check','file','file_hash','role','candidate_kind','file_missing','messages','candidates','last_model','evidence_excerpt'}
+    forbidden={'id','kind','owner','check','file','file_hash','role','candidate_kind','file_missing','messages','candidates','last_model','evidence_excerpt','source_hashes','generated_body','entries','topic_key','retrieval'}
     if any(k in data for k in forbidden):error(400,'运行记录、核查与生成结果不能通过普通编辑接口修改')
     if old['kind']=='task' and 'content_id' in data:error(400,'会话与成果关联由任务流程维护')
     clean={k:v for k,v in data.items() if k not in forbidden}
@@ -171,7 +191,7 @@ def candidate(id:str,index:int,u=Depends(user)):
     if obj['kind']!='content':error(400,'请选择稿件')
     if index<0 or index>=len(items):error(404,'候选版本不存在')
     item=items[index]
-    return s.export_object(u['id'],s.put(u['id'],'content',{**obj,'body':item['body'],'title':item['title'],'status':'draft','check':None,'candidates':items[:index]+items[index+1:]},id))
+    return s.export_object(u['id'],s.put(u['id'],'content',{**obj,'body':item['body'],'title':item['title'],'source_ids':item.get('source_ids',obj.get('source_ids',[])),'profile_id':item.get('profile_id',obj.get('profile_id')),'status':'draft','check':None,'candidates':items[:index]+items[index+1:]},id))
 
 @app.post('/api/content/{id}/restore/{version}')
 def restore(id:str,version:int,u=Depends(user)):
@@ -182,12 +202,13 @@ def restore(id:str,version:int,u=Depends(user)):
 
 @app.post('/api/import/text')
 def import_text(data:dict,u=Depends(user)):
+    library.validate_folder(u['id'],'source',data)
     if not data.get('body','').strip():error(400,'请提供正文或文稿')
     body=data['body']
     if len(body)>500000:error(400,'正文超过50万字符，请拆分后导入')
-    old=next((x for x in s.list_(u['id'],'source') if x.get('body')==body),None)
+    old=next((x for x in s.list_(u['id'],'source') if not x.get('archived') and x.get('body')==body and x.get('benchmark_id')==data.get('benchmark_id') and x.get('url','')==data.get('url','')),None)
     if old and not old.get('archived'):return old
-    obj=s.export_object(u['id'],s.put(u['id'],'source',{'title':data.get('title') or '导入资料','body':body,'url':data.get('url',''),'benchmark_id':data.get('benchmark_id'),'published':data.get('published',''),'source_type':data.get('source_type','用户导入'),'status':'ready'}))
+    obj=s.export_object(u['id'],s.put(u['id'],'source',{'title':data.get('title') or '导入资料','body':body,'folder_id':data.get('folder_id') or None,'url':data.get('url',''),'benchmark_id':data.get('benchmark_id'),'published':data.get('published',''),'source_type':data.get('source_type','用户导入'),'status':'ready','acquisition_origin':data.get('acquisition_origin','manual_import'),'acquisition_provider':data.get('acquisition_provider','local'),'discovery_origin':data.get('discovery_origin',''),'discovered_at':data.get('discovered_at',''),'body_saved_at':s.now()}))
     return obj
 
 def maybe_extract(owner,id):
@@ -207,43 +228,16 @@ def import_url(data:dict,u=Depends(user)):
         progress('获取公开页面正文，不下载视频')
         obj=network.article(url)
         if event.is_set():return {'cancelled':True}
-        result=import_text({**obj,'benchmark_id':data.get('benchmark_id'),'source_type':'公开网页'},u)
+        result=import_text({**obj,'benchmark_id':data.get('benchmark_id'),'source_type':'公开网页','acquisition_origin':'manual_url','acquisition_provider':'public'},u)
         return {'source_id':result['id']}
-    return jobs.start(u['id'],'导入网页正文',run,{'action':'import','url':url})
+    return jobs.start(u['id'],'导入网页正文',run,{'action':'import','url':url,'benchmark_id':data.get('benchmark_id'),'trigger':'manual_url'})
+
+from . import radar as radar_service
+radar_service.register(app,user,error)
 
 @app.post('/api/radar/refresh')
 def radar(u=Depends(user)):
-    owner=u['id'];feeds=[f for f in s.list_(owner,'feed') if f.get('enabled',True) and not f.get('archived')]
-    if not feeds:error(400,'请先添加信源')
-    def run(progress,event):
-        total=0;failures=[]
-        for f in feeds:
-            if event.is_set():break
-            progress('正在获取：'+f['title'])
-            try:
-                if f.get('type')=='auto':
-                    from .discovery import identify
-                    detected=identify(f['url'],str(f.get('keywords','电梯 扶梯')))
-                    items=[{**x,'link':x['url'],'summary':x.get('body','')} for x in detected['items']]
-                    f={**f,'detected_type':detected['type'],'detected_url':detected['url'],'detection_note':detected['note']}
-                elif f.get('type','rss')=='rss':
-                    raw,base=network.fetch(f['url'])
-                    try:_,items=upstream.rss.parse_feed(raw)
-                    except SystemExit:raise ValueError('不是有效RSS/Atom，请检查信源类型')
-                else:
-                    raw,base=network.fetch(f['url'])
-                    words=[w for w in re.split(r'[,，\s]+',str(f.get('keywords','电梯 扶梯'))) if w][:20]
-                    soup=BeautifulSoup(raw,'html.parser');items=[{'title':a.get_text(' ',strip=True),'link':urljoin(base,a['href']),'summary':'','published':''} for a in soup.select('a[href]') if any(w in a.get_text() for w in words) and len(a.get_text(strip=True))>4]
-                existing={x.get('url') for x in s.list_(owner,'news')}
-                for x in items[:40]:
-                    if not x.get('link') or x['link'] in existing:continue
-                    s.put(owner,'news',{'title':x['title'],'url':x['link'],'body':x.get('summary',''),'published':x.get('published',''),'source_type':f.get('source_type',f['title']),'feed_id':f['id'],'status':'summary','fetched_at':s.now()});existing.add(x['link']);total+=1
-                s.put(owner,'feed',{**f,'last_success':s.now(),'error':''},f['id'])
-            except Exception:
-                failures.append(f['title']);s.put(owner,'feed',{**f,'error':'获取失败，请检查地址与网络','last_attempt':s.now()},f['id'])
-        if not total and len(failures)==len(feeds):raise ValueError('所有信源均获取失败，请检查网络或更换信源')
-        return {'added':total,'failed_sources':failures}
-    return jobs.start(owner,'刷新行业雷达',run,{'action':'radar'})
+    return radar_service.refresh(u['id'])
 
 @app.post('/api/news/{id}/save')
 def save_news(id:str,u=Depends(user)):
@@ -280,7 +274,7 @@ def collect(id:str,data:dict,u=Depends(user)):
                 match=network.within_dates(article.get('published',''),since,until)
                 if match is False:outside+=1;continue
                 if match is None:unknown+=1
-                record=import_text({**article,'benchmark_id':id,'source_type':'公开文章','date_scope':'日期未知' if match is None else '范围内'},u);good.append(record['id'])
+                record=import_text({**article,'benchmark_id':id,'source_type':'公开文章','acquisition_origin':'manual_catalog','acquisition_provider':'public','date_scope':'日期未知' if match is None else '范围内'},u);good.append(record['id'])
             except Exception:bad.append(link)
         result={'benchmark_id':id,'since':since,'until':until,'found':len(links),'limit':100,'success':len(good),'failed':len(bad),'outside_range':outside,'unknown_date':unknown,'source_ids':good,'coverage':'公开可读样本，不能认定为所选时间范围全量','note':f'跳过日期范围外 {outside} 条；日期未知 {unknown} 条单独保留，不计入期间统计。视频号动态页面可通过文稿导入继续研究。','at':s.now()}
         s.put(u['id'],'collection',{'title':account['title']+'采集记录',**result})
@@ -292,7 +286,7 @@ def collect(id:str,data:dict,u=Depends(user)):
 def send(id:str,data:dict,u=Depends(user)):
     text=data.get('text','').strip()
     if not text:error(400,'请输入要求')
-    return jobs.task_turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('mode','writing'),data.get('model_id'))
+    return jobs.task_turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('mode','writing'),data.get('model_id'),data.get('reference_scope'))
 
 @app.post('/api/content/{id}/check')
 def check(id:str,u=Depends(user)):return jobs.check_content(u['id'],id)
@@ -304,9 +298,11 @@ def extract(data:dict,u=Depends(user)):return jobs.knowledge_extract(u['id'],dat
 def sync(u=Depends(user)):return {'changed':s.sync_files(u['id']),'maintenance':maintenance.inspect(u['id'])}
 
 @app.post('/api/issues/{id}/resolve')
+@jobs.serialized
 def resolve(id:str,data:dict,u=Depends(user)):
     owner=u['id'];issue=s.get(owner,id)
-    if issue['kind']!='issue' or issue.get('status')!='pending':error(409,'待办已经处理')
+    if issue['kind']!='issue' or issue.get('archived') or issue.get('status')!='pending':error(409,'待办已经处理')
+    if data.get('version') is not None and data['version']!=issue['version']:error(409,'建议已变化，请重新打开后确认')
     action=data.get('action')
     if action not in ['accept','reject','defer','keep_both','use_external','use_app']:error(400,'无效处理方式')
     if action=='defer':return issue
@@ -322,7 +318,7 @@ def resolve(id:str,data:dict,u=Depends(user)):
         clean=re.sub(r'^---.*?---\s*','',body,count=1,flags=re.S)
         result=s.put(owner,obj['kind'],{**obj,'body':clean,'file_hash':s.digest(body),'check':None,'status':'draft' if obj['kind']=='content' else obj.get('status','ready')},obj['id'])
     elif issue.get('type')=='knowledge_candidate' and action in ['accept','keep_both']:
-        result=s.export_object(owner,s.put(owner,issue.get('candidate_kind','knowledge'),{k:v for k,v in {**issue,**{k:v for k,v in data.items() if k in ['body','valid_from','valid_to','region']},'status':'accepted','issue_id':id}.items() if k not in ['id','kind','type','version','conflicts']}))
+        result=s.export_object(owner,s.put(owner,issue.get('candidate_kind','knowledge'),{k:v for k,v in {**issue,**{k:v for k,v in data.items() if k in ['title','body','valid_from','valid_to','region']},'status':'accepted','issue_id':id}.items() if k not in ['id','kind','type','version','conflicts']}))
     issue=s.put(owner,'issue',{**issue,'status':'rejected' if action=='reject' else 'resolved','decision':action,'resolved_at':s.now(),'result_id':result['id'] if result else None},id)
     s.audit(owner,'resolve_knowledge',id)
     return issue
@@ -338,7 +334,7 @@ def retry(id:str,u=Depends(user)):
     if action=='weread_sync':
         row=wechat.object_(u['id'],x.get('subscription_id'),'weread_subscription')
         if row.get('next_check',0)>time.time() and row.get('failures'):error(400,'免费检查正在退避，请处理登录或网络问题后再试')
-        return weread.start(u['id'],row)
+        return weread.start(u['id'],row,trigger='manual_subscription_check')
     if action=='hotlists':return refresh_hotlists(x,u)
     if action=='wechat_body':
         if x.get('mode')=='browser':error(400,'请在桌面版通过免费采集按钮继续，以便弹出微信验证窗口')
@@ -346,10 +342,17 @@ def retry(id:str,u=Depends(user)):
         return wechat.collect(u['id'],x['article_ids'],x['benchmark_id'])
     if action=='batch':return WORKFLOWS['batch'](x,u)
     if x.get('distilled_task'):return WORKFLOWS['distill'](x['distilled_task'],u)
+    if action=='prepare_profile':return agent.prepare(u['id'],x['task_id'],x.get('model_id'))
+    if action=='artifact':
+        task=s.get(u['id'],x['task_id']);content=s.get(u['id'],task['content_id']) if task.get('content_id') else None
+        return artifacts.confirm(u['id'],x['task_id'],{'version':content['version'] if content else None,'model_id':x.get('model_id')})
     if action=='chat':return jobs.task_turn(u['id'],x['task_id'],x['text'],mode=x.get('mode','writing'),model_id=x.get('model_id'))
     if action=='check':return jobs.check_content(u['id'],x['content_id'])
     if action=='knowledge':return jobs.knowledge_extract(u['id'],x['source_ids'],x.get('profile_id'))
-    if action=='radar':return radar(u)
+    if action=='synthesis':return synthesis.start(u['id'],x.get('source_ids') or None,trigger='retry')
+    if action=='douyin_scan':return douyin.start(u['id'],x['benchmark_id'],x.get('limit',30))
+    if action=='douyin_download':return douyin.start(u['id'],x['benchmark_id'],ids=x.get('ids',[]))
+    if action=='radar':return radar_service.refresh(u['id'],x.get('feed_id'))
     if action=='import':return import_url(x,u)
     if action=='collect':return collect(x['benchmark_id'],x,u)
     error(400,'此步骤请从原页面重新发起')
@@ -358,7 +361,7 @@ def retry(id:str,u=Depends(user)):
 def export(id:str,format:str='md',u=Depends(user)):
     obj=s.get(u['id'],id)
     if obj['kind']!='content':error(400,'请选择稿件')
-    body=obj.get('body','')
+    body=illustrations.expanded(u['id'],obj.get('body',''))
     if format=='html':
         # Upstream converts editorial Markdown; strip active HTML before conversion.
         body=re.sub(r'<[^>]*>','',body)
@@ -389,12 +392,12 @@ def backup(u=Depends(user)):
 
 @app.post('/api/backup/import')
 async def import_backup(file:UploadFile=File(...),u=Depends(user)):
-    raw=await file.read(25_000_001)
-    if len(raw)>25_000_000:error(400,'备份文件上限25MB')
+    raw=await file.read(100_000_001)
+    if len(raw)>100_000_000:error(400,'备份文件上限100MB')
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             info=z.getinfo('records.json')
-            if info.file_size>10_000_000:error(400,'备份记录超过10MB')
+            if info.file_size>150_000_000:error(400,'备份记录超过150MB')
             records=json.loads(z.read(info))
             wechat_bindings={}
             if 'wechat-bindings.json' in z.namelist():
@@ -402,19 +405,24 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
                 wechat_bindings=json.loads(z.read('wechat-bindings.json'))
     except (zipfile.BadZipFile,KeyError,ValueError):error(400,'不是有效的梯见数据备份')
     if not isinstance(records,list) or len(records)>10000:error(400,'无效备份记录')
-    kinds=PUBLIC_KINDS|{'knowledge','news','collection'}|wechat.BACKUP_KINDS
+    kinds=PUBLIC_KINDS|{'knowledge','news','collection','illustration'}|wechat.BACKUP_KINDS|douyin.KINDS
     records=[x for x in records if isinstance(x,dict) and x.get('kind') in kinds and isinstance(x.get('id'),str)]
     if len({x['id'] for x in records})!=len(records):error(400,'备份含有重复记录ID')
     wechat.validate_backup(records)
     record_kinds={x['id']:x['kind'] for x in records}
     if not isinstance(wechat_bindings,dict) or any(not isinstance(v,str) or record_kinds.get(k)!='benchmark' or record_kinds.get(v)!='wechat_account' for k,v in wechat_bindings.items()):error(400,'公众号账号映射格式无效')
     for x in records:
+        if x.get('kind')=='illustration':
+            import base64
+            uri=x.get('data_uri','')
+            try:x['data_uri']=illustrations.image_uri(base64.b64decode(uri.split(',',1)[1],validate=True))
+            except Exception:error(400,'备份中存在无效配图')
         if any(k in x and not isinstance(x[k],str) for k in ['title','body']):error(400,'备份标题或正文格式无效')
         if any(k in x and not isinstance(x[k],list) for k in ['messages','source_ids']):error(400,'备份会话或引用格式无效')
         if any(not isinstance(v,str) for v in x.get('source_ids',[])):error(400,'备份引用格式无效')
     ids={x['id']:s.uid() for x in records}
     def remap(value):
-        if isinstance(value,str):return ids.get(value,value)
+        if isinstance(value,str):return illustrations.PATTERN.sub(lambda m:'/api/illustrations/'+ids.get(m[1],m[1])+'/file',ids.get(value,value))
         if isinstance(value,list):return [remap(x) for x in value]
         if isinstance(value,dict):return {k:remap(v) for k,v in value.items()}
         return value
@@ -423,7 +431,8 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
         data['restored_from']=old['id']
         if old['kind']=='content':data['status']='draft'
         kind=old['kind']
-        if kind in ('wechat_subscription','weread_subscription'):data.update(enabled=False,next_check=0,error='从备份恢复后，请检查连接并手动重新开启订阅')
+        if kind in ('wechat_subscription','weread_subscription','douyin_subscription'):data.update(enabled=False,next_check=0,error='从备份恢复后，请检查连接并手动重新开启订阅')
+        if kind=='douyin_work':data.update(files=[],status='catalogued')
         if kind=='task':data['messages']=[{'role':m['role'],'text':str(m.get('text','')),'at':str(m.get('at',''))} for m in data.get('messages',[]) if isinstance(m,dict) and m.get('role') in ['user','assistant']]
         if kind in ['memory','knowledge']:
             data.update(type='knowledge_candidate',candidate_kind=kind,status='pending',body=str(data.get('body','')),source_type='外部备份，待重新确认')
@@ -482,6 +491,11 @@ def search(q:str,u=Depends(user)):
     words=q.strip().lower()
     return [x for x in s.list_(u['id']) if x['kind'] not in ['job','issue'] and not x.get('archived') and words in (x.get('title','')+' '+x.get('body','')).lower()][:50]
 
+from . import agent
+agent.register(app,user,error)
+from . import artifacts, illustrations
+artifacts.register(app,user,error)
+illustrations.register(app,user,error)
 from . import workflows
 WORKFLOWS=workflows.register(app,user,error)
 wechat.register(app,user,error)

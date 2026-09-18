@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/jiji262/douyin-downloader",
+  "commit": "47f4eef87b34042a7862d36d9bc10f749fcb888d",
+  "source": "core/api_client.py",
+  "source_sha256": "256c4d9408b86ca4a05e88a88dafe3b99a70295dc4649288939172ba75016204",
+  "methods": [
+    "_DETAIL_AID_CANDIDATES",
+    "_bridge_answer_is_transient",
+    "_build_user_page_params",
+    "_fetch_via_page_bridge",
+    "_normalize_paged_response",
+    "_payload_from_bridge_result",
+    "_request_json_gated",
+    "get_user_post",
+    "get_video_detail"
+  ],
+  "license": "MIT",
+  "integration": "selected upstream methods, dependency-free page-bridge adapter; no browser GUI automation"
+}

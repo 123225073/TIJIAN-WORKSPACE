@@ -176,14 +176,16 @@ def history(owner, account, cursor='', daily_limit=None):
     return items, next_
 
 
-def ingest(owner, items):
+def ingest(owner, items, origin='manual_catalog'):
     added=[]
     with s.LOCK:
         known = {x['article_key']:x for x in s.list_(owner,'wechat_article')}
         for item in items:
             old = known.get(item['article_key'])
-            if old: continue
-            obj = s.put(owner,'wechat_article',{**item,'status':'discovered','discovered_at':s.now()})
+            if old:
+                if not old.get('archived'):s.put(owner,'wechat_article',{**old,'last_seen_at':s.now()},old['id'])
+                continue
+            obj = s.put(owner,'wechat_article',{**item,'status':'discovered','discovered_at':s.now(),'last_seen_at':s.now(),'discovery_origin':origin,'provider':'cimidata'})
             known[item['article_key']] = obj; added.append(obj)
     return added
 
@@ -268,7 +270,7 @@ def provider_body(owner,item,confirmed_conversion=False,event=None):
             'publisher_biz':item['biz'],'source_type':'次幂正文API（按目录原文链接获取）'}
 
 
-def collect(owner, ids, benchmark_id, mode='public', confirmed=False, confirmed_conversion=False):
+def collect(owner, ids, benchmark_id, mode='public', confirmed=False, confirmed_conversion=False, trigger='manual_catalog'):
     if mode not in ['public','browser','cimidata']:raise ValueError('不支持的正文获取方式')
     if mode=='cimidata' and confirmed is not True:raise ValueError('请在本次弹窗中确认次幂正文接口扣费')
     with lock(owner):
@@ -290,6 +292,7 @@ def collect(owner, ids, benchmark_id, mode='public', confirmed=False, confirmed_
                 progress(f'正在采集 {n+1}/{len(items)}：'+item['title'],summary())
                 try:
                     current=s.get(owner,item['id'])
+                    s.put(owner,'wechat_article',{**current,'last_attempt_at':s.now()},item['id'])
                     if current.get('archived'):raise ValueError('文章已移入回收站，跳过采集')
                     source=None
                     if current.get('source_id'):
@@ -306,8 +309,8 @@ def collect(owner, ids, benchmark_id, mode='public', confirmed=False, confirmed_
                             article=network.article(item['url'])
                             if article.get('publisher_biz')!=item['biz']: raise ValueError('正文发布账号不一致或无法核实，未保存')
                         if event.is_set(): break
-                        source=import_text({**article,'benchmark_id':benchmark_id,'source_type':article.get('source_type','公众号公开正文')}, {'id':owner})
-                    s.put(owner,'wechat_article',{**s.get(owner,item['id']),'source_id':source['id'],'status':'body_saved','error':'','body_method':mode},item['id'])
+                        source=import_text({**article,'benchmark_id':benchmark_id,'source_type':article.get('source_type','公众号公开正文'),'acquisition_origin':trigger,'acquisition_provider':mode,'discovery_origin':item.get('discovery_origin',''),'discovered_at':item.get('discovered_at','')}, {'id':owner})
+                    s.put(owner,'wechat_article',{**s.get(owner,item['id']),'source_id':source['id'],'status':'body_saved','error':'','body_method':mode,'body_saved_at':source.get('body_saved_at',current.get('body_saved_at','')),'acquisition_origin':source.get('acquisition_origin',''),'acquisition_provider':source.get('acquisition_provider','')},item['id'])
                     results.append({'url':item['url'],'title':item['title'],'status':'done','source_id':source['id']})
                 except InterruptedError:
                     break
@@ -318,7 +321,7 @@ def collect(owner, ids, benchmark_id, mode='public', confirmed=False, confirmed_
                     results.append({'url':item['url'],'title':item['title'],'status':'failed','reason':msg})
                 progress(f'已处理 {n+1}/{len(items)} 篇',summary())
             return summary()
-        return jobs.start(owner,'公众号正文归档'+('（次幂付费）' if mode=='cimidata' else ''),run,{'action':'wechat_body','benchmark_id':benchmark_id,'article_ids':ids,'mode':mode})
+        return jobs.start(owner,'公众号正文归档'+('（次幂付费）' if mode=='cimidata' else ''),run,{'action':'wechat_body','benchmark_id':benchmark_id,'article_ids':ids,'mode':mode,'trigger':trigger})
 
 
 def subscription(owner, benchmark_id):
@@ -330,6 +333,7 @@ def poll(owner, id):
     with lock(owner):
         sub=object_(owner,id,'wechat_subscription')
         if not sub.get('enabled'): return
+        sub=s.put(owner,'wechat_subscription',{**sub,'last_attempt':s.now()},id)
         try:
             benchmark=object_(owner,sub['benchmark_id'],'benchmark')
             account=object_(owner,sub['account_id'],'wechat_account')
@@ -341,7 +345,7 @@ def poll(owner, id):
                 items,cursor=history(owner,account,sub.get('cursor',''),sub['daily_limit'])
                 keys=[x['article_key'] for x in items]
                 if not sub.get('baseline'):
-                    ingest(owner,items)
+                    ingest(owner,items,'automatic_subscription')
                     sub={**sub,'baseline':True,'anchor':keys[0] if keys else '', 'cursor':'', 'pending_anchor':'',
                          'baseline_day':datetime.now(timezone(timedelta(hours=8))).date().isoformat(),
                          'coverage':'已建立订阅基线，旧文章不提醒'}
@@ -350,7 +354,7 @@ def poll(owner, id):
                 anchor=sub.get('anchor','')
                 reached=bool(anchor and anchor in keys)
                 fresh=items[:keys.index(anchor)] if reached else items
-                ingest(owner,items)
+                ingest(owner,items,'automatic_subscription')
                 fresh_keys={x['article_key'] for x in fresh}
                 for item in s.list_(owner,'wechat_article'):
                     if item['article_key'] not in fresh_keys: continue
@@ -370,7 +374,7 @@ def poll(owner, id):
                 if done: break
             sub=s.put(owner,'wechat_subscription',{**sub,'error':'','last_success':s.now(),
                       'next_check':time.time()+sub['interval_minutes']*60,'last_added':len(new_ids)},id)
-            if sub.get('auto_body') and new_ids: collect(owner,new_ids[:100],sub['benchmark_id'])
+            if sub.get('auto_body') and new_ids: collect(owner,new_ids[:100],sub['benchmark_id'],trigger='automatic_subscription')
         except Exception as e:
             sub=s.get(owner,id)
             s.put(owner,'wechat_subscription',{**sub,'error':str(e) if isinstance(e,ValueError) else '订阅检查失败，请检查服务配置',

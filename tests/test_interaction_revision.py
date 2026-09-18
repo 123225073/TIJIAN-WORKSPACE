@@ -32,7 +32,8 @@ def test_manual_summary_and_custom_prompt(client,monkeypatch):
     assert not s.list_(owner,'job')
     task=client.post('/api/tasks/open',json={'title':'研究','mode':'research','source_ids':[source['id']]}).json()
     assert wait(owner,jobs.task_turn(owner,task['id'],'研究',mode='research'))['status']=='done'
-    assert '按证据顺序组织' in seen[0][0]['content']
+    answer_requests=[request for request in seen if '本次上下文：' in request[1]['content']]
+    assert '按证据顺序组织' in answer_requests[0][0]['content']
     assert not s.list_(owner,'issue')
     ids=[]
     for _ in range(2):

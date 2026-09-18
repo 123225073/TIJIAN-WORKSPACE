@@ -1,0 +1,22 @@
+const {app,BrowserWindow,ipcMain}=require('electron'),fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const dir=process.argv[2],base=process.argv[3];app.setPath('userData',path.join(dir,'browser'));
+app.whenReady().then(async()=>{let win;try{
+ ipcMain.handle('remember-login',()=>null);ipcMain.handle('douyin',()=>({ok:true}));
+ const auth=await(await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'agent-ui@example.test',password:'isolated-agent-test',name:'Agent验收'})})).json();
+ const api=async(url,body)=>{const r=await fetch(base+'/api'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+auth.token},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(await r.text());return r.json()};
+ const task=await api('/tasks/open',{title:'日常工作',mode:'daily'});
+ win=new BrowserWindow({show:false,width:1530,height:1000,webPreferences:{preload:path.resolve('desktop/preload.cjs'),contextIsolation:true,sandbox:true,backgroundThrottling:false}});
+ const js=code=>win.webContents.executeJavaScript(code);
+ const wait=async code=>{for(let i=0;i<150;i++){if(await js(code))return;await new Promise(r=>setTimeout(r,100))}throw Error('UI timeout: '+code)};
+ await win.loadURL(base);await js(`sessionStorage.setItem('tijian-session',${JSON.stringify(auth.token)})`);await win.loadURL(base+'/?test=1#task/'+task.id);await wait("!!document.querySelector('.task-composer')");
+ assert.equal(await js("document.querySelectorAll('.agent-result').length"),0);
+ await api('/tasks/'+task.id+'/send',{text:'请根据我们讨论的内容整理我的IP定位',mode:'daily'});await wait("document.querySelector('.agent-fields')?.textContent.includes('同行与物业')");
+ assert.equal((await api('/state')).objects.filter(x=>x.kind==='profile').length,0);
+ await win.reload();await wait("!!document.querySelector('.agent-fields')");
+ fs.writeFileSync(path.join(dir,'agent-proposal.png'),(await win.webContents.capturePage()).toPNG());
+ await wait("document.querySelector('.agent-result .primary')?.disabled===false");await js("document.querySelector('.agent-result .primary').click()");await wait("document.querySelector('.agent-result')?.textContent.includes('已写入我的 IP')");
+ const saved=(await api('/state')).objects.find(x=>x.kind==='profile');assert.equal(saved.audience,'同行与物业');assert.equal(saved.style,'通俗务实');
+ await api('/tasks/'+task.id+'/send',{text:'你好',mode:'daily'});await wait("document.querySelector('.messages')?.textContent.includes('你好，我可以')");assert.equal(await js("document.querySelectorAll('.agent-result').length"),0);
+ await api('/tasks/'+task.id+'/send',{text:'请记住默认用简洁中文',mode:'daily'});await wait("document.querySelector('.agent-result')?.textContent.includes('个人记忆 · 待写入')");await wait("document.querySelector('.agent-result .primary')?.disabled===false");await js("document.querySelector('.agent-result .primary').click()");await wait("document.querySelector('.agent-result')?.textContent.includes('已写入个人记忆')");assert.equal((await api('/state')).objects.filter(x=>x.kind==='memory').length,1);
+ fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,checks:['daily no IP banner','AI fills identity columns','proposal survives reload','confirm writes real SQLite','ordinary chat no action','memory proposal and write'],real_model:false}));
+ }catch(e){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,error:e.message,body:win?await win.webContents.executeJavaScript('document.body.innerText'):''}));process.exitCode=1}finally{if(win&&!win.isDestroyed())win.destroy();app.exit(process.exitCode||0)}});

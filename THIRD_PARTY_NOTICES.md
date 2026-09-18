@@ -25,3 +25,9 @@
 ## 包管理依赖
 
 JavaScript 依赖及锁定版本见 `package.json` / `package-lock.json`；Python 依赖范围见 `requirements.txt`。Electron、React、FastAPI 等第三方包各自保留其许可证，安装及分发时应随包管理器或打包产物保留适用声明。
+
+## douyin-downloader
+
+- 来源：[jiji262/douyin-downloader](https://github.com/jiji262/douyin-downloader)，固定提交 `47f4eef87b34042a7862d36d9bc10f749fcb888d`。
+- MIT，Copyright (c) 2026 jiji262。许可与精确复用清单位于 `vendor/douyin_downloader/`。
+- 复用主页/详情接口参数、分页解析、页面通道、登录判断和有界重试；适配现有桌面会话、数据库和任务中心。不运行上游全量CLI，不自动导入用户浏览器Cookie。

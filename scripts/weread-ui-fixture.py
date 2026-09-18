@@ -2,7 +2,7 @@
 import os,sys,time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from backend import weread as r,wechat as w,network
+from backend import weread as r,wechat as w,network,store as s
 from backend.app import app
 import uvicorn
 state={'new':False,'calls':0}
@@ -10,7 +10,11 @@ state={'new':False,'calls':0}
 def new():state['new']=True;return state
 @app.get('/fixture/stats')
 def stats():return state
-app.router.routes[:]=app.router.routes[-2:]+app.router.routes[:-2]
+@app.post('/fixture/expired')
+def expired():
+    for u in s.all_users():s.set_config('weread.auth_error:'+u['id'],'登录失效（隔离测试）')
+    return {'ok':True}
+app.router.routes[:]=app.router.routes[-3:]+app.router.routes[:-3]
 def request(owner,path,params):
     state['calls']+=1
     if path.endswith('/articles'):

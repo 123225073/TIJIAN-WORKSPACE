@@ -67,11 +67,12 @@ def entry(review,account,group_time=0):
     except (ValueError,TypeError,OverflowError,OSError):published=''
     return {'title':str(info.get('title') or review.get('title') or '公众号文章')[:500],'url':url,'article_key':w.canonical(url)[1],'biz':account['biz'],'account_id':account['id'],'published':published,'published_at':datetime.fromtimestamp(float(stamp),timezone.utc).isoformat() if published else '', 'review_id':rid,'provider':'weread','short_url':url}
 
-def check(owner,id,progress,event):
+def check(owner,id,progress,event,trigger='automatic_subscription'):
     from .app import import_text
     state=w.object_(owner,id,'weread_subscription');bid=state['benchmark_id'];account=w.object_(owner,state['account_id'],'wechat_account')
     w.object_(owner,bid,'benchmark')
     if s.config('wechat.binding:'+owner+':'+bid)!=account['id']:raise ValueError('公众号绑定已变化，请重新开启免费订阅')
+    state=s.put(owner,'weread_subscription',{**state,'last_attempt':s.now()},id)
     first=not state.get('baseline_at');offset=int(state.get('cursor') or 0);found=[];seen=set();coverage='本轮页数已达上限，保留补漏位置';partial=True;mode='list'
     try:
         for _ in range(3):
@@ -105,9 +106,9 @@ def check(owner,id,progress,event):
             existing=next((x for x in s.list_(owner,'wechat_article') if x.get('account_id')==account['id'] and (x.get('review_id')==item['review_id'] or x.get('url')==item['url'] or x.get('short_url')==item['url'])),None)
             if existing:
                 if existing.get('archived'):continue
-                record=s.put(owner,'wechat_article',{**existing,'review_id':item['review_id'],'weread_list_seen':existing.get('weread_list_seen') or mode=='list'},existing['id'])
+                record=s.put(owner,'wechat_article',{**existing,'last_seen_at':s.now(),'review_id':item['review_id'],'weread_list_seen':existing.get('weread_list_seen') or mode=='list'},existing['id'])
             else:
-                record=s.put(owner,'wechat_article',{**item,'status':'discovered','discovered_at':s.now(),'weread_list_seen':mode=='list'});added+=1
+                record=s.put(owner,'wechat_article',{**item,'status':'discovered','discovered_at':s.now(),'last_seen_at':s.now(),'discovery_origin':trigger,'weread_list_seen':mode=='list'});added+=1
             rows.append(record)
             # Baseline is current visible history, never notify backfill predating it.
             fresh=not first and not existing and (not item['published_at'] or item['published_at']>=baseline)
@@ -126,6 +127,7 @@ def check(owner,id,progress,event):
             for item in candidates:
                 if event.is_set():raise InterruptedError('已取消免费检查')
                 progress('正在免费保存正文：'+item['title'])
+                s.put(owner,'wechat_article',{**s.get(owner,item['id']),'last_attempt_at':s.now()},item['id'])
                 try:
                     html=request(owner,'/web/mp/content',{'reviewId':item['review_id']});soup=BeautifulSoup(html,'html.parser');network.reject_blocked(soup,item['url']);content=soup.select_one('#js_content, .rich_media_content')
                     if content is None:raise ValueError('微信读书未返回正文，已保留目录，下轮补采')
@@ -133,8 +135,8 @@ def check(owner,id,progress,event):
                     body=content.get_text('\n',strip=True)
                     if len(body)<100:raise ValueError('正文过短，未保存')
                     if event.is_set():raise InterruptedError('已取消免费检查')
-                    source=import_text({'title':item['title'],'url':item['url'],'body':body[:100000],'published':item['published'],'benchmark_id':bid,'source_type':'微信读书免费订阅'}, {'id':owner})
-                    s.put(owner,'wechat_article',{**s.get(owner,item['id']),'source_id':source['id'],'status':'body_saved','error':'','body_method':'weread'},item['id']);saved+=1
+                    source=import_text({'title':item['title'],'url':item['url'],'body':body[:100000],'published':item['published'],'benchmark_id':bid,'source_type':'微信读书免费订阅','acquisition_origin':trigger,'acquisition_provider':'weread','discovery_origin':item.get('discovery_origin',''),'discovered_at':item.get('discovered_at','')}, {'id':owner})
+                    s.put(owner,'wechat_article',{**s.get(owner,item['id']),'source_id':source['id'],'status':'body_saved','error':'','body_method':'weread','body_saved_at':source.get('body_saved_at',''),'acquisition_origin':source.get('acquisition_origin',''),'acquisition_provider':'weread'},item['id']);saved+=1
                 except AuthError:raise
                 except ValueError as e:
                     failures+=1;s.put(owner,'wechat_article',{**s.get(owner,item['id']),'status':'failed','error':str(e),'body_retry_at':time.time()+3600},item['id'])
@@ -146,10 +148,10 @@ def check(owner,id,progress,event):
         s.put(owner,'weread_subscription',{**current,'error':str(e) if isinstance(e,ValueError) else '免费检查中断，保留同步位置','failures':n,'next_check':time.time()+min(86400,1800*2**min(n-1,5))},id)
         raise
 
-def start(owner,state):
+def start(owner,state,trigger='automatic_subscription'):
     with s.LOCK:
         if any(j.get('input',{}).get('action')=='weread_sync' and j.get('status') in ['queued','running'] and j['input'].get('subscription_id')==state['id'] for j in s.list_(owner,'job')):raise ValueError('免费检查正在进行，请稍候')
-        return jobs.start(owner,'公众号免费订阅检查',lambda p,e:check(owner,state['id'],p,e),{'action':'weread_sync','benchmark_id':state['benchmark_id'],'subscription_id':state['id']})
+        return jobs.start(owner,'公众号免费订阅检查',lambda p,e:check(owner,state['id'],p,e,trigger),{'action':'weread_sync','benchmark_id':state['benchmark_id'],'subscription_id':state['id'],'trigger':trigger})
 def tick():
     for user in s.all_users():
         owner=user['id']
@@ -195,4 +197,4 @@ def register(app,user):
         w.object_(u['id'],bid,'benchmark');row=sub(u['id'],bid)
         if not row:raise ValueError('请先开启免费订阅')
         if row.get('failures') and row.get('next_check',0)>time.time():raise ValueError('上次检查失败，正在退避等待；请先处理登录或网络问题')
-        return start(u['id'],row)
+        return start(u['id'],row,trigger='manual_subscription_check')

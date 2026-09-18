@@ -66,9 +66,15 @@ __pycache__/
 /scripts/verify-one-cimi-body.py
 /scripts/verify-cimi-conversion.py
 /scripts/verify-live-wechat-browser.cjs
+/scripts/check-douyin-cdp.cjs
+/scripts/check-douyin-chrome.cjs
+/scripts/check-douyin-live.cjs
+/scripts/check-douyin-upstream-browser.cjs
+/scripts/test-douyin-live-runner.cjs
 
 # Reviewed Easel runtime subset, not its Git history or agent application.
 /vendor/*
+!/vendor/douyin_downloader/
 !/vendor/Easel/
 /vendor/Easel/*
 !/vendor/Easel/LICENSE

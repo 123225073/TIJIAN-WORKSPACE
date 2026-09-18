@@ -3,7 +3,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 root = Path(SPECPATH).parent
 a = Analysis([str(root/'backend/run.py')], pathex=[str(root)],
-    binaries=[], datas=[(str(root/'dist'),'dist'),(str(root/'vendor/Easel/skills'),'vendor/Easel/skills'),(str(root/'vendor/Easel/LICENSE'),'vendor/Easel')],
+    binaries=[], datas=[(str(root/'vendor/douyin_downloader/LICENSE'),'vendor/douyin_downloader'),(str(root/'vendor/douyin_downloader/SOURCE.md'),'vendor/douyin_downloader'),(str(root/'dist'),'dist'),(str(root/'vendor/Easel/skills'),'vendor/Easel/skills'),(str(root/'vendor/Easel/LICENSE'),'vendor/Easel')],
     hiddenimports=collect_submodules('backend')+['markdown','yaml','uvicorn.logging','uvicorn.loops.auto','uvicorn.protocols.http.auto','uvicorn.lifespan.on'],
     hookspath=[],hooksconfig={},runtime_hooks=[],excludes=['pytest','IPython'],noarchive=False,optimize=0)
 a.binaries=[entry for entry in a.binaries if Path(entry[0]).name.lower()!='ucrtbase.dll']

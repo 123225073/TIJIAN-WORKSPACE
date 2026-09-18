@@ -74,6 +74,13 @@ def test_background_completion_and_no_fake_model(client,monkeypatch):
         time.sleep(.02)
     assert s.get(user,j['id'])['status']=='done'
     assert s.get(user,j['id'])['task_id']==task['id']
+    assert not s.get(user,task['id']).get('content_id')
+    from backend.artifacts import confirm
+    j=confirm(user,task['id'],{})
+    for _ in range(100):
+        if s.get(user,j['id'])['status'] not in ['queued','running']:break
+        time.sleep(.02)
+    assert s.get(user,j['id'])['status']=='done'
     assert s.get(user,task['id'])['content_id']
 
 def test_source_url_boundaries(client):

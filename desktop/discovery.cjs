@@ -46,6 +46,18 @@ module.exports=(getWindow,getBase)=>{
    });
   }
   if(!window||window.isDestroyed())throw Error('请先打开平台窗口');
+  if(data.action==='radar-scan'){
+   const current=window.webContents.getURL();
+   const checked=await fetch(getBase()+'/api/discovery/browser-target',{method:'POST',headers:{Authorization:'Bearer '+data.token,'Content-Type':'application/json'},body:JSON.stringify({url:current})});
+   if(!checked.ok)throw Error('当前页面不是可读取的公开网址');
+   const url=new URL(current),douyin=url.hostname==='douyin.com'||url.hostname.endsWith('.douyin.com');
+   if(douyin&&!url.pathname.startsWith('/user/'))throw Error('请在网页中打开目标博主的个人主页，然后回到这里读取；不能将推荐页当作该博主作品');
+   const page=await hub.bound(window.webContents.executeJavaScript(`(()=>{const root=document.querySelector('main')||document.body;return {url:location.href,title:document.querySelector('h1')?.innerText||document.title,items:Array.from(root.querySelectorAll('a[href]')).filter(a=>!!a.getClientRects().length).map(a=>({url:a.href,title:(a.innerText||a.title||a.querySelector('img')?.alt||'').trim().slice(0,500)})).filter(x=>x.title.length>3).slice(0,500)}})()`),5000);
+   if(page.url!==current)throw Error('网页正在跳转，请加载完成后重试');
+   if(/验证码|安全验证|环境异常|访问验证/.test(page.title))throw Error('网站仍在验证，请先在网页中完成后再读取');
+   const seen=new Set();page.items=page.items.filter(row=>{try{const u=new URL(row.url);if(u.protocol!=='https:'||u.username||u.password||u.hostname!==url.hostname||row.url===current||seen.has(row.url))return false;if(douyin&&!/^\/(video|note)\/\d+/.test(u.pathname))return false;seen.add(row.url);return true}catch{return false}}).slice(0,100);
+   return {...page,note:'仅当前网页已加载的链接。请核对标题及发布者后勾选保存；不代表历史全量或已获取正文。'};
+  }
   if(!platformURL(window.webContents.getURL()))throw Error('当前网站不支持平台清单读取，可使用自动识别网址');
   if(data.action==='read'){
    const page=await window.webContents.executeJavaScript(`(()=>{const el=document.querySelector('#js_content,article,.note-content,.RichContent-inner,.detail-desc');return {url:location.href,title:document.querySelector('#activity-name,h1,.note-title')?.innerText||document.title,body:el?.innerText?.slice(0,100000)||''}})()`);

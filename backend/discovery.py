@@ -20,6 +20,11 @@ def feed(raw):
     except (ET.ParseError,SystemExit):return None
 
 def identify(url, keywords=''):
+    from .radar import input_url, is_douyin, tender, TENDER_HOST
+    url=input_url(url)
+    if urlparse(url).hostname==TENDER_HOST:return tender(url,keywords)
+    if is_douyin(url):
+        return {'title':'抖音博主 · 待读取主页','url':url,'type':'browser','items':[],'status':'needs_browser','note':'抖音需在浏览器打开该博主主页，再读取并勾选可见作品。短链接未核实账号前不会自动采集推荐视频。'}
     raw,base=network.fetch(url)
     parsed=feed(raw);soup=BeautifulSoup(raw,'html.parser') if parsed is None else None
     if parsed is None:
@@ -38,14 +43,18 @@ def identify(url, keywords=''):
         title=soup.title.get_text(' ',strip=True) if soup.title else '网页信源'
         words=[x for x in re.split(r'[,，\s]+',keywords) if x]
         entries=[{'title':a.get_text(' ',strip=True),'link':a['href'],'published':''} for a in soup.select('a[href]') if len(a.get_text(strip=True))>=4 and (not words or any(w in a.get_text() for w in words))]
-        kind='web';note='未发现网站公开的订阅地址，已读取当前网页链接。可继续使用，无需填写RSS。'
+        kind='web';note='已读取当前网页的公开链接；关键词仅筛选当前页面，不等于全站搜索。'
     seen=set();items=[]
     for x in entries:
         link=web_url(x.get('link') or x.get('url'),base)
         if not link or link in seen:continue
         seen.add(link);items.append({'title':str(x.get('title') or link)[:500],'url':link,'published':x.get('published',''),'body':x.get('summary','')})
         if len(items)>=100:break
-    return {'title':title,'url':base,'type':kind,'items':items,'note':note}
+    status='ready' if items else 'no_match'
+    if kind=='web' and not soup.select('a[href]'):
+        status='needs_browser';note='页面未提供静态内容，可能需浏览器加载、登录或验证；请打开网页读取可见链接。'
+    elif not items:note='本次未发现匹配条目；请调整关键词或检查页面，不能认定没有新内容。'
+    return {'title':title,'url':base,'type':kind,'items':items,'note':note,'status':status}
 
 def wechat_identity(raw, url):
     import html
