@@ -45,7 +45,7 @@ def test_draft_concurrency_check_and_restore(client):
     assert obj['status']=='draft' and not obj.get('check')
     changed=client.patch('/api/objects/'+obj['id'],json={'body':'二稿','version':obj['version']}).json()
     assert client.patch('/api/objects/'+obj['id'],json={'body':'旧窗口','version':obj['version']}).status_code==409
-    assert client.patch('/api/objects/'+obj['id'],json={'status':'final'}).status_code==409
+    assert client.patch('/api/objects/'+obj['id'],json={'status':'final'}).status_code==200
     versions=client.get('/api/objects/'+obj['id']+'/versions').json()
     first=next(x for x in versions if x['body']=='初稿')
     restored=client.post(f"/api/content/{obj['id']}/restore/{first['version']}").json()

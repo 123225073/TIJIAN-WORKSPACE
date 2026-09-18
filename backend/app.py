@@ -83,7 +83,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.12.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.13.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -175,10 +175,7 @@ def update(id:str,data:dict,u=Depends(user)):
     expected=clean.pop('version',None)
     if old['kind']=='content':
         if any(clean.get(k,old.get(k))!=old.get(k) for k in ['body','source_ids','profile_id']):clean['check']=None;clean['status']='draft'
-        if clean.get('status')=='final':
-            check=old.get('check') or {}
-            if check.get('body_hash')!=s.digest(old.get('body','')) or any(x.get('status')!='有依据' for x in check.get('items',[])):error(409,'请先完成当前稿件的事实核查')
-            if check.get('evidence_hash')!=jobs.evidence_hash(u['id'],old):error(409,'引用资料或身份偏好已变化，请重新核查后定稿')
+        if clean.get('status')=='final' and not clean.get('body',old.get('body','')).strip():error(400,'请先填写工作成果，再确认定稿')
     obj=s.put(u['id'],old['kind'],{**old,**clean},id,expected)
     return s.export_object(u['id'],obj)
 
@@ -323,6 +320,12 @@ def resolve(id:str,data:dict,u=Depends(user)):
     s.audit(owner,'resolve_knowledge',id)
     return issue
 
+@app.get('/api/jobs/{id}')
+def job_state(id:str,u=Depends(user)):
+    item=s.get(u['id'],id)
+    if item['kind']!='job':error(404,'任务不存在')
+    return item
+
 @app.post('/api/jobs/{id}/cancel')
 def cancel(id:str,u=Depends(user)):return jobs.cancel(u['id'],id)
 
@@ -461,7 +464,7 @@ def discover(id:str,u=Depends(admin)):
 
 @app.post('/api/admin/models/{id}/verify')
 def verify(id:str,u=Depends(admin)):
-    return jobs.start(u['id'],'验证模型能力',lambda progress,event:g.verify(id),{'action':'probe'})
+    return jobs.start(u['id'],'验证模型能力',lambda progress,event:g.verify(id),{'action':'probe','model_id':id})
 
 @app.patch('/api/admin/models/{id}')
 def model(id:str,data:dict,u=Depends(admin)):

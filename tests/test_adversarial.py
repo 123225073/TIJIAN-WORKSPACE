@@ -45,7 +45,7 @@ def test_plain_http_model_connection_is_rejected(client):
     r=client.post('/api/admin/providers',json={'title':'不安全连接','base_url':'http://example.com','api_key':'test-only-key'})
     assert r.status_code==400
 
-def test_changed_evidence_blocks_finalization(client):
+def test_finalization_is_user_decision_without_fact_check_gate(client):
     from backend import jobs
     owner=account(client)['user']['id']
     ref=s.put(owner,'source',{'title':'原始事实','body':'项目于2025年完成'})
@@ -54,7 +54,7 @@ def test_changed_evidence_blocks_finalization(client):
     s.put(owner,'content',{**obj,'check':check},obj['id'])
     assert client.patch('/api/objects/'+obj['id'],json={'status':'final'}).status_code==200
     s.put(owner,'source',{**ref,'body':'更正：项目于2026年完成'},ref['id'])
-    assert client.patch('/api/objects/'+obj['id'],json={'status':'final'}).status_code==409
+    assert client.patch('/api/objects/'+obj['id'],json={'status':'final'}).status_code==200
 
 def test_wrong_object_types_cannot_be_converted_by_jobs(client):
     from backend import jobs

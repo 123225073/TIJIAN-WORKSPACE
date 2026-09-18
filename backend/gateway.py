@@ -65,20 +65,46 @@ def model_record(id):
     return m,p
 
 def generate(id,messages,probe=False):
+    from . import streaming
     m,p=model_record(id)
     if not probe and (not m['verified'] or not m['published']):raise ValueError('模型尚未验证上架')
     path='responses' if p['protocol']=='responses' else 'chat/completions'
-    payload={'model':m['model'],'input':messages} if path=='responses' else {'model':m['model'],'messages':messages,'stream':False}
+    payload={'model':m['model'],'stream':True,('input' if path=='responses' else 'messages'):messages}
     target,host,extensions=public_target(endpoint(p,path))
+    streaming.emit('start')
+    text='';complete=False
     with httpx.Client(timeout=httpx.Timeout(240,connect=20),trust_env=False) as client:
-        r=client.post(target,headers={**headers(p),**host},extensions=extensions,json=payload)
-    if r.status_code!=200:raise ValueError(f'模型调用失败 HTTP {r.status_code}，请在后台检查连接与模型能力')
-    data=r.json()
-    if path=='responses':
-        text=data.get('output_text') or '\n'.join(c.get('text','') for o in data.get('output',[]) for c in o.get('content',[]) if c.get('type')=='output_text')
-    else:text=data.get('choices',[{}])[0].get('message',{}).get('content','')
-    if isinstance(text,list):text='\n'.join(x.get('text','') for x in text)
+        with client.stream('POST',target,headers={**headers(p),**host},extensions=extensions,json=payload) as r:
+            if r.status_code!=200:raise ValueError(f'模型调用失败 HTTP {r.status_code}，请检查连接与模型能力')
+            if 'text/event-stream' not in r.headers.get('content-type',''):
+                # Some compatible providers ignore stream. Report this honestly, once; no duplicate request.
+                r.read();data=r.json()
+                text=(data.get('output_text') or '\n'.join(c.get('text','') for o in data.get('output',[]) for c in o.get('content',[]) if c.get('type')=='output_text')) if path=='responses' else data.get('choices',[{}])[0].get('message',{}).get('content','')
+                if isinstance(text,list):text='\n'.join(x.get('text','') for x in text)
+                complete=True;streaming.emit('buffered',text)
+            else:
+                for raw in streaming.events(r):
+                    if raw=='[DONE]':complete=True;break
+                    try:data=json.loads(raw)
+                    except ValueError:raise ValueError('模型流式响应格式异常；未保存不完整内容')
+                    if data.get('error') or data.get('type') in ['error','response.failed','response.incomplete']:raise ValueError('模型输出中断；未保存不完整内容，请重试')
+                    delta=''
+                    if path=='responses':
+                        if data.get('type')=='response.output_text.delta':delta=data.get('delta','')
+                        if data.get('type')=='response.completed':complete=True
+                    else:
+                        choices=data.get('choices',[])
+                        if choices:
+                            choice=choices[0];delta=choice.get('delta',{}).get('content') or ''
+                            if choice.get('finish_reason') in ['length','content_filter']:raise ValueError('模型未完整输出，请缩短要求或更换模型；未覆盖已有成果')
+                            if choice.get('finish_reason')=='stop':complete=True
+                    if isinstance(delta,str) and delta:
+                        text+=delta
+                        if len(text)>2_000_000:raise ValueError('模型输出过长，已停止')
+                        streaming.emit('delta',text)
+                if not complete:raise ValueError('模型连接提前结束，未保存不完整内容，请重试')
     if not text:raise ValueError('模型未返回可显示内容')
+    streaming.emit('end',text)
     return text
 
 def verify(id):
@@ -89,6 +115,7 @@ def verify(id):
         image_generate(id,'A simple green leaf on a white background. No text.',probe=True)
         text='已实际生成并校验一张测试图片'
     else:text=generate(id,[{'role':'user','content':'只回答：连接正常'}],probe=True)
+    if model_record(id)[1]!=p:raise ValueError('测试期间连接配置已修改，请按新配置重新测试')
     models=s.config('models',[])
     for x in models:
         if x['id']==id:x.update(verified=True,tested_at=s.now(),latency=round(time.monotonic()-start,2))

@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {api,type Item} from './api';
 import Markdown from './Markdown';
+import {JobFeedback} from './OperationFeedback';
 import {fullTime} from './AcquisitionMeta';
 
 export const knowledgeJob=(j:Item)=>['knowledge','synthesis'].includes(j.input?.action);
@@ -21,6 +22,7 @@ export function KnowledgeJobResult({job,get}:{job:Item;get:(id:string)=>Item|und
  const ids=[...new Set<string>([...(job.result?.issue_ids||[]),...(job.result?.existing_issue_ids||[])])];
  const rows=ids.map(get).filter((x):x is Item=>!!x&&!x.archived);
  return <section className="knowledge-progress" aria-label="知识提炼结果">
+  {active&&<JobFeedback job={job} preview/>}
   <div role="status" aria-live="polite"><strong>{active?'正在提炼知识…':job.status==='done'?'提炼结束':job.status==='failed'?'提炼失败':'提炼已停止'}</strong><p>{active?(job.progress+'。可以离开页面，返回后继续查看。'):job.error||job.result?.summary||(ids.length?`共 ${ids.length} 条结果，请查看下方内容与保存状态。`:'本次没有新增建议。请检查原始正文，只有标题或链接不能代替文章内容。')}</p></div>
   <small>开始 {fullTime(job.started_at||job.created)}{job.finished_at&&` · 结束 ${fullTime(job.finished_at)}`}</small>
   <div className="knowledge-links">{job.input?.source_ids?.map((id:string)=>{const x=get(id);return x&&!x.archived?<a key={id} href={knowledgePath(x)}>返回来源：{x.title}</a>:<span key={id}>来源已移入回收站</span>})}</div>

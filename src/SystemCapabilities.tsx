@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {api} from './api';
 export function SystemCapabilities(){
  const [data,setData]=useState<any>(null),[tab,setTab]=useState('role'),[selected,setSelected]=useState(''),[draft,setDraft]=useState<any>(null),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[preview,setPreview]=useState('');
- const load=async()=>{const result=await api('/admin/capabilities');setData(result);return result};
+ const load=async()=>{const result=await api('/admin/capabilities');result.items=result.items.filter((x:any)=>x.purpose!=='check');delete result.purposes.check;setData(result);return result};
  useEffect(()=>{load().catch(e=>setError(e.message))},[]);
  const choose=(item:any)=>{if(draft&&JSON.stringify(draft)!==JSON.stringify(data.items.find((x:any)=>x.id===selected))&&!confirm('当前有未保存的修改，是否放弃？'))return;setSelected(item.id||'new');setDraft({...item});setError('');setNotice('');setPreview('')};
  const run=async(fn:()=>Promise<any>,message:string)=>{if(busy)return;setBusy(true);setError('');setNotice('');try{const result=await fn();await load();if(result?.id){setDraft(result);setSelected(result.id)}setNotice(message)}catch(e:any){setError(e.message)}finally{setBusy(false)}};

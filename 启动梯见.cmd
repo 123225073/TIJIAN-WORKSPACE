@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-if exist "release\0.12.0\win-unpacked\梯见工作台.exe" (
-  start "" "release\0.12.0\win-unpacked\梯见工作台.exe"
+if exist "release\0.13.0\win-unpacked\梯见工作台.exe" (
+  start "" "release\0.13.0\win-unpacked\梯见工作台.exe"
   exit /b
 )
 if exist "release\0.9.1\win-unpacked\梯见工作台.exe" (
