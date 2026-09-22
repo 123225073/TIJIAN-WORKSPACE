@@ -14,7 +14,7 @@ async function start(){
  const devPython=path.join(root,'.runtime','venv','Scripts','python.exe');
  const program=app.isPackaged?path.join(process.resourcesPath,'backend','tijian-service','tijian-service.exe'):require('node:fs').existsSync(devPython)?devPython:path.join(root,'.venv','Scripts','python.exe');
  const args=app.isPackaged?[]:['-m','backend.run'];
- backend=spawn(program,args,{cwd:app.isPackaged?app.getPath('userData'):root,windowsHide:true,stdio:'ignore',env:{...process.env,TIJIAN_PORT:String(port),TIJIAN_DATA:app.isPackaged?path.join(app.getPath('userData'),'data'):path.join(root,'.runtime')}});
+ backend=spawn(program,args,{cwd:app.isPackaged?app.getPath('userData'):root,windowsHide:true,stdio:'ignore',env:{...process.env,TIJIAN_PORT:String(port),TIJIAN_DATA:app.isPackaged?path.join(app.getPath('userData'),'data'):path.join(root,'.runtime'),TIJIAN_FFPROBE:app.isPackaged?path.join(process.resourcesPath,'media-tools','ffprobe.exe'):path.join(root,'.runtime','media-tools','ffprobe.exe')}});
  let exited=false;backend.on('error',()=>exited=true);backend.on('exit',()=>exited=true);
  let ready=false;
  for(let i=0;i<120;i++){
@@ -27,6 +27,10 @@ async function start(){
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:\/\//.test(url)&&!url.startsWith(base+'/'))shell.openExternal(url);return {action:'deny'};});
  win.webContents.on('will-navigate',(e,url)=>{if(new URL(url).origin!==base){e.preventDefault();if(/^https?:\/\//.test(url))shell.openExternal(url);}});
  win.webContents.session.setPermissionRequestHandler((wc,permission,callback)=>callback(permission==='clipboard-sanitized-write'));
+ require('./updater.cjs').registerUpdater({app,ipcMain,win,prepareInstall:async()=>{
+  await require('./platform-sessions.cjs').bound(require('./platform-sessions.cjs').flushAll(),5000);
+  flushed=true;
+ }});
  win.once('ready-to-show',()=>win.show());await win.loadURL(base);
 }
 ipcMain.handle('choose-workspace',async event=>{if(event.sender!==win?.webContents)return null;const r=await dialog.showOpenDialog(win,{title:'选择空目录作为工作区',properties:['openDirectory','createDirectory']});return r.canceled?null:r.filePaths[0];});

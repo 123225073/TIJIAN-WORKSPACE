@@ -32,14 +32,29 @@ def fetch_image(url):
                 return bytes(raw)
     raise ValueError('图片下载重定向过多')
 
-def generate(model,prompt,size='1024x1024',probe=False):
+def sizes(model):
+    m,_=g.model_record(model)
+    values=['1024x1024','1536x1024','1024x1536']
+    if any(x in m['model'] for x in ['gpt-image-2.5','gpt-image-2']):values+=['1536x864','864x1536','2048x2048','2560x1440','1440x2560']
+    return values
+
+def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=None):
     m,p=g.model_record(model)
     if m['capability']!='image' or (not probe and not (m.get('verified') and m.get('published'))):raise ValueError('请选择已验证上架的生图模型')
-    if size not in ['1024x1024','1536x1024','1024x1536']:raise ValueError('图片尺寸无效')
-    target,host,extensions=network.public_target(g.endpoint(p,'images/generations'))
+    if size not in sizes(model):raise ValueError('图片尺寸无效')
+    if quality not in (None,'auto','low','medium','high'):raise ValueError('图片质量无效')
+    if reference:image_uri(reference)
+    target,host,extensions=network.public_target(g.endpoint(p,'images/edits' if reference else 'images/generations'))
     payload={'model':m['model'],'prompt':prompt,'n':1,'size':size}
+    if quality:payload['quality']=quality
+    request_headers={**g.headers(p),**host}
+    if reference:
+        request_headers.pop('Content-Type',None)
+        mime=image_uri(reference).split(';')[0].split(':')[1]
+        request={'data':{k:str(v) for k,v in payload.items()},'files':{'image':('reference.'+mime.split('/')[1],reference,mime)}}
+    else:request={'json':payload}
     with httpx.Client(timeout=httpx.Timeout(300,connect=20),trust_env=False) as client:
-        with client.stream('POST',target,headers={**g.headers(p),**host},extensions=extensions,json=payload) as response:
+        with client.stream('POST',target,headers=request_headers,extensions=extensions,**request) as response:
             if response.status_code!=200:raise ValueError(f'生图失败 HTTP {response.status_code}，请检查该服务是否支持 Images 接口及所选尺寸')
             raw=bytearray()
             for chunk in response.iter_bytes():

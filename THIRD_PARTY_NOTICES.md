@@ -26,6 +26,12 @@
 
 JavaScript 依赖及锁定版本见 `package.json` / `package-lock.json`；Python 依赖范围见 `requirements.txt`。Electron、React、FastAPI 等第三方包各自保留其许可证，安装及分发时应随包管理器或打包产物保留适用声明。
 
+## 媒体检查与桌面更新
+
+- `electron-updater`：MIT，版本固定于 `package-lock.json`；仅实现检查、下载、完整性校验及用户主动安装，正式更新渠道另行发布。
+- FFprobe：由 FFmpeg 官方下载页推荐的 Gyan Windows 构建提供，作为独立子进程检查媒体轨道和时长，不用于替代付费生成 API。当前构建缓存为 `ffmpeg-9.0.2-essentials_build`，GPLv3。
+- 构建脚本 `scripts/prepare-media-tools.py` 核对供应方 SHA256，并保留 `SOURCE.json`、`LICENSE`、`README.txt`；这些声明随 `resources/media-tools` 分发。上游：[FFmpeg](https://ffmpeg.org/download.html)、[Windows 构建与对应源代码链接](https://www.gyan.dev/ffmpeg/builds/)。正式对外分发还应按随附许可准备对应源代码及构建资料。
+
 ## douyin-downloader
 
 - 来源：[jiji262/douyin-downloader](https://github.com/jiji262/douyin-downloader)，固定提交 `47f4eef87b34042a7862d36d9bc10f749fcb888d`。

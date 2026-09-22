@@ -1,6 +1,6 @@
 {
   "name": "elevator-workbench",
-  "version": "0.13.0",
+  "version": "0.17.1",
   "private": true,
   "description": "Elevator industry personal content workbench",
   "type": "module",
@@ -10,10 +10,12 @@
     "build": "tsc --noEmit && vite build",
     "desktop": "electron .",
     "package": "npm run build && powershell -NoProfile -File scripts/package-backend.ps1 && electron-builder --win --dir",
-    "test": "powershell -NoProfile -File scripts/test-backend.ps1"
+    "test": "powershell -NoProfile -File scripts/test-backend.ps1",
+    "prepare:media": ".runtime/venv/Scripts/python.exe scripts/prepare-media-tools.py"
   },
   "dependencies": {
     "dompurify": "^3.2.0",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "marked": "^15.0.0",
     "playwright-core": "1.63.0",
@@ -45,11 +47,22 @@
       {
         "from": ".runtime/backend-dist",
         "to": "backend"
+      },
+      {
+        "from": ".runtime/media-tools",
+        "to": "media-tools",
+        "filter": [
+          "ffprobe.exe",
+          "LICENSE",
+          "README.txt",
+          "SOURCE.json"
+        ]
       }
     ],
     "win": {
       "icon": "build/tijian.ico",
       "target": "nsis"
-    }
+    },
+    "publish": null
   }
 }

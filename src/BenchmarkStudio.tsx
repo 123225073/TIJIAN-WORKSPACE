@@ -1,0 +1,91 @@
+import {useEffect, useRef, useState, type CSSProperties} from 'react';
+import {api, type Item} from './api';
+
+// Mount user view in discovery; mount the two named exports ONLY in admin.html.
+const root:CSSProperties={maxWidth:1180,margin:'0 auto',padding:'28px 20px',color:'#23302e'};
+const panel:CSSProperties={background:'#fff',border:'1px solid #d7dfdb',borderRadius:12,padding:22,marginBottom:18};
+const row:CSSProperties={display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'};
+const field:CSSProperties={display:'grid',gap:6,flex:'1 1 180px',fontSize:13};
+const input:CSSProperties={width:'100%',padding:'10px 12px',border:'1px solid #bdcbc5',borderRadius:6,background:'#fff',color:'#23302e',boxSizing:'border-box'};
+const button:CSSProperties={padding:'10px 16px',border:'1px solid #20574b',borderRadius:6,background:'#20574b',color:'#fff',cursor:'pointer'};
+const subtle:CSSProperties={fontSize:13,color:'#576b63',lineHeight:1.7};
+const platforms:Record<string,string>={douyin:'抖音',channels:'视频号',wechat:'公众号'};
+const kinds:Record<string,string>={article_text:'已取得正文文字',published_caption:'发布文案（非口播）',catalogue_only:'仅目录'};
+const missingNames:Record<string,string>={published:'发布日期',text:'文字',article_body:'文章正文',transcript:'口播转写',visual_analysis:'画面分析'};
+type Provider={id:string;configured:boolean;status:string;docs_url:string;signup_url:string;pricing_url:string};
+type Tools={state?:{user?:{id?:string}};refresh?:()=>Promise<unknown>};
+const requestId=()=>crypto.randomUUID();
+const message=(e:unknown)=>e instanceof Error?e.message:'操作失败，请检查输入';
+
+export default function BenchmarkStudio({t}:{t:Tools}){
+ const [accounts,setAccounts]=useState<Item[]>([]),[items,setItems]=useState<Item[]>([]),[providers,setProviders]=useState<Provider[]>([]);
+ const [accountId,setAccountId]=useState(''),[platform,setPlatform]=useState('douyin'),[provider,setProvider]=useState('tikhub');
+ const [title,setTitle]=useState(''),[url,setUrl]=useState(''),[accountKey,setAccountKey]=useState(''),[ghid,setGhid]=useState('');
+ const [limit,setLimit]=useState(20),[maxCalls,setMaxCalls]=useState(3),[from,setFrom]=useState(''),[to,setTo]=useState(''),[confirmed,setConfirmed]=useState(false);
+ const [selected,setSelected]=useState<string[]>([]),[analysis,setAnalysis]=useState<Item|null>(null),[filter,setFilter]=useState('');
+ const [busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[failure,setFailure]=useState('');
+ const [draftOwner,setDraftOwner]=useState('');
+ const owner=t.state?.user?.id||'';
+ const active=useRef(false),epoch=useRef(0);
+ const load=async()=>{const n=++epoch.current;const [a,i,p]=await Promise.all([api('/benchmark-api/accounts'),api('/benchmark-api/items'),api('/benchmark-api/status')]);if(n!==epoch.current)return;setAccounts(a.items);setItems(i.items);setProviders(p.providers);setAnalysis(i.analyses[0]||null);setAccountId(old=>old||a.items[0]?.id||'');};
+ useEffect(()=>{void load().catch(e=>setFailure(message(e)));return()=>{epoch.current++};},[t.state?.user?.id]);
+ useEffect(()=>{if(!owner)return;try{const d=JSON.parse(localStorage.getItem('benchmark-v2-draft:'+owner)||'{}');setPlatform(d.platform||'douyin');setProvider(d.provider||'tikhub');setTitle(d.title||'');setUrl(d.url||'');setAccountKey(d.accountKey||'');setGhid(d.ghid||'');setLimit(d.limit||20);setMaxCalls(d.maxCalls||3);setFrom(d.from||'');setTo(d.to||'');setAccountId(d.accountId||'');}catch{/* A corrupt local draft does not prevent loading saved server records. */}setConfirmed(false);setDraftOwner(owner);},[owner]);
+ useEffect(()=>{if(!owner||draftOwner!==owner)return;try{localStorage.setItem('benchmark-v2-draft:'+owner,JSON.stringify({platform,provider,title,url,accountKey,ghid,limit,maxCalls,from,to,accountId}));}catch{/* Storage can be disabled; fetched records remain server-persisted. */}},[owner,draftOwner,platform,provider,title,url,accountKey,ghid,limit,maxCalls,from,to,accountId]);
+ const run=async(fn:()=>Promise<void>)=>{if(active.current)return;active.current=true;setBusy(true);setFailure('');setNotice('');try{await fn();}catch(e){setFailure(message(e));}finally{active.current=false;setBusy(false);}};
+ const account=accounts.find(a=>a.id===accountId);
+ const ready=(id:string)=>providers.some(p=>p.id===id&&p.configured);
+ const shown=items.filter(x=>(!accountId||x.account_id===accountId)&&(!filter||`${x.title} ${x.body}`.includes(filter))&&(!from||(x.published&&x.published>=from))&&(!to||(x.published&&x.published<=to)));
+ const chosen=shown.filter(x=>selected.includes(x.id));
+ const bind=()=>run(async()=>{const a=await api('/benchmark-api/accounts',{platform,provider,title,url,account_key:accountKey,ghid,confirmed,max_calls:maxCalls,request_id:requestId()});await load();setAccountId(a.id);setSelected([]);setConfirmed(false);setNotice('账号绑定已保存。手工标识需由后续目录逐条核对。');});
+ const fetchItems=()=>run(async()=>{const result=await api('/benchmark-api/fetch',{account_id:accountId,limit,date_from:from,date_to:to,max_calls:maxCalls,confirmed,request_id:requestId()});setConfirmed(false);await load();setNotice(`本次取得 ${result.count} 条，新增 ${result.added} 条，发出 ${result.calls} 次请求。${result.reason}。覆盖：部分。`);});
+ const useItem=(x:Item)=>run(async()=>{
+  if(!owner)throw new Error('请登录后再将参考资料带入创作。');
+  const result=await api('/benchmark-api/items',{item_id:x.id});
+  if(typeof result.source_id!=='string'||!result.source_id)throw new Error('保存结果缺少资料编号，请刷新后重试。');
+  await t.refresh?.();
+  // Shared with Studio.tsx: consume only for this owner on studio/text after draft recovery.
+  try{sessionStorage.setItem('studio-transfer:'+owner,JSON.stringify({brief:'参考「'+x.title+'」创作自己的内容；请保留来源与覆盖限制。',source_ids:[result.source_id]}));}
+  catch{throw new Error('参考资料已保存，但浏览器无法暂存创作交接，请检查存储权限后重试。');}
+  window.location.hash='studio/text';
+ });
+ return <main className="benchmark-studio-v2" style={root}>
+  <header style={{...row,justifyContent:'space-between',marginBottom:24}}><div><span style={{fontSize:11,letterSpacing:3,color:'#497769'}}>BENCHMARK / RESEARCH</span><h1 style={{fontSize:30,margin:'8px 0'}}>灵感与对标</h1><p style={subtle}>真实样本，明确边界。先获取目录与可用文字，再分析和创作。</p></div><span style={{...subtle,borderLeft:'3px solid #c0904f',paddingLeft:14}}>仅付费 API · 本地保存<br/>不下载或解密原视频</span></header>
+  <div role="status" aria-live="polite" style={{...subtle,marginBottom:14}}>{busy?'正在处理，请勿重复提交付费请求。':notice}</div>
+  {failure&&<p role="alert" style={{...panel,color:'#982f2f'}}>{failure}</p>}
+  <section className="benchmark-v2-service-status" style={{...panel,background:'#f1f5f2'}}><strong>服务状态</strong><div style={{...row,marginTop:8}}>{providers.map(p=><span key={p.id} style={subtle}>{p.id==='tikhub'?'TikHub':'次幂'}：{p.configured?'凭据已配置，套餐与实际覆盖待调用验证':'未配置，请联系管理员'}</span>)}</div><p style={subtle}>指定条数是上限。列表、正文、口播和画面分别记录；无接口或字段缺失时不补造内容。</p></section>
+  <details className="benchmark-v2-bind" style={panel} open={!accounts.length}><summary style={{fontWeight:650,cursor:'pointer'}}>绑定账号 / 识别单篇链接</summary><div style={{...row,marginTop:18}}>
+   <label style={field}>平台<select style={input} value={platform} onChange={e=>{setPlatform(e.target.value);setProvider('tikhub');setConfirmed(false);}}>{Object.entries(platforms).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+   <label style={field}>获取服务<select style={input} value={provider} onChange={e=>{setProvider(e.target.value);setConfirmed(false);}}><option value="tikhub">TikHub</option>{platform==='wechat'&&<option value="cimidata">次幂</option>}</select></label>
+   <label style={field}>备注名称<input style={input} value={title} onChange={e=>setTitle(e.target.value)} maxLength={200}/></label>
+  </div><div style={{...row,marginTop:12}}><label style={field}>原始 HTTPS 分享链接（可选）<input style={input} value={url} onChange={e=>{setUrl(e.target.value);setConfirmed(false);}} placeholder="链接识别可能产生费用"/></label><label style={field}>{platform==='douyin'?'sec_user_id':platform==='channels'?'username':'公众号 biz'}（无链接时必填）<input style={input} value={accountKey} onChange={e=>setAccountKey(e.target.value)}/></label>{platform==='wechat'&&<label style={field}>公众号原始ID gh_…<input style={input} value={ghid} onChange={e=>setGhid(e.target.value)}/></label>}</div>
+  <p style={subtle}>直接填写真实账号标识可先保存；链接识别需下方确认费用。昵称不能唯一识别账号，视频号链接须包含 id 或 exportId。</p><button style={button} disabled={busy||(!url&&!accountKey)||(!!url&&(!confirmed||!ready(provider)))} onClick={bind}>保存绑定 / 识别链接</button></details>
+  <section className="benchmark-v2-fetch" style={panel}><h2 style={{marginTop:0,fontSize:19}}>获取范围</h2><div style={row}><label style={field}>对标账号<select style={input} value={accountId} onChange={e=>{setAccountId(e.target.value);setSelected([]);setConfirmed(false);}}><option value="">选择账号</option>{accounts.map(a=><option key={a.id} value={a.id}>{platforms[a.platform]} · {a.title}</option>)}</select></label><label style={field}>最多条数<input style={input} type="number" min={1} max={500} value={limit} onChange={e=>{setLimit(Number(e.target.value));setConfirmed(false);}}/></label><label style={field}>最多付费请求次数<input style={input} type="number" min={1} max={50} value={maxCalls} onChange={e=>{setMaxCalls(Number(e.target.value));setConfirmed(false);}}/></label></div>
+   <div style={{...row,marginTop:12}}><label style={field}>起始日期<input style={input} type="date" value={from} onChange={e=>{setFrom(e.target.value);setConfirmed(false);}}/></label><label style={field}>截止日期<input style={input} type="date" value={to} onChange={e=>{setTo(e.target.value);setConfirmed(false);}}/></label></div>
+   <p style={subtle}>日期先筛选本地记录。点击获取才会重新付费查询；分页中无发布日期的记录不纳入日期范围。费用按供应商套餐结算，本页控制调用次数，不估造金额。</p>
+   <label style={{...row,fontSize:13,margin:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>我确认本次链接识别或获取最多 {maxCalls} 次付费请求；失败或超时可能计费，不自动重试。</label>
+   <button style={button} disabled={busy||!account||!confirmed||!ready(account?.provider||'')} onClick={fetchItems}>付费获取并保存</button>{account&&!ready(account.provider)&&<span style={{...subtle,marginLeft:12}}>尚未配置服务，请联系管理员。</span>}
+   {account?.last_fetch&&<p style={subtle}>上次：{account.last_fetch.count} 条 / {account.last_fetch.calls} 次请求 · 部分覆盖 · {account.last_fetch.reason}</p>}
+  </section>
+  <section className="benchmark-v2-items" style={panel}><div style={{...row,justifyContent:'space-between'}}><h2 style={{fontSize:19}}>已保存样本 · {shown.length}</h2><label style={field}>筛选已保存文字<input style={input} placeholder="输入标题或关键词，不会触发采集" value={filter} onChange={e=>setFilter(e.target.value)}/></label><button style={button} disabled={busy||!chosen.length||chosen.length>50} onClick={()=>run(async()=>{const result=await api('/benchmark-api/analyze',{item_ids:chosen.map(x=>x.id)});setAnalysis(result);setNotice(`已分析 ${result.sample_count} 份有文字的样本，仅代表所选样本范围。`);})}>文本模型分析已选 {chosen.length} 条</button></div><p style={subtle}>分析将把所选文字发送至已配置的文本模型，按模型服务计费。最多50条；仅目录不能分析。</p>
+   {!shown.length&&<p style={{...subtle,padding:'24px 0'}}>当前范围没有已保存内容。请先绑定账号并获取，或调整本地筛选。</p>}
+   {shown.map(x=><article key={x.id} style={{borderTop:'1px solid #e2e8e4',padding:'18px 0'}}><div style={row}><input aria-label={'选择 '+x.title} type="checkbox" disabled={!x.body||busy} checked={selected.includes(x.id)} onChange={e=>setSelected(prev=>e.target.checked?[...prev,x.id]:prev.filter(id=>id!==x.id))}/><strong style={{flex:1}}>{x.title}</strong><span style={subtle}>{x.published||'日期缺失'}</span><button style={{...button,background:'#fff',color:'#20574b'}} disabled={busy||!x.body} onClick={()=>useItem(x)}>保存参考并进入创作</button></div><p style={subtle}>{kinds[x.text_kind]||'部分文字'} · 部分覆盖 · 缺失：{x.missing?.map((v:string)=>missingNames[v]||v).join('、')||'未报告'}</p>{x.body&&<details><summary style={{cursor:'pointer',fontSize:13}}>查看已取得文字</summary><p style={{whiteSpace:'pre-wrap',lineHeight:1.8,overflowWrap:'anywhere'}}>{x.body}</p></details>}{x.url&&<a style={subtle} href={x.url} target="_blank" rel="noreferrer">查看原始来源 ↗</a>}</article>)}
+  </section>
+  {analysis&&<section className="benchmark-v2-analysis" style={{...panel,borderTop:'3px solid #20574b'}}><h2 style={{fontSize:19}}>样本分析</h2><p style={subtle}>{analysis.sample_count} 份有文字的样本 · 日期 {analysis.dates?.join('、')||'缺失'} · 部分覆盖</p><div style={{whiteSpace:'pre-wrap',lineHeight:1.85,overflowWrap:'anywhere'}}>{analysis.body}</div></section>}
+ </main>;
+}
+
+export function BenchmarkAdminSettings(){
+ const [providers,setProviders]=useState<Provider[]>([]),[provider,setProvider]=useState('tikhub'),[key,setKey]=useState(''),[appId,setAppId]=useState(''),[secret,setSecret]=useState('');
+ const [busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState('');const pending=useRef(false);
+ useEffect(()=>{void api('/benchmark-api/settings').then(d=>setProviders(d.providers)).catch(e=>setError(message(e)));},[]);
+ const save=async()=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');setStatus('');try{const d=await api('/benchmark-api/settings',{provider,api_key:key,app_id:appId,app_secret:secret});setProviders(d.providers);setKey('');setSecret('');setStatus('已加密保存；未调用付费接口，套餐及实际覆盖尚待验证。');}catch(e){setError(message(e));}finally{pending.current=false;setBusy(false);}};
+ return <section className="benchmark-admin-settings-v2" style={panel}><h2>对标 API 服务</h2><p style={subtle}>仅管理员配置。密钥加密存储于服务端，保存后不回显；用户页面只显示是否配置。</p>{providers.map(p=><p key={p.id} style={subtle}><strong>{p.id}</strong> · {p.configured?'已配置，未实测':'未配置'} · <a href={p.signup_url} target="_blank" rel="noreferrer">注册/控制台</a> · <a href={p.docs_url} target="_blank" rel="noreferrer">接口文档</a> · <a href={p.pricing_url} target="_blank" rel="noreferrer">费用说明</a></p>)}<div style={row}><label style={field}>服务<select style={input} value={provider} onChange={e=>{setProvider(e.target.value);setKey('');setSecret('');setStatus('');}}><option value="tikhub">TikHub</option><option value="cimidata">次幂（公众号）</option></select></label>{provider==='tikhub'?<label style={field}>API Key<input style={input} type="password" autoComplete="new-password" value={key} onChange={e=>setKey(e.target.value)}/></label>:<><label style={field}>App ID<input style={input} value={appId} onChange={e=>setAppId(e.target.value)}/></label><label style={field}>App Secret<input style={input} type="password" autoComplete="new-password" value={secret} onChange={e=>setSecret(e.target.value)}/></label></>}</div><button style={{...button,marginTop:16}} disabled={busy||(provider==='tikhub'?!key:!appId||!secret)} onClick={()=>void save()}>{busy?'保存中…':'加密保存'}</button><p role="status" style={subtle}>{status}</p>{error&&<p role="alert" style={{color:'#982f2f'}}>{error}</p>}</section>;
+}
+
+export function SkillImport({onImported}:{onImported?:(item:Item)=>void}={}){
+ const [file,setFile]=useState<File|null>(null),[title,setTitle]=useState(''),[purpose,setPurpose]=useState('writing'),[preview,setPreview]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState('');
+ const pending=useRef(false),readVersion=useRef(0),fileInput=useRef<HTMLInputElement>(null);
+ const choose=async(f:File|null)=>{const v=++readVersion.current;setFile(null);setPreview('');setStatus('');setError('');if(!f)return;if(!f.name.toLowerCase().endsWith('.md')||f.size>240000){setError('仅接受最多240KB的 UTF-8 .md 文件。');return;}try{const body=new TextDecoder('utf-8',{fatal:true}).decode(await f.arrayBuffer());if(v!==readVersion.current)return;if(!body.trim()||body.includes('\0')||body.length>60000)throw new Error('正文需为非空文本，最多60000字。');setFile(f);setPreview(body);setTitle(f.name.slice(0,-3).slice(0,120));}catch(e){setError(message(e));}};
+ const upload=async()=>{if(!file||pending.current)return;pending.current=true;setBusy(true);setError('');setStatus('');try{const form=new FormData();form.append('file',file);form.append('title',title);form.append('purpose',purpose);const item=await api<Item>('/benchmark-api/skills/upload',form);setStatus('已导入为草稿。请在能力管理中审阅后发布；文件中的脚本不会执行。');setFile(null);setPreview('');if(fileInput.current)fileInput.current.value='';onImported?.(item);}catch(e){setError(message(e));}finally{pending.current=false;setBusy(false);}};
+ return <section className="benchmark-skill-import-v2" style={panel}><h2>导入 Skills 方法</h2><p style={subtle}>上传 Markdown 文本，预览确认后保存为草稿。不会安装依赖、执行脚本或自动发布。</p><label style={field}>Markdown 文件<input ref={fileInput} type="file" accept=".md,text/markdown" disabled={busy} onChange={e=>void choose(e.target.files?.[0]||null)}/></label><div style={{...row,marginTop:16}}><label style={field}>方法名称<input style={input} value={title} maxLength={120} onChange={e=>setTitle(e.target.value)}/></label><label style={field}>适用功能<select style={input} value={purpose} onChange={e=>setPurpose(e.target.value)}>{Object.entries({prompt_optimize:'提示词优化',writing:'内容创作',benchmark:'对标分析',profile:'身份访谈',brand:'品牌访谈',all:'全部功能'}).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label></div>{preview&&<pre style={{padding:16,maxHeight:280,overflow:'auto',whiteSpace:'pre-wrap',background:'#f3f6f3',fontSize:13}}>{preview}</pre>}<button style={{...button,marginTop:16}} disabled={busy||!file||!title.trim()} onClick={()=>void upload()}>{busy?'导入中…':'确认导入为草稿'}</button><p role="status" style={subtle}>{status}</p>{error&&<p role="alert" style={{color:'#982f2f'}}>{error}</p>}</section>;
+}

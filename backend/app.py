@@ -25,7 +25,7 @@ async def watcher():
 
 @asynccontextmanager
 async def lifespan(app):
-    s.init();jobs.recover();task=asyncio.create_task(watcher())
+    s.init();jobs.recover();media_studio.recover();task=asyncio.create_task(watcher())
     async def subscriptions():
         while True:
             await asyncio.sleep(30)
@@ -33,7 +33,8 @@ async def lifespan(app):
     async def knowledge_schedule():
         while True:
             await asyncio.sleep(30)
-            await asyncio.to_thread(synthesis.tick)
+            if s.config('automatic_knowledge_enabled',False):
+                await asyncio.to_thread(synthesis.tick)
     subscription_task=asyncio.create_task(subscriptions())
     knowledge_task=asyncio.create_task(knowledge_schedule())
     yield
@@ -83,7 +84,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.13.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.17.1','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -113,7 +114,7 @@ def logout(request:Request,u=Depends(user)):
 @app.get('/api/state')
 def state(u=Depends(user)):
     data=s.list_(u['id'])
-    data=[{k:v for k,v in x.items() if k!='data_uri'} if x['kind']=='illustration' else x for x in data]
+    data=[{k:v for k,v in x.items() if k!='data_uri'} if x['kind']=='illustration' else media_studio._public(x) if x['kind'] in {'studio_asset','studio_run'} else x for x in data]
     catalogue={x['id']:x for x in data}
     data=[{**x,'freshness_warning':library.freshness(x,catalogue)} if x['kind'] in ['knowledge','memory'] else x for x in data]
     names={p['id']:p['title'] for p in g.public_providers()}
@@ -145,6 +146,7 @@ PUBLIC_KINDS={'profile','source','content','task','benchmark','feed','publicatio
 def create(kind:str,data:dict,u=Depends(user)):
     validate_subscription(data)
     if kind not in PUBLIC_KINDS:error(400,'不支持此对象类型')
+    if kind=='profile' and data.get('brand_id'):creation.owned(u['id'],data['brand_id'],'studio_brand')
     if not str(data.get('title','')).strip():error(400,'请填写名称或标题')
     if kind in ['folder','source','knowledge','memory']:library.validate_folder(u['id'],kind,data)
     if kind=='memory':data['status']='accepted'
@@ -161,6 +163,7 @@ def create(kind:str,data:dict,u=Depends(user)):
 @app.patch('/api/objects/{id}')
 def update(id:str,data:dict,u=Depends(user)):
     old=s.get(u['id'],id)
+    if old['kind']=='profile' and data.get('brand_id'):creation.owned(u['id'],data['brand_id'],'studio_brand')
     if old['kind'] in ['folder','source','knowledge','memory']:library.validate_folder(u['id'],old['kind'],{**old,**data},id)
     if old['kind']=='folder' and data.get('library',old.get('library'))!=old.get('library'):error(400,'文件夹不能切换资料类型')
     if old['kind']=='task' and 'reference_scope' in data:data['reference_scope']=library.normalize_scope(u['id'],data['reference_scope'])
@@ -180,7 +183,11 @@ def update(id:str,data:dict,u=Depends(user)):
     return s.export_object(u['id'],obj)
 
 @app.get('/api/objects/{id}/versions')
-def versions(id:str,u=Depends(user)):return s.versions(u['id'],id)
+def versions(id:str,u=Depends(user)):
+    item=s.get(u['id'],id)
+    rows=s.versions(u['id'],id)
+    if item['kind'] in {'studio_asset','studio_run'}:return [media_studio._public({**x,'id':id,'kind':item['kind']}) for x in rows]
+    return rows
 
 @app.post('/api/content/{id}/candidate/{index}')
 def candidate(id:str,index:int,u=Depends(user)):
@@ -384,17 +391,21 @@ def settings(data:dict,u=Depends(user)):
 
 @app.get('/api/backup')
 def backup(u=Depends(user)):
+    from . import studio_backup
     buf=io.BytesIO();root=s.workspace(u['id'])
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
-        z.writestr('records.json',json.dumps(s.list_(u['id']),ensure_ascii=False,indent=2))
+        records=studio_backup.export(u['id'],s.list_(u['id']),z)
+        z.writestr('records.json',json.dumps(records,ensure_ascii=False,indent=2))
         bindings={b['id']:s.config('wechat.binding:'+u['id']+':'+b['id']) for b in s.list_(u['id'],'benchmark')}
         z.writestr('wechat-bindings.json',json.dumps({k:v for k,v in bindings.items() if v}))
         for p in root.rglob('*'):
             if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(root) and p.name!='.workbench-owner':z.write(p,'workspace/'+p.relative_to(root).as_posix())
+    if buf.tell()>100_000_000:error(400,'便携备份超过100MB，请先单独保存较大的媒体文件')
     return Response(buf.getvalue(),media_type='application/zip',headers={'Content-Disposition':'attachment; filename="tijian-backup.zip"'})
 
 @app.post('/api/backup/import')
 async def import_backup(file:UploadFile=File(...),u=Depends(user)):
+    from . import studio_backup
     raw=await file.read(100_000_001)
     if len(raw)>100_000_000:error(400,'备份文件上限100MB')
     try:
@@ -408,7 +419,7 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
                 wechat_bindings=json.loads(z.read('wechat-bindings.json'))
     except (zipfile.BadZipFile,KeyError,ValueError):error(400,'不是有效的梯见数据备份')
     if not isinstance(records,list) or len(records)>10000:error(400,'无效备份记录')
-    kinds=PUBLIC_KINDS|{'knowledge','news','collection','illustration'}|wechat.BACKUP_KINDS|douyin.KINDS
+    kinds=PUBLIC_KINDS|{'knowledge','news','collection','illustration'}|wechat.BACKUP_KINDS|douyin.KINDS|studio_backup.KINDS
     records=[x for x in records if isinstance(x,dict) and x.get('kind') in kinds and isinstance(x.get('id'),str)]
     if len({x['id'] for x in records})!=len(records):error(400,'备份含有重复记录ID')
     wechat.validate_backup(records)
@@ -424,6 +435,9 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
         if any(k in x and not isinstance(x[k],list) for k in ['messages','source_ids']):error(400,'备份会话或引用格式无效')
         if any(not isinstance(v,str) for v in x.get('source_ids',[])):error(400,'备份引用格式无效')
     ids={x['id']:s.uid() for x in records}
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        studio_backup.validate(records,archive)
+        restored_media=studio_backup.import_assets(u['id'],records,archive,ids)
     def remap(value):
         if isinstance(value,str):return illustrations.PATTERN.sub(lambda m:'/api/illustrations/'+ids.get(m[1],m[1])+'/file',ids.get(value,value))
         if isinstance(value,list):return [remap(x) for x in value]
@@ -434,6 +448,7 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
         data['restored_from']=old['id']
         if old['kind']=='content':data['status']='draft'
         kind=old['kind']
+        if kind in studio_backup.KINDS:data=studio_backup.restored_data(kind,data,restored_media.get(old['id']))
         if kind in ('wechat_subscription','weread_subscription','douyin_subscription'):data.update(enabled=False,next_check=0,error='从备份恢复后，请检查连接并手动重新开启订阅')
         if kind=='douyin_work':data.update(files=[],status='catalogued')
         if kind=='task':data['messages']=[{'role':m['role'],'text':str(m.get('text','')),'at':str(m.get('at',''))} for m in data.get('messages',[]) if isinstance(m,dict) and m.get('role') in ['user','assistant']]
@@ -478,7 +493,9 @@ def model(id:str,data:dict,u=Depends(admin)):
 @app.post('/api/admin/bindings')
 def bindings(data:dict,u=Depends(admin)):
     for purpose,id in data.items():
-        if id:g.select(u['id'],purpose,id)
+        if purpose in media_studio.TOOLS:
+            media_studio.validate_binding(purpose,id)
+        elif id:g.select(u['id'],purpose,id)
     s.set_config('bindings',data);s.audit(u['id'],'update_bindings');return {'ok':True}
 
 @app.patch('/api/admin/users/{id}')
@@ -492,13 +509,21 @@ def manage_user(id:str,data:dict,u=Depends(admin)):
 @app.get('/api/search')
 def search(q:str,u=Depends(user)):
     words=q.strip().lower()
-    return [x for x in s.list_(u['id']) if x['kind'] not in ['job','issue'] and not x.get('archived') and words in (x.get('title','')+' '+x.get('body','')).lower()][:50]
+    rows=[x for x in s.list_(u['id']) if x['kind'] not in ['job','issue'] and not x.get('archived') and words in (x.get('title','')+' '+x.get('body','')).lower()][:50]
+    return [media_studio._public(x) if x['kind'] in {'studio_asset','studio_run'} else x for x in rows]
 
 from . import agent
 agent.register(app,user,error)
 from . import artifacts, illustrations
 artifacts.register(app,user,error)
 illustrations.register(app,user,error)
+from . import creation
+creation.register(app,user,admin,error)
+from . import interviews
+interviews.register(app,user)
+from . import media_studio, benchmark_api
+media_studio.register(app,user,admin,error)
+benchmark_api.register(app,user,admin,error)
 from . import workflows
 WORKFLOWS=workflows.register(app,user,error)
 wechat.register(app,user,error)
@@ -512,5 +537,6 @@ if (DIST/'assets').exists():app.mount('/assets',StaticFiles(directory=DIST/'asse
 @app.get('/{path:path}')
 def frontend(path:str):
     if path.startswith('api/'):error(404,'接口不存在')
+    if path in {'admin','admin/','admin.html'} and (DIST/'admin.html').exists():return FileResponse(DIST/'admin.html')
     if (DIST/'index.html').exists():return FileResponse(DIST/'index.html')
     return HTMLResponse('<h1>梯见服务已运行</h1><p>请先构建前端。</p>')
