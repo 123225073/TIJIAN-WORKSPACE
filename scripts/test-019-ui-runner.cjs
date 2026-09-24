@@ -1,0 +1,82 @@
+const {app,BrowserWindow}=require('electron');
+const fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
+const dir=process.argv[2],base=process.argv[3];
+app.setPath('userData',path.join(dir,'browser'));
+app.whenReady().then(async()=>{
+  const checks=[],errors=[];
+  let win,admin;
+  try{
+    const register=await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'019-ui@example.test',password:'isolated-019-test',name:'界面验收'})});
+    if(!register.ok)throw Error(await register.text());
+    const auth=await register.json();
+    const api=async(url,body,method='POST')=>{const response=await fetch(base+'/api'+url,{method:body===undefined?'GET':method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+auth.token},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok)throw Error(await response.text());return response.json()};
+    const visit=async route=>{await win.webContents.executeJavaScript(`location.hash=${JSON.stringify(route)}`);await wait(`location.hash===${JSON.stringify('#'+route)}`)};
+    const js=code=>win.webContents.executeJavaScript(code);
+    const wait=async code=>{for(let i=0;i<160;i++){try{if(await js(code))return}catch{}await new Promise(resolve=>setTimeout(resolve,125))}throw Error('UI timeout: '+code)};
+    const click=async label=>{await wait(`[...document.querySelectorAll('button')].some(e=>e.textContent.trim()===${JSON.stringify(label)}&&!e.disabled)`);await js(`[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(label)}).click()`)};
+    const fill=(selector,value)=>js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing field: '+${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e),'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+    const shot=async name=>{await new Promise(resolve=>setTimeout(resolve,300));fs.writeFileSync(path.join(dir,name+'.png'),(await win.webContents.capturePage()).toPNG())};
+    win=new BrowserWindow({show:false,width:1500,height:960,webPreferences:{contextIsolation:true,sandbox:true,backgroundThrottling:false,offscreen:true}});
+    win.webContents.on('console-message',(_e,level,msg)=>{if(level===3)errors.push(msg)});
+    await win.loadURL(base);await js(`sessionStorage.setItem('tijian-session',${JSON.stringify(auth.token)})`);
+    await win.loadURL(base+'/?ui=019#studio/home');
+    await wait(`!!document.querySelector('.sh-chat textarea')&&document.body.innerText.includes('一站式创作')`);
+    assert(await js(`document.querySelector('.sh-chat button.primary').disabled`));
+    await shot('home');checks.push('首页对话入口及未配置模型的真实禁用状态');
+    await js(`document.querySelector('[aria-label="收起侧边栏"]').click()`);
+    await wait(`document.querySelector('.studio-shell').classList.contains('sidebar-is-hidden')`);
+    await js(`document.querySelector('[aria-label="展开侧边栏"]').click()`);
+    await wait(`!document.querySelector('.studio-shell').classList.contains('sidebar-is-hidden')`);
+    await js(`document.querySelector('.studio-sidebar-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`);
+    assert.equal(await js(`localStorage.getItem('tijian-sidebar-width')`),'258');
+    checks.push('侧栏折叠、还原、键盘调宽并持久化');
+    await visit('studio/flow');
+    await wait(`!!document.querySelector('.cf-stepper')`);
+    await fill('.cf-step-body textarea','老旧电梯更新前要准备什么');
+    await click('下一步：选题');await click('下一步：做内容');
+    await shot('flow');
+    await click('进入文案创作');
+    await wait(`location.hash.startsWith('#studio/text?draft=')`);
+    assert((await api('/studio/topics')).items.some(x=>x.title==='老旧电梯更新前要准备什么'));
+    checks.push('连线流程建立持久选题并进入真实文案草稿');
+    await visit('studio/flow');await wait(`!!document.querySelector('.cf-stepper')`);
+    await click('已有作品，下一步');await click('下一步：平台交付');await click('打开平台交付页');
+    await wait(`!!document.querySelector('.td-publish')`);
+    await click('创建交付稿');
+    await wait(`!!document.querySelector('.td-editor-fields input')`);
+    await fill('.td-editor-fields input','旧梯更新准备清单');
+    await click('保存修改');
+    await wait(`document.querySelector('.td-editor-meta')?.innerText.includes('v2')`);
+    const deliveries=(await api('/studio/deliveries')).items;
+    assert(deliveries.some(x=>x.title==='旧梯更新准备清单'&&x.platform==='wechat'));
+    await shot('delivery');checks.push('公众号交付稿创建、修改和持久化');
+    await visit('studio/topics');
+    await wait(`document.querySelector('.td-table')?.innerText.includes('旧梯更新准备清单')`);
+    await shot('topics');checks.push('一张表回看选题与已创作标题');
+    await visit('studio/video');
+    await wait(`!!document.querySelector('.vs-tabs')`);
+    for(const label of ['商品口播','商品展示','门店引流','爆款复刻']){
+      await js(`[...document.querySelectorAll('.vs-tabs button')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(label)}).click()`);
+      assert(await js(`document.querySelector('.vs-tabs button.active strong').textContent===${JSON.stringify(label)}`));
+    }
+    await js(`[...document.querySelectorAll('.vs-tabs button')].find(e=>e.querySelector('strong')?.textContent==='商品展示').click()`);
+    await fill('.vs-inputs input','家用电梯');await fill('.vs-inputs textarea','展示轿厢、门板与入户环境');
+    await click('带入视频创作草稿');
+    await wait(`document.querySelector('.mw-workbench')?.innerText.includes('家用电梯')||document.querySelector('[aria-label="输入你的要求"]')?.value.includes('家用电梯')`);
+    await shot('video');checks.push('视频四场景与商品展示草稿带入');
+    await visit('knowledge');await wait(`document.body.innerText.includes('我的知识库')`);
+    await visit('studio/memory-settings');await wait(`document.body.innerText.includes('每天生成对话纪要')`);
+    await shot('memory');checks.push('个人知识库与记忆设置入口');
+    admin=new BrowserWindow({show:false,width:1200,height:850,webPreferences:{contextIsolation:true,sandbox:true,backgroundThrottling:false,offscreen:true}});
+    await admin.loadURL(base+'/admin.html');
+    const aj=code=>admin.webContents.executeJavaScript(code);
+    await aj(`(()=>{for(const [name,value] of [['email','admin'],['password','admin']]){const e=document.querySelector('[name='+name+']');e.value=value;e.dispatchEvent(new Event('input',{bubbles:true}))}document.querySelector('.admin-login form button').click()})()`);
+    for(let i=0;i<100;i++){if(await aj(`!!document.querySelector('.admin-shell')`))break;await new Promise(resolve=>setTimeout(resolve,125))}
+    assert(await aj(`!!document.querySelector('.admin-shell')`),await aj(`document.body.innerText`));
+    assert(await aj(`document.body.innerText.includes('系统知识资料')`));
+    checks.push('全新数据库 admin/admin 实际登录与系统知识后台入口');
+    assert(!errors.some(x=>/ReferenceError|TypeError|Minified React|Maximum update depth/.test(x)),errors.join('\n'));
+    fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,checks,consoleErrors:errors},null,2));
+  }catch(error){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,error:error.message,checks,body:win?await win.webContents.executeJavaScript('document.body.innerText').catch(()=>null):null},null,2));process.exitCode=1}
+  finally{if(admin&&!admin.isDestroyed())admin.destroy();if(win&&!win.isDestroyed())win.destroy();app.exit(process.exitCode||0)}
+});

@@ -7,7 +7,7 @@ from fastapi import Depends
 from . import capabilities, gateway as g, jobs, store as s
 from .creation import model
 
-TOPIC_FIELDS = {'title', 'angle', 'rationale', 'audience', 'source_ids', 'profile_id', 'origin', 'origin_ref', 'status'}
+TOPIC_FIELDS = {'title', 'angle', 'rationale', 'audience', 'source_ids', 'profile_id', 'origin', 'origin_ref', 'status', 'next_action'}
 DELIVERY_FIELDS = {
     'wechat': ('title', 'summary', 'body', 'cover_brief', 'keywords', 'publishing_notes'),
     'channels': ('title', 'caption', 'script', 'shotlist', 'cover_brief', 'tags'),
@@ -53,10 +53,12 @@ def _topic_payload(owner, data, old=None):
             raise ValueError(key + ' 不得超过3000字')
     if item.get('status', 'idea') not in {'idea', 'selected', 'used'}:
         raise ValueError('选题状态无效')
+    if item.get('next_action', 'create') not in {'create', 'rework', 'hold', 'done'}:
+        raise ValueError('下一步动作无效')
     _sources(owner, item.get('source_ids', []))
     if item.get('profile_id'):
         _owned(owner, item['profile_id'], 'profile')
-    return {k: item.get(k, [] if k == 'source_ids' else 'idea' if k == 'status' else '') for k in TOPIC_FIELDS}
+    return {k: item.get(k, [] if k == 'source_ids' else 'idea' if k == 'status' else 'create' if k == 'next_action' else '') for k in TOPIC_FIELDS}
 
 
 def _delivery_payload(platform, data, old=None, owner=None):

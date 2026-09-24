@@ -33,8 +33,7 @@ async def lifespan(app):
     async def knowledge_schedule():
         while True:
             await asyncio.sleep(30)
-            if s.config('automatic_knowledge_enabled',False):
-                await asyncio.to_thread(synthesis.tick)
+            await asyncio.to_thread(synthesis.tick)
     subscription_task=asyncio.create_task(subscriptions())
     knowledge_task=asyncio.create_task(knowledge_schedule())
     yield
@@ -84,7 +83,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.18.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.19.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):

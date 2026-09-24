@@ -1,0 +1,6 @@
+.page-area:has(.media-workbench){display:block;overflow:auto;min-height:0}
+.media-workbench.studio-v2{grid-template-columns:minmax(280px,var(--mw-panel-width,330px)) 8px minmax(0,1fr);gap:8px;height:calc(100vh - 145px);min-height:620px}
+.mw-pane-resizer{position:relative;cursor:col-resize;touch-action:none;border-radius:6px}
+.mw-pane-resizer:after{content:'';position:absolute;left:3px;top:38%;height:88px;width:2px;background:#9db8a8;border-radius:4px}
+.mw-pane-resizer:hover,.mw-pane-resizer:focus-visible{background:#e1efe4}
+@media(max-width:850px){.media-workbench.studio-v2{grid-template-columns:1fr;height:auto;min-height:0}.mw-pane-resizer{display:none}.mw-panel{min-height:500px}.mw-results{min-height:420px}}

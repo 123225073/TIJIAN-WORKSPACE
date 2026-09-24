@@ -157,6 +157,31 @@ def test_nightly_due_catchup_idempotence_and_disabled(client,monkeypatch):
     synthesis.tick(datetime(2026,9,19,20,0,tzinfo=timezone.utc));assert len(called)==2
 
 
+def test_daily_journal_uses_local_day_user_words_and_stays_out_of_retrieval(client,monkeypatch):
+    owner=account(client)['user']['id']
+    task=s.put(owner,'task',{'title':'真实对话','messages':[
+        {'role':'user','text':'我要联系物业讨论旧电梯。','at':'2026-09-18T20:30:00+00:00'},
+        {'role':'assistant','text':'虚构的报价是九万元。','at':'2026-09-18T20:31:00+00:00'},
+    ]})
+    s.set_config('synthesis:'+owner,{**synthesis.DEFAULTS,'auto_journal':True})
+    s.set_config('journal_enabled:'+owner,'2026-09-18T00:00:00+00:00')
+    calls=[]
+    monkeypatch.setattr(gateway,'select',lambda *args,**kwargs:'fixture-model')
+    monkeypatch.setattr(gateway,'generate',lambda model,messages:calls.append(messages) or '已确认：计划联系物业。')
+    stamp=datetime(2026,9,19,20,0,tzinfo=timezone.utc)
+    synthesis.tick(stamp)
+    record=s.config('journal_schedule:'+owner)
+    result=wait(owner,s.get(owner,record['job_id']))
+    assert result['status']=='done'
+    journal=s.get(owner,result['result']['saved_ids'][0])
+    assert journal['journal_day']=='2026-09-19' and journal['exclude_ai'] is True
+    assert journal['source_ids']==[task['id']]
+    assert '我要联系物业' in calls[0][1]['content'] and '九万元' not in calls[0][1]['content']
+    assert not retrieval.retrieve(owner,'联系物业',scope(owner,modules=['memory']))['excerpts']
+    synthesis.tick(stamp)
+    assert len([x for x in s.list_(owner,'memory') if x.get('memory_scope')=='journal'])==1
+
+
 def test_internal_modules_and_actual_request_respect_scope(client,monkeypatch):
     owner=account(client)['user']['id'];a=source(client,'被选中','选择内的设备事实。');source(client,'不选中','不应泄露的珍珠蓝鲸。')
     s.set_config('synthesis:'+owner,{**synthesis.DEFAULTS,'ai_search':False})

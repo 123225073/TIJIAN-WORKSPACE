@@ -7,7 +7,7 @@ from . import store as s, gateway as g, jobs, library, capabilities
 from .retrieval import chunks
 
 LOCAL_TZ = timezone(timedelta(hours=8))
-DEFAULTS = {'auto_wiki': False, 'auto_memory': False, 'time': '02:00', 'model_id': '', 'max_calls': 8, 'ai_search': True}
+DEFAULTS = {'auto_wiki': False, 'auto_memory': False, 'auto_journal': False, 'time': '02:00', 'model_id': '', 'max_calls': 8, 'ai_search': True}
 
 
 def settings(owner):
@@ -170,7 +170,7 @@ def tick(now=None):
         if not user.get('active'):
             continue
         owner = user['id']; config = settings(owner)
-        if not config['auto_wiki'] and not config['auto_memory']:
+        if not config['auto_wiki'] and not config['auto_memory'] and not config['auto_journal']:
             continue
         hour, minute = map(int, config['time'].split(':'))
         due = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -180,6 +180,11 @@ def tick(now=None):
         if enabled_at and due < datetime.fromisoformat(enabled_at).astimezone(LOCAL_TZ):
             continue
         key = due.date().isoformat()
+        journal_enabled = s.config('journal_enabled:' + owner, '')
+        if config['auto_journal'] and (not journal_enabled or due >= datetime.fromisoformat(journal_enabled).astimezone(LOCAL_TZ)):
+            journal_tick(owner, key, config)
+        if not (config['auto_wiki'] or config['auto_memory']):
+            continue
         with s.LOCK:
             last = s.config('synthesis_schedule:' + owner, {})
             if last.get('day') == key:
@@ -194,18 +199,63 @@ def tick(now=None):
                 s.set_config('synthesis_schedule:' + owner, {'day': key, 'error': str(exc), 'at': s.now()})
 
 
+def journal_tick(owner, due_day, config):
+    """Summarize only the user's prior-day words; keep this unverified log out of retrieval."""
+    day = (datetime.fromisoformat(due_day) - timedelta(days=1)).date().isoformat()
+    schedule_key = 'journal_schedule:' + owner
+    with s.LOCK:
+        last = s.config(schedule_key, {})
+        if last.get('day') == day:
+            job = next((x for x in s.list_(owner, 'job') if x['id'] == last.get('job_id')), None)
+            if not job or job.get('status') != 'interrupted':
+                return
+        lines = []
+        sources = []
+        for task in s.list_(owner, 'task'):
+            utterances = [m.get('text', '').strip() for m in task.get('messages', []) if m.get('role') == 'user' and m.get('at') and datetime.fromisoformat(m['at']).astimezone(LOCAL_TZ).date().isoformat() == day and m.get('text', '').strip()]
+            if utterances:
+                sources.append(task['id'])
+                lines.extend(utterances)
+        if not lines:
+            s.set_config(schedule_key, {'day': day, 'at': s.now(), 'status': 'empty'})
+            return
+        try:
+            model = g.select(owner, 'knowledge', config['model_id'] or None)
+        except ValueError as exc:
+            s.set_config(schedule_key, {'day': day, 'at': s.now(), 'error': str(exc)})
+            return
+        # Bound one daily model call. The full source conversations remain available.
+        source_text = '\n'.join(lines)[:24000]
+        def run(progress, event):
+            progress('正在整理当日用户对话')
+            result = g.generate(model, [
+                {'role': 'system', 'content': jobs.POLICY + '\n只总结用户本人在这一天明确说过的事项、问题、决定和待办。不要把提问前提、假设或助手意见当作事实。不得补充没有依据的内容。用简洁中文分为“已确认”“待核对”“后续事项”；无内容的栏目可省略。'},
+                {'role': 'user', 'content': '日期：' + day + '\n用户发言：\n' + source_text},
+            ])
+            if event.is_set():
+                raise ValueError('任务已停止；未保存不完整纪要')
+            body = result.strip()[:10000]
+            if not body:
+                raise ValueError('模型未返回纪要')
+            existing = next((x for x in s.list_(owner, 'memory') if x.get('memory_scope') == 'journal' and x.get('journal_day') == day), None)
+            saved = s.put(owner, 'memory', {'title': day + ' 对话纪要', 'body': body, 'status': 'auto', 'memory_scope': 'journal', 'journal_day': day, 'source_ids': sources, 'source_type': '用户对话的 AI 纪要 · 未核实', 'exclude_ai': True}, existing['id'] if existing else None)
+            return {'summary': '已保存 ' + day + ' 的对话纪要', 'saved_ids': [saved['id']]}
+        job = jobs.start(owner, day + ' 对话纪要', run, {'action': 'journal', 'day': day, 'source_ids': sources, 'model_id': model})
+        s.set_config(schedule_key, {'day': day, 'at': s.now(), 'job_id': job['id']})
+
+
 def register(app, user):
     @app.get('/api/synthesis')
     def status(u=Depends(user)):
         owner = u['id']
-        return {'settings': settings(owner), 'schedule': s.config('synthesis_schedule:' + owner, {}), 'pending_units': len(pending(owner)), 'jobs': [x for x in s.list_(owner, 'job') if x.get('input', {}).get('action') == 'synthesis'][:10]}
+        return {'settings': settings(owner), 'schedule': s.config('synthesis_schedule:' + owner, {}), 'journal_schedule': s.config('journal_schedule:' + owner, {}), 'pending_units': len(pending(owner)), 'jobs': [x for x in s.list_(owner, 'job') if x.get('input', {}).get('action') in ['synthesis', 'journal']][:10]}
 
     @app.post('/api/synthesis/settings')
     def save_settings(data: dict, u=Depends(user)):
         config = settings(u['id'])
         if any(k not in DEFAULTS for k in data):
             raise ValueError('未知的整理设置')
-        for key in ['auto_wiki', 'auto_memory', 'ai_search']:
+        for key in ['auto_wiki', 'auto_memory', 'auto_journal', 'ai_search']:
             if key in data and not isinstance(data[key], bool):
                 raise ValueError('启停设置无效')
         value = {**config, **data}
@@ -215,10 +265,12 @@ def register(app, user):
             raise ValueError('每次模型调用上限为1至100')
         if not isinstance(value['model_id'], str):
             raise ValueError('请选择整理模型')
-        if value['model_id'] or value['auto_wiki'] or value['auto_memory']:
+        if value['model_id'] or value['auto_wiki'] or value['auto_memory'] or value['auto_journal']:
             g.select(u['id'], 'knowledge', value['model_id'] or None)
-        if (value['auto_wiki'] or value['auto_memory']) and not (config['auto_wiki'] or config['auto_memory']):
+        if (value['auto_wiki'] or value['auto_memory'] or value['auto_journal']) and not (config['auto_wiki'] or config['auto_memory'] or config['auto_journal']):
             value['enabled_at'] = s.now()
+        if value['auto_journal'] and not config['auto_journal']:
+            s.set_config('journal_enabled:' + u['id'], s.now())
         s.set_config('synthesis:' + u['id'], value)
         return value
 

@@ -17,7 +17,10 @@ def register(app,user):
         with s.LOCK:
             rows=s.list_(u['id'],'studio_flow');old=rows[0] if rows else None
             if data.get('version')!=(old['version'] if old else 0):raise s.Conflict('创作主题已在其他页面更新，请刷新后重试')
-            fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','audio_id','brief','last_draft','topic_id'})
+            fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','audio_id','brief','last_draft','topic_id','stage','tool_path','platform'})
+            if fields.get('stage','0') not in {'0','1','2','3','4'}:raise ValueError('创作步骤无效')
+            if fields.get('tool_path','text') not in {'text','image','video','avatar/text','audio/tts','compose'}:raise ValueError('创作工具无效')
+            if fields.get('platform','wechat') not in {'wechat','channels','douyin'}:raise ValueError('交付平台无效')
             for key,kind in [('brand_id','studio_brand'),('profile_id','profile'),('content_id','content'),('visual_id','studio_asset'),('audio_id','studio_asset'),('topic_id','studio_topic')]:
                 if fields.get(key):owned(u['id'],fields[key],kind)
             return s.put(u['id'],'studio_flow',fields,old['id'] if old else None,expected=old['version'] if old else None)
