@@ -26,7 +26,7 @@ export default function TopicDelivery({t,page}:{t:any;page:string}){
  const sources=(t.list?.('source')||[]).filter((x:any)=>!x.archived),active=topics.find(x=>x.id===selected&&!x.archived);
  const related=deliveries.filter(x=>x.topic_id===selected),sourceName=(x:Topic)=>x.origin||'自己添加';
  const visible=useMemo(()=>topics.filter(x=>!!x.archived===showArchived&&(!search||[x.title,x.angle,x.rationale,x.origin].some(v=>String(v||'').toLowerCase().includes(search.toLowerCase())))),[topics,showArchived,search]);
- const ready=(purpose:string)=>!!t.state?.models?.some((m:any)=>m.id===(t.state?.bindings?.[purpose]||t.state?.bindings?.writing)&&m.capability==='text'&&m.published&&m.verified);
+ const ready=(purpose:string)=>!!t.state?.models?.some((m:any)=>m.id===(t.state?.bindings?.[purpose]||t.state?.bindings?.writing)&&m.capability==='text'&&m.published);
  const load=async()=>{const [a,b,c]=await Promise.all([api('/studio/topics?include_archived=true'),api('/studio/deliveries'),api('/studio/assets')]);setTopics(a.items||[]);setDeliveries(b.items||[]);setAssets(c.items||[]);return b.items||[]};
  useEffect(()=>{void load().catch(e=>setError(msg(e)))},[]);
  useEffect(()=>{const topic=topics.find(x=>x.id===selected);if(topic)setEdit({title:topic.title,angle:topic.angle||'',rationale:topic.rationale||'',next_action:topic.next_action||'create'})},[selected,topics.find(x=>x.id===selected)?.version]);

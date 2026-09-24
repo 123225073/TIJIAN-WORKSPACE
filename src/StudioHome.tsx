@@ -9,7 +9,7 @@ export default function StudioHome({drafts,t}:{drafts:any[];t:any}){
  const [question,setQuestion]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const sessions=(t.list?.('task')||[]).filter((x:any)=>x.mode==='qa');
  const bound=t.state?.bindings?.qa||t.state?.bindings?.writing;
- const ready=!!bound&&!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.verified&&m.published);
+ const ready=!!bound&&!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.published);
  const start=async()=>{const text=question.trim();if(!text||busy||!ready)return;setBusy(true);setError('');try{const task=await api<any>('/tasks/open',{title:text,mode:'qa',source_ids:[]});if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'qa',source_ids:[],reference_scope:task.reference_scope});await t.refresh();location.hash='task/'+task.id}catch(e){setError(e instanceof Error?e.message:'对话未能开始')}finally{setBusy(false)}};
  return <div className="sh-page sh-home-v3">
   <header className="sh-welcome"><span>梯见 · 电梯行业内容工作台</span><h1>从一个问题或想法开始</h1><p>问行业知识、找创作方向、做成内容，再整理为适合公众号、视频号或抖音的交付稿。</p></header>

@@ -1,6 +1,24 @@
 import json,time,threading
+from datetime import datetime, timezone
 from test_workflows import client,account
-from backend import store as s,gateway,jobs
+from backend import store as s,gateway,jobs,synthesis
+
+
+def test_personal_wiki_runs_at_configured_nightly_time_and_can_be_disabled(client, monkeypatch):
+    owner = account(client)['user']['id']
+    assert client.get('/api/synthesis').json()['settings']['time'] == '23:30'
+    calls = []
+    monkeypatch.setattr(synthesis, 'start', lambda user, **kwargs: (calls.append((user, kwargs)) or {'id': 'scheduled-job'}))
+    synthesis.tick(datetime(2026, 9, 24, 15, 29, tzinfo=timezone.utc))
+    assert calls == []
+    synthesis.tick(datetime(2026, 9, 24, 15, 30, tzinfo=timezone.utc))
+    assert calls == [(owner, {'trigger': 'nightly'})]
+    synthesis.tick(datetime(2026, 9, 24, 15, 31, tzinfo=timezone.utc))
+    assert len(calls) == 1
+    saved = client.post('/api/synthesis/settings', json={'auto_wiki': False})
+    assert saved.status_code == 200, saved.text
+    synthesis.tick(datetime(2026, 9, 25, 15, 30, tzinfo=timezone.utc))
+    assert len(calls) == 1
 
 def wait(owner,j):
     for _ in range(150):

@@ -7,7 +7,7 @@ from . import store as s, gateway as g, jobs, library, capabilities
 from .retrieval import chunks
 
 LOCAL_TZ = timezone(timedelta(hours=8))
-DEFAULTS = {'auto_wiki': False, 'auto_memory': False, 'auto_journal': False, 'time': '02:00', 'model_id': '', 'max_calls': 8, 'ai_search': True}
+DEFAULTS = {'auto_wiki': True, 'auto_memory': False, 'auto_journal': False, 'time': '23:30', 'interval_days': 1, 'model_id': '', 'max_calls': 8, 'ai_search': True}
 
 
 def settings(owner):
@@ -179,6 +179,11 @@ def tick(now=None):
         enabled_at = config.get('enabled_at')
         if enabled_at and due < datetime.fromisoformat(enabled_at).astimezone(LOCAL_TZ):
             continue
+        if not enabled_at and not s.config('synthesis_schedule:' + owner, {}) and due.date() < local.date():
+            continue
+        anchor = datetime.fromisoformat(enabled_at).astimezone(LOCAL_TZ).date() if enabled_at else datetime(1970, 1, 1).date()
+        if (anchor - due.date()).days % config['interval_days'] != 0:
+            continue
         key = due.date().isoformat()
         journal_enabled = s.config('journal_enabled:' + owner, '')
         if config['auto_journal'] and (not journal_enabled or due >= datetime.fromisoformat(journal_enabled).astimezone(LOCAL_TZ)):
@@ -263,11 +268,13 @@ def register(app, user):
             raise ValueError('运行时间格式为 HH:MM')
         if type(value['max_calls']) is not int or not 1 <= value['max_calls'] <= 100:
             raise ValueError('每次模型调用上限为1至100')
+        if type(value['interval_days']) is not int or value['interval_days'] not in (1, 3, 7):
+            raise ValueError('整理频率仅支持每天、每3天或每7天')
         if not isinstance(value['model_id'], str):
             raise ValueError('请选择整理模型')
-        if value['model_id'] or value['auto_wiki'] or value['auto_memory'] or value['auto_journal']:
-            g.select(u['id'], 'knowledge', value['model_id'] or None)
-        if (value['auto_wiki'] or value['auto_memory'] or value['auto_journal']) and not (config['auto_wiki'] or config['auto_memory'] or config['auto_journal']):
+        if value['model_id']:
+            g.select(u['id'], 'knowledge', value['model_id'])
+        if (value['auto_wiki'] or value['auto_memory'] or value['auto_journal']) and (not (config['auto_wiki'] or config['auto_memory'] or config['auto_journal']) or value['interval_days'] != config['interval_days'] or value['time'] != config['time']):
             value['enabled_at'] = s.now()
         if value['auto_journal'] and not config['auto_journal']:
             s.set_config('journal_enabled:' + u['id'], s.now())

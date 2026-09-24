@@ -40,7 +40,7 @@ def sizes(model):
 
 def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=None):
     m,p=g.model_record(model)
-    if m['capability']!='image' or (not probe and not (m.get('verified') and m.get('published'))):raise ValueError('请选择已验证上架的生图模型')
+    if m['capability']!='image' or (not probe and not (m.get('published') and p.get('published',True))):raise ValueError('请选择已上架的生图模型及平台')
     if size not in sizes(model):raise ValueError('图片尺寸无效')
     if quality not in (None,'auto','low','medium','high'):raise ValueError('图片质量无效')
     if reference:image_uri(reference)
@@ -96,7 +96,7 @@ def register(app,user,error):
         if not prompt or len(prompt)>4000:error(400,'请填写4000字以内的画面要求')
         if any(j.get('input',{}).get('content_id')==id and j.get('status') in ['queued','running'] for j in s.list_(owner,'job')):error(409,'此文章正在生成图片，请等待完成')
         model=str(data.get('model_id',''));m,p=g.model_record(model)
-        if m['capability']!='image' or not (m.get('verified') and m.get('published')):error(400,'请选择已验证上架的生图模型')
+        if m['capability']!='image' or not (m.get('published') and p.get('published',True)):error(400,'请选择已上架的生图模型及平台')
         def run(progress,event):
             progress('正在生成配图，完成后请预览并选择插入位置')
             uri=generate(model,'为文章制作一张配图。避免生成难以辨认的文字，不伪造实地照片或招标原件。文章主题：'+obj.get('title','')+'\n用户画面要求：'+prompt,data.get('size','1024x1024'))

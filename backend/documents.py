@@ -4,7 +4,7 @@ from pathlib import Path
 
 def extract(filename,raw):
     suffix=Path(filename).suffix.lower()
-    if len(raw)>10_000_000:raise ValueError('资料导入上限10MB')
+    if len(raw)>20_000_000:raise ValueError('单个资料上限20MB')
     if suffix=='.pdf':
         from pypdf import PdfReader
         try:
@@ -25,10 +25,27 @@ def extract(filename,raw):
             text='\n'.join([p.text for p in doc.paragraphs]+[' | '.join(c.text for c in row.cells) for table in doc.tables for row in table.rows])
         except ValueError:raise
         except Exception:raise ValueError('Word文档无法读取，请另存为DOCX后导入')
+    elif suffix=='.xlsx':
+        from openpyxl import load_workbook
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                if sum(x.file_size for x in z.infolist())>60_000_000:raise ValueError('表格展开后超过60MB，请拆分后导入')
+            book=load_workbook(io.BytesIO(raw),read_only=True,data_only=True)
+            lines=[]
+            for sheet in book.worksheets[:30]:
+                lines.append('【工作表：'+sheet.title+'】')
+                for row in sheet.iter_rows(max_row=10000,max_col=100,values_only=True):
+                    value=' | '.join('' if cell is None else str(cell)[:1000] for cell in row).strip(' |')
+                    if value:lines.append(value)
+                    if sum(map(len,lines))>500_000:raise ValueError('提取文字超过50万字符，请拆分资料')
+            book.close()
+            text='\n'.join(lines)
+        except ValueError:raise
+        except Exception:raise ValueError('Excel无法读取，请另存为XLSX后导入')
     elif suffix in ['.md','.txt','.srt','.vtt','.csv']:
         try:text=raw.decode('utf-8-sig')
         except UnicodeDecodeError:raise ValueError('请将文稿保存为UTF-8编码')
-    else:raise ValueError('支持PDF、DOCX、Markdown、文本、字幕或CSV')
+    else:raise ValueError('支持PDF、DOCX、XLSX、Markdown、文本、字幕或CSV')
     if len(text)>500_000:raise ValueError('提取文字超过50万字符，请拆分资料')
     if not text.strip():raise ValueError('文件未包含可读取正文')
     return text

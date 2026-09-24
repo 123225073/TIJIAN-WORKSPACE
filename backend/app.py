@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
-from . import store as s, gateway as g, jobs, upstream, network, resources, maintenance, wechat, weread, library, synthesis
+from . import store as s, gateway as g, jobs, upstream, network, resources, maintenance, wechat, weread, library, synthesis, system_library
 
 def error(status,msg):raise HTTPException(status,msg)
 
@@ -25,7 +25,7 @@ async def watcher():
 
 @asynccontextmanager
 async def lifespan(app):
-    s.init();jobs.recover();media_studio.recover();task=asyncio.create_task(watcher())
+    s.init();system_library.migrate_legacy();jobs.recover();media_studio.recover();task=asyncio.create_task(watcher())
     async def subscriptions():
         while True:
             await asyncio.sleep(30)
@@ -34,6 +34,7 @@ async def lifespan(app):
         while True:
             await asyncio.sleep(30)
             await asyncio.to_thread(synthesis.tick)
+            await asyncio.to_thread(system_library.nightly_tick)
     subscription_task=asyncio.create_task(subscriptions())
     knowledge_task=asyncio.create_task(knowledge_schedule())
     yield
@@ -70,6 +71,7 @@ from . import douyin
 douyin.register(app,user,error)
 library.register(app,user)
 synthesis.register(app,user)
+system_library.register(app,admin)
 
 class Auth(BaseModel):
     email:str=Field(min_length=3,max_length=200)
@@ -83,7 +85,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.19.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.20.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -131,7 +133,8 @@ def state(u=Depends(user)):
     catalogue={x['id']:x for x in data}
     data=[{**x,'freshness_warning':library.freshness(x,catalogue)} if x['kind'] in ['knowledge','memory'] else x for x in data]
     names={p['id']:p['title'] for p in g.public_providers()}
-    return {'user':u,'objects':data,'workspace':s.config('workspace:'+u['id']),'settings':s.config('settings:'+u['id'],{'auto_memory':False,'retention':0}),'preferences':s.config('prefs:'+u['id'],{}),'models':[{**m,'provider_title':names.get(m['provider'],'')} for m in s.config('models',[]) if m['verified'] and m['published']],'skills':upstream.catalogue(),'bindings':s.config('bindings',{})}
+    active_providers={p['id'] for p in g.providers() if p.get('published',True)}
+    return {'user':u,'objects':data,'workspace':s.config('workspace:'+u['id']),'settings':s.config('settings:'+u['id'],{'auto_memory':False,'retention':0}),'preferences':s.config('prefs:'+u['id'],{}),'models':[{**m,'provider_title':names.get(m['provider'],'')} for m in s.config('models',[]) if m['published'] and m['provider'] in active_providers],'skills':upstream.catalogue(),'bindings':s.config('bindings',{})}
 
 @app.post('/api/workspace')
 def workspace(data:dict,u=Depends(user)):
@@ -234,9 +237,39 @@ def maybe_extract(owner,id):
 @app.post('/api/import/file')
 async def import_file(file:UploadFile=File(...),u=Depends(user)):
     from .documents import extract
-    raw=await file.read(10_000_001)
+    import hashlib
+    raw=await file.read(20_000_001)
+    quota=int(s.config('knowledge_quota:'+u['id'],100_000_000))
+    used=sum(int(x.get('original_size') or 0) for x in s.list_(u['id'],'source'))
+    if used+len(raw)>quota:error(413,'个人知识库容量不足；当前上限'+str(quota//1_000_000)+'MB，可联系管理员扩容')
     body=await asyncio.to_thread(extract,file.filename or '',raw)
-    return import_text({'title':file.filename,'body':body},u)
+    name=Path(file.filename or '').name
+    if not name or len(name)>180:error(400,'文件名无效或过长')
+    id=s.uid()
+    original=s.DATA/'personal-library'/u['id']/id/name
+    original.parent.mkdir(parents=True,exist_ok=True)
+    original.write_bytes(raw)
+    try:
+        obj=s.export_object(u['id'],s.put(u['id'],'source',{'title':name,'body':body,'source_type':'用户上传','status':'ready','original_size':len(raw),'original_sha256':hashlib.sha256(raw).hexdigest(),'original_name':name,'body_saved_at':s.now()} ,id))
+    except Exception:
+        original.unlink(missing_ok=True)
+        raise
+    return obj
+
+@app.get('/api/knowledge/quota')
+def knowledge_quota(u=Depends(user)):
+    return {'limit':int(s.config('knowledge_quota:'+u['id'],100_000_000)),
+            'used':sum(int(x.get('original_size') or 0) for x in s.list_(u['id'],'source'))}
+
+@app.get('/api/knowledge/original/{id}')
+def personal_original(id:str,u=Depends(user)):
+    import hashlib
+    obj=s.get(u['id'],id)
+    if obj['kind']!='source' or not obj.get('original_name'):error(404,'原始文件不存在')
+    path=(s.DATA/'personal-library'/u['id']/id/obj['original_name']).resolve()
+    if not path.is_relative_to((s.DATA/'personal-library'/u['id']).resolve()) or not path.is_file():error(404,'原始文件缺失')
+    if hashlib.sha256(path.read_bytes()).hexdigest()!=obj['original_sha256']:error(409,'原始文件校验失败')
+    return FileResponse(path,filename=obj['original_name'])
 
 @app.post('/api/import/url')
 def import_url(data:dict,u=Depends(user)):
@@ -476,7 +509,8 @@ async def import_backup(file:UploadFile=File(...),u=Depends(user)):
 @app.get('/api/admin/state')
 def admin_state(u=Depends(admin)):
     with s.conn() as c:logs=[dict(r) for r in c.execute('SELECT * FROM audit ORDER BY created DESC LIMIT 100')]
-    return {'providers':g.public_providers(),'models':s.config('models',[]),'bindings':s.config('bindings',{}),'users':s.all_users(),'audit':logs,'resources':upstream.catalogue(),'editorial':resources.list_()}
+    users=[{**x,'knowledge_quota_mb':int(s.config('knowledge_quota:'+x['id'],100_000_000))//1_000_000} for x in s.all_users()]
+    return {'providers':g.public_providers(),'models':s.config('models',[]),'bindings':s.config('bindings',{}),'users':users,'audit':logs,'resources':upstream.catalogue(),'editorial':resources.list_()}
 
 @app.post('/api/admin/resources')
 def resource_save(data:dict,u=Depends(admin)):
@@ -490,6 +524,11 @@ def provider(data:dict,u=Depends(admin)):
 def discover(id:str,u=Depends(admin)):
     result=g.discover(id);s.audit(u['id'],'discover_models',id);return result
 
+@app.patch('/api/admin/providers/{id}')
+def provider_status(id:str,data:dict,u=Depends(admin)):
+    if set(data)!={'published'}:error(400,'只能更改上架状态')
+    result=g.set_provider_published(id,data['published']);s.audit(u['id'],'provider_status',id);return result
+
 @app.post('/api/admin/models/{id}/verify')
 def verify(id:str,u=Depends(admin)):
     return jobs.start(u['id'],'验证模型能力',lambda progress,event:g.verify(id),{'action':'probe','model_id':id})
@@ -498,7 +537,11 @@ def verify(id:str,u=Depends(admin)):
 def model(id:str,data:dict,u=Depends(admin)):
     models=s.config('models',[]);m=next((x for x in models if x['id']==id),None)
     if not m:error(404,'模型不存在')
-    if data.get('published') and not m['verified']:error(409,'请先实际验证模型')
+    if set(data)-{'title','published'}:error(400,'模型字段不受支持')
+    if 'published' in data and type(data['published']) is not bool:error(400,'上架状态无效')
+    if data.get('published'):
+        p=next((x for x in g.providers() if x['id']==m['provider']),None)
+        if not p or not p.get('published',True):error(409,'请先上架服务平台')
     for key in ['title','published']:
         if key in data:m[key]=data[key]
     s.set_config('models',models);s.audit(u['id'],'update_model',id);return m
@@ -518,6 +561,15 @@ def manage_user(id:str,data:dict,u=Depends(admin)):
         c.execute('UPDATE users SET active=? WHERE id=?',(1 if data.get('active') else 0,id))
         if not data.get('active'):c.execute('DELETE FROM sessions WHERE user_id=?',(id,))
     s.audit(u['id'],'update_user',id);return {'ok':True}
+
+@app.patch('/api/admin/users/{id}/knowledge-quota')
+def set_knowledge_quota(id:str,data:dict,u=Depends(admin)):
+    if id not in {x['id'] for x in s.all_users()}:error(404,'用户不存在')
+    value=data.get('limit_mb')
+    if type(value) is not int or not 100<=value<=10240:error(400,'知识库容量须在100至10240MB之间')
+    s.set_config('knowledge_quota:'+id,value*1_000_000)
+    s.audit(u['id'],'knowledge_quota',id)
+    return {'user_id':id,'limit':value*1_000_000}
 
 @app.post('/api/admin/users')
 def create_user(data:Auth,u=Depends(admin)):

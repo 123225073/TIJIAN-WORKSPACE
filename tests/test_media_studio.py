@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from backend import gateway as g, media_studio as m, store as s
+from backend import gateway as g, media_studio as m, media_registry, store as s
 
 
 class ImmediatePool:
@@ -82,6 +82,75 @@ def submit(client, d, request_id='test-request'):
 def resource(kind, service, owner='alice'):
     return s.put(owner, 'studio_asset', {'title': '资源', 'asset_type': kind, 'status': 'ready', 'provider': 'hifly',
                  'provider_resource_id': kind + '-provider-id', 'compat': m.COMPAT[kind], 'service_scope': m._scope('hifly', service)})
+
+
+def test_seedance_reference_limits_and_draft_round_trip(studio):
+    images = [asset(studio)['id'] for _ in range(10)]
+    body = {'tool': 'image_video', 'title': '多参考视频', 'model_id': 'media:segmind-seedance-20',
+            'input': {'prompt': '电梯门开启，保持产品外观', 'image_id': images[0], 'image_ids': images[:9]}, 'options': {}}
+    saved = studio.post('/api/studio/drafts', json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['input']['image_ids'] == images[:9]
+    assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'image_ids': images}}).status_code == 400
+    assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'image_ids': [images[0], images[0]]}}).status_code == 400
+    assert studio.post('/api/studio/drafts', json={**body, 'model_id': 'media:segmind-seedance-25', 'input': {**body['input'], 'image_ids': images}}).status_code == 200
+    assert studio.post('/api/studio/drafts', headers={'authorization': 'Bearer bob'}, json=body).status_code == 404
+
+
+def test_wavespeed_seedance_and_gpt_image_submit_poll_and_archive(studio, monkeypatch):
+    first, second = asset(studio), asset(studio)
+    calls = []
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        if url.endswith('/media/uploads'):
+            return {'code': 200, 'data': {'upload': {'method': 'PUT', 'url': 'https://public-storage.example/upload', 'headers': {'Content-Type': 'image/png'}}, 'download_url': 'https://public-storage.example/reference.png'}}
+        if method == 'PUT':return {}
+        if '/predictions/' in url:
+            return {'code': 200, 'data': {'status': 'completed', 'outputs': ['https://public-storage.example/result.png']}}
+        return {'code': 200, 'data': {'id': 'prediction-123', 'status': 'created'}}
+    def fake_download(owner, id, url, kind):
+        path=m._path(owner,id+'.png');path.write_bytes(png())
+        return path.name,m._metadata(path,'.png')
+    monkeypatch.setattr(m,'_request',fake_request)
+    monkeypatch.setattr(m,'_download',fake_download)
+    media_registry.save_provider({'id':'wavespeed','api_key':'private-test-key'})
+    s.set_config('bindings',{'image_edit':'media:wavespeed-gpt-image-25-flare-edit','text_video':'media:wavespeed-seedance-25'})
+    catalogue=studio.get('/api/studio/catalog').json()['tools']
+    assert next(x for x in catalogue if x['id']=='image_edit')['configured']
+    assert next(x for x in catalogue if x['id']=='text_video')['configured']
+    edit=studio.post('/api/studio/drafts',json={'tool':'image_edit','title':'编辑','model_id':'media:wavespeed-gpt-image-25-flare-edit','input':{'prompt':'保留电梯外观','image_id':first['id'],'image_ids':[first['id'],second['id']]},'options':{'quality':'medium'}})
+    assert edit.status_code==200,edit.text
+    result=submit(studio,edit.json(),'wavespeed-edit')
+    assert result.status_code==200,result.text
+    assert result.json()['status']=='running'
+    post=next(x for x in calls if x[0]=='POST' and x[1].endswith('/gpt-image-2.5-flare/edit'))
+    assert post[2]['payload']['images']==['https://public-storage.example/reference.png']*2
+    assert len([x for x in calls if x[0]=='PUT'])==2
+    assert all('Authorization' not in x[2].get('headers',{}) for x in calls if x[0]=='PUT')
+    media_registry.save_provider({'id':'wavespeed','published':False})
+    refreshed=studio.post('/api/studio/runs/'+result.json()['id']+'/refresh')
+    assert refreshed.status_code==200,refreshed.text
+    assert refreshed.json()['status']=='succeeded' and len(refreshed.json()['asset_ids'])==1
+    blocked=studio.post('/api/studio/drafts',json={'tool':'text_video','model_id':'media:wavespeed-seedance-25','title':'视频','input':{'prompt':'电梯开门','image_ids':[first['id'],second['id']]},'options':{}})
+    assert blocked.status_code==200,blocked.text
+    assert submit(studio,blocked.json(),'wavespeed-blocked').status_code==400
+    assert len([x for x in calls if x[0]=='POST' and x[1].endswith('/seedance-2.5/text-to-video')])==0
+    media_registry.save_provider({'id':'wavespeed','published':True})
+    video=submit(studio,blocked.json(),'wavespeed-video')
+    assert video.status_code==200,video.text
+    request=next(x for x in calls if x[0]=='POST' and x[1].endswith('/seedance-2.5/text-to-video'))
+    assert len(request[2]['payload']['reference_images'])==2
+    assert request[2]['payload']['prompt']=='电梯开门'
+
+
+def test_infinitetalk_requires_photo_and_audio_instead_of_saved_avatar(studio):
+    picture = asset(studio)
+    body = {'tool': 'audio_avatar', 'title': '照片驱动口播', 'model_id': 'media:wavespeed-infinitetalk',
+            'input': {'image_id': picture['id']}, 'options': {}}
+    saved = studio.post('/api/studio/drafts', json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['input']['image_id'] == picture['id']
+    assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'avatar_id': 'unknown'}}).status_code == 400
 
 
 def test_registration_and_admin_secret_encryption(studio):

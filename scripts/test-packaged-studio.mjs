@@ -16,7 +16,7 @@ with sqlite3.connect(dest/'workbench.sqlite') as db:
     counts=dict(db.execute('SELECT kind,count(*) FROM objects GROUP BY kind'))
 print(json.dumps({'token':token,'before':before,'counts':counts}))
 `;
-const setup=spawnSync(path.join(root,'.runtime','venv','Scripts','python.exe'),['-c',dbSetup],{windowsHide:true,encoding:'utf8',env:{...process.env,TEST_DATA:dir}});if(setup.status!==0)throw Error('Could not prepare isolated upgrade fixture');
+const setup=spawnSync(path.join(root,'.runtime','venv','Scripts','python.exe'),['-c',dbSetup],{windowsHide:true,encoding:'utf8',env:{...process.env,TEST_DATA:dir}});if(setup.status!==0)throw Error('Could not prepare isolated upgrade fixture: '+setup.stderr);
 const fixture=JSON.parse(setup.stdout);
 const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));const base='http://127.0.0.1:'+port;
 let child;

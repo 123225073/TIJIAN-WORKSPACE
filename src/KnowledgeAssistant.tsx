@@ -15,7 +15,7 @@ export default function KnowledgeAssistant({t}:{t:any}){
   const [error,setError]=useState('');
   const sessions=(t.list?.('task')||[]).filter((x:any)=>x.mode==='qa');
   const bound=t.state?.bindings?.qa||t.state?.bindings?.writing;
-  const ready=!!bound&&!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.verified&&m.published);
+  const ready=!!bound&&!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.published);
   const start=async()=>{
     if(!question.trim()||busy||!ready)return;
     setBusy(true);setError('');

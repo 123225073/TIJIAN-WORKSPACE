@@ -17,7 +17,7 @@ def public_providers():
     from urllib.parse import urlsplit
     matches=[p for p in values if urlsplit(p.get('base_url','')).hostname=='api.deepseek.com']
     if not matches:
-        matches=[{'id':'preset-deepseek','title':'DeepSeek','base_url':'https://api.deepseek.com','protocol':'chat','has_key':False,'preset':True}];values+=matches
+        matches=[{'id':'preset-deepseek','title':'DeepSeek','base_url':'https://api.deepseek.com','protocol':'chat','has_key':False,'preset':True,'published':False}];values+=matches
     for p in matches:p.update(api_key_url='https://platform.deepseek.com/api_keys',docs_url='https://api-docs.deepseek.com/')
     return values
 def save_provider(data):
@@ -25,7 +25,9 @@ def save_provider(data):
     url=data['base_url'].strip().rstrip('/')
     if not url.startswith('https://'):raise ValueError('模型凭据只通过HTTPS连接发送')
     public_url(url)
-    p={'id':old['id'] if old else s.uid(),'title':data.get('title','模型服务'),'base_url':url,'protocol':data.get('protocol','chat'),'status':'configured','secret':old.get('secret','') if old else ''}
+    published=data.get('published',old.get('published',True) if old else True)
+    if type(published) is not bool:raise ValueError('平台上架状态无效')
+    p={'id':old['id'] if old else s.uid(),'title':data.get('title','模型服务'),'base_url':url,'protocol':data.get('protocol','chat'),'status':'configured','secret':old.get('secret','') if old else '','published':published}
     if data.get('api_key'):p['secret']=cipher().encrypt(data['api_key'].encode()).decode()
     if not p['secret']:raise ValueError('请输入API密钥')
     values=[x for x in values if x['id']!=p['id']]+[p];s.set_config('providers',values)
@@ -35,6 +37,15 @@ def save_provider(data):
             if m['provider']==p['id']:m.update(verified=False,published=False)
         s.set_config('models',models)
     return p['id']
+
+def set_provider_published(id,published):
+    if type(published) is not bool:raise ValueError('平台上架状态无效')
+    values=providers()
+    item=next((x for x in values if x['id']==id),None)
+    if not item:raise ValueError('模型服务不存在')
+    item['published']=published
+    s.set_config('providers',values)
+    return {'id':id,'published':published}
 
 def endpoint(p,path):
     root=p['base_url'];return root+('/' if root.endswith('/v1') else '/v1/')+path
@@ -67,7 +78,7 @@ def model_record(id):
 def generate(id,messages,probe=False):
     from . import streaming
     m,p=model_record(id)
-    if not probe and (not m['verified'] or not m['published']):raise ValueError('模型尚未验证上架')
+    if not probe and (not m['published'] or not p.get('published',True)):raise ValueError('模型或平台已下架')
     path='responses' if p['protocol']=='responses' else 'chat/completions'
     payload={'model':m['model'],'stream':True,('input' if path=='responses' else 'messages'):messages}
     target,host,extensions=public_target(endpoint(p,path))
@@ -126,9 +137,9 @@ def select(owner,purpose,override=None):
     bindings=s.config('bindings',{})
     prefs=s.config('prefs:'+owner,{})
     id=override or prefs.get(purpose) or bindings.get(purpose) or bindings.get('writing')
-    if not id:raise ValueError('尚未绑定可用模型，请在管理后台配置并验证模型')
+    if not id:raise ValueError('尚未绑定可用模型，请在管理后台配置并上架模型')
     m,p=model_record(id)
-    if not m['verified'] or not m['published'] or m['capability']!='text':raise ValueError('所选模型不可用，请重新选择已验证的文本模型')
+    if not m['published'] or not p.get('published',True) or m['capability']!='text':raise ValueError('所选模型或平台不可用，请重新选择已上架文本模型')
     return id
 
 def json_result(text):

@@ -60,8 +60,8 @@ TOOLS = {
     'compose': ('素材成片', 'shotstack', 'video', ['scenes']),
 }
 COMPAT = {
-    'image': ['text_image', 'photo_talk', 'avatar_create', 'image_edit', 'image_video', 'compose'],
-    'video': ['avatar_create', 'compose'], 'audio': ['audio_avatar', 'voice_create', 'compose'],
+    'image': ['text_image', 'photo_talk', 'avatar_create', 'image_edit', 'text_video', 'image_video', 'audio_avatar', 'compose'],
+    'video': ['avatar_create', 'text_video', 'image_video', 'compose'], 'audio': ['audio_avatar', 'voice_create', 'text_video', 'image_video', 'compose'],
     'avatar': ['text_avatar', 'audio_avatar'], 'voice': ['text_avatar', 'photo_talk', 'tts'],
 }
 EXTENSIONS = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -171,7 +171,7 @@ def validate_binding(tool, value):
     if value == 'service:' + TOOLS[tool][1]:return
     if tool not in ('text_image','image_edit'):raise ValueError('此功能需要绑定对应媒体 API，不能绑定文本或图片模型')
     m,p=g.model_record(value)
-    if m['capability']!='image' or not(m.get('verified') and m.get('published')):raise ValueError('请选择已验证、已上架的图片模型')
+    if m['capability']!='image' or not(m.get('published') and p.get('published',True)):raise ValueError('请选择已上架的图片模型及平台')
 
 
 def selection(tool, model_id=None):
@@ -182,12 +182,15 @@ def selection(tool, model_id=None):
 
 def bound_image(tool, model_id=None):
     value=selection(tool,model_id)
-    return value if tool in ('text_image','image_edit') and not value.startswith('service:') else None
+    return value if tool in ('text_image','image_edit') and not value.startswith(('service:', 'media:')) else None
 
 
-def tool_options(tool, model_id=None):
-    if tool in media_registry.VIDEO_TOOLS:
-        return {}
+def tool_options(tool, model_id=None, *, active=True):
+    selected=selection(tool,model_id)
+    if selected.startswith('media:'):
+        model,_=media_registry.choice(tool,selected[6:],active=active)
+        return media_registry.options(model) if media_registry.adapter_ready(model) else {}
+    if tool in media_registry.VIDEO_TOOLS:return {}
     mid=bound_image(tool,model_id)
     if mid:
         from .illustrations import sizes
@@ -199,10 +202,12 @@ def model_choices(tool):
     if tool in media_registry.VIDEO_TOOLS:
         return media_registry.choices(tool)
     result=[{'id':'service:'+TOOLS[tool][1],'title':MODELS.get(tool,TOOLS[tool][0]),'options':OPTIONS[tool], 'configured':bool(s.config(CONFIG,{}).get(TOOLS[tool][1],{}).get('secret')) and s.config(CONFIG,{}).get(TOOLS[tool][1],{}).get('enabled',True)}]
-    if tool in media_registry.DIGITAL_TOOLS:result += media_registry.choices(tool)
+    if tool in media_registry.DIGITAL_TOOLS | media_registry.IMAGE_TOOLS:result += media_registry.choices(tool)
     if tool in ('text_image','image_edit'):
         for m in s.config('models',[]):
-            if m.get('capability')=='image' and m.get('verified') and m.get('published'):
+            try: _, p = g.model_record(m['id'])
+            except ValueError: continue
+            if m.get('capability')=='image' and m.get('published') and p.get('published',True):
                 result.append({'id':m['id'],'title':m['title'],'options':tool_options(tool,m['id']),'configured':True})
     return result
 
@@ -411,18 +416,33 @@ def _validate(owner, data, complete=False):
         raise StudioError('不支持此创作工具')
     _text(data.get('title', ''), '标题', 200, True)
     inputs, options = data.get('input', {}), data.get('options', {})
-    chosen=data.get('model_id')
+    chosen=data.get('model_id') or (selection(tool) if tool in media_registry.VIDEO_TOOLS else '')
     if chosen is not None and not isinstance(chosen,str):raise StudioError('模型编号无效')
     if chosen:
         if chosen.startswith('media:'):
             media_registry.choice(tool,chosen[6:],active=complete)
         else:validate_binding(tool,chosen)
     allowed = set(TOOLS[tool][3])
+    required = list(TOOLS[tool][3])
+    if tool == 'audio_avatar' and chosen.startswith('media:'):
+        model, _ = media_registry.choice(tool, chosen[6:], active=complete)
+        if model['family'] == 'infinitetalk':
+            allowed = {'audio_id', 'image_id'}
+            required = ['audio_id', 'image_id']
+    limits = {}
+    if tool in media_registry.VIDEO_TOOLS and chosen and chosen.startswith('media:'):
+        model, _ = media_registry.choice(tool, chosen[6:], active=complete)
+        limits = media_registry.REFERENCE_LIMITS.get(model['family'], {})
+        allowed.update({'image_ids', 'video_ids', 'audio_ids'})
     if tool=='text_image' and bound_image(tool,chosen):allowed.add('image_id')
+    if tool=='image_edit' and chosen.startswith('media:'):
+        allowed.add('image_ids')
+        model,_=media_registry.choice(tool,chosen[6:],active=complete)
+        limits=media_registry.REFERENCE_LIMITS.get(model['family'],{})
     if tool == 'avatar_create':
         allowed = {'image_id', 'video_id'}
     _strict(inputs, allowed)
-    choices=tool_options(tool,chosen)
+    choices=tool_options(tool,chosen,active=complete)
     _strict(options, choices)
     for key, value in options.items():
         if not any(type(value) is type(choice) and value == choice for choice in choices[key]):
@@ -451,6 +471,23 @@ def _validate(owner, data, complete=False):
             _text(value, key, 10000 if key == 'text' else 1500, not complete)
             if key == 'text' and re.search(r'<[^>]+>', value):
                 raise StudioError('口播文本不支持HTML标签')
+    for kind in ('image', 'video', 'audio'):
+        key = kind + '_ids'
+        if key not in inputs:
+            continue
+        ids = inputs[key]
+        if not isinstance(ids, list) or len(ids) > limits.get(kind, 0) or len(ids) != len(set(map(str, ids))):
+            raise StudioError('参考素材数量超过当前模型支持范围：' + kind)
+        for id in ids:
+            _asset(owner, _text(id, '参考素材ID', 128), kind, tool)
+        if complete and kind in ('video','audio') and limits.get('duration'):
+            durations=[_asset(owner,id,kind,tool).get('duration') for id in ids]
+            if any(not d for d in durations) or sum(durations)>limits['duration']:
+                raise StudioError('参考素材总时长超过模型限制，或素材时长尚未验证：'+kind)
+    if limits.get('image') and inputs.get('image_id') and len(set([inputs['image_id'],*(inputs.get('image_ids') or [])]))>limits['image']:
+        raise StudioError('主图与参考图合计超过当前模型上限')
+    if inputs.get('image_ids') and inputs.get('image_id') and inputs['image_id'] != inputs['image_ids'][0]:
+        raise StudioError('首张参考图与主图不一致')
     scenes = inputs.get('scenes', [])
     if not isinstance(scenes, list) or len(scenes) > 50:
         raise StudioError('场景必须是最多50项的列表')
@@ -477,7 +514,7 @@ def _validate(owner, data, complete=False):
             if complete and (not audio.get('duration') or length > audio['duration'] + .05):
                 raise StudioError('配音可用时长不足或尚未验证；请缩短场景或补充配音')
     if complete:
-        if any(not inputs.get(key) for key in TOOLS[tool][3]):
+        if any(not inputs.get(key) for key in required):
             raise StudioError('请填写当前工具全部必填输入')
         if tool == 'avatar_create' and bool(inputs.get('image_id')) == bool(inputs.get('video_id')):
             raise StudioError('创建形象需要且只能选择一张照片或一段视频')
@@ -622,6 +659,67 @@ def _update(owner, id, **values):
         return s.put(owner, 'studio_run', {**item, **values}, id, expected=item['version'])
 
 
+def _wavespeed_service(model_id, tool, *, active=True):
+    model, provider = media_registry.choice(tool, model_id[6:],active=active)
+    if not media_registry.adapter_ready(model):
+        raise StudioError('此中转模型尚未适配接口，不能提交付费任务')
+    if not provider.get('secret'):
+        raise StudioError('中转平台尚未配置 API Key，请联系管理员')
+    return model, provider
+
+
+def _wavespeed_api(service, method, path, payload=None):
+    # The key never leaves the server and is attached only to the configured API root.
+    base=media_registry._url(service['base_url'])
+    key=g.cipher().decrypt(service['secret'].encode()).decode()
+    value=_request(method,base+path,headers={'Authorization':'Bearer '+key},payload=payload)
+    if value.get('code') not in (None,200):
+        raise Rejected('中转平台拒绝请求；请检查密钥、账户余额或模型参数')
+    if not isinstance(value.get('data'),dict):
+        raise StudioError('中转平台未返回有效任务数据；请核查原任务')
+    return value['data']
+
+
+def _wavespeed_upload(owner, asset_id, kind, tool, service):
+    asset=_asset(owner,asset_id,kind,tool)
+    path=_path(owner,asset['local_file'])
+    if path.stat().st_size>200*1024*1024:
+        raise StudioError('中转平台单个参考素材不能超过200MB')
+    mime=asset['mime_type']
+    ticket=_wavespeed_api(service,'POST','/api/v3/media/uploads',{'filename':path.name,'size':path.stat().st_size,'content_type':mime})
+    upload=ticket.get('upload')
+    if not isinstance(upload,dict) or upload.get('method')!='PUT' or not isinstance(upload.get('headers'),dict):
+        raise StudioError('中转平台未返回有效素材上传凭证')
+    target=upload.get('url')
+    if not isinstance(target,str) or urlsplit(target).scheme!='https':
+        raise StudioError('中转平台素材上传地址无效')
+    headers=upload['headers']
+    if any(not isinstance(k,str) or not isinstance(v,str) or k.lower() in ('authorization','host','cookie') or len(k)>100 or len(v)>2000 for k,v in headers.items()):
+        raise StudioError('中转平台素材上传头无效')
+    # The signed storage URL is an opaque credential. Never persist or log it.
+    _request('PUT',target,headers=headers,content=path.read_bytes())
+    url=ticket.get('download_url')
+    if not isinstance(url,str) or urlsplit(url).scheme!='https':
+        raise StudioError('中转平台未返回可用的参考素材地址')
+    network.public_url(url)
+    return url
+
+
+def _wavespeed_payload(owner, run, model, service):
+    snapshot=run['snapshot'];tool=snapshot['tool'];inputs=snapshot['input'];opts=snapshot['options']
+    payload={'prompt':inputs['prompt'],**opts}
+    if tool in media_registry.VIDEO_TOOLS:
+        for kind in ('image','video','audio'):
+            ids=list(inputs.get(kind+'_ids') or [])
+            if kind=='image' and inputs.get('image_id') and inputs['image_id'] not in ids:ids.insert(0,inputs['image_id'])
+            if ids:payload['reference_'+kind+'s']=[_wavespeed_upload(owner,id,kind,tool,service) for id in ids]
+    elif tool=='image_edit':
+        ids=list(inputs.get('image_ids') or [])
+        if inputs['image_id'] not in ids:ids.insert(0,inputs['image_id'])
+        payload['images']=[_wavespeed_upload(owner,id,'image',tool,service) for id in ids]
+    return payload
+
+
 def generate(owner, data):
     _strict(data, ['draft_id', 'version', 'confirmed', 'request_id'])
     if data.get('confirmed') is not True:
@@ -646,19 +744,22 @@ def generate(owner, data):
         clean = {k: v for k, v in draft.items() if k in {'tool', 'title', 'input', 'options', 'model_id', 'brand_id', 'profile_id', 'source_ids'}}
         clean['model_id']=selection(draft['tool'],draft.get('model_id'))
         _validate(owner, clean, complete=True)
-        if draft['tool'] in media_registry.VIDEO_TOOLS or clean['model_id'].startswith('media:'):
-            raise StudioError('此模型的中转接口尚未接入，已保存草稿；未上传素材、未提交付费生成')
         provider = TOOLS[draft['tool']][1]
         bindings=s.config('bindings',{})
         if draft['tool'] in bindings and not bindings[draft['tool']]:raise StudioError('此功能已停用，请联系管理员绑定服务')
         image_model=bound_image(draft['tool'],draft.get('model_id'))
-        if image_model:
+        media_model=clean['model_id'] if clean['model_id'].startswith('media:') else None
+        if media_model:
+            _,service=_wavespeed_service(media_model,draft['tool']);provider='wavespeed'
+        elif draft['tool'] in media_registry.VIDEO_TOOLS:
+            raise StudioError('请先选择已接入的 Seedance 中转模型')
+        elif image_model:
             validate_binding(draft['tool'],image_model)
             m,service=g.model_record(image_model);provider='images'
         else:service = _service(provider)
         record = {'title': draft['title'], 'tool': draft['tool'], 'provider': provider, 'draft_id': draft['id'],
                   'draft_version': draft['version'], 'snapshot': clean, 'request_id': request_id, 'status': 'queued',
-                  'confirmed_at': s.now(), 'service_scope': _scope(provider, service), 'model_id':image_model, 'task_id': None, 'asset_ids': [], 'created': s.now()}
+                  'confirmed_at': s.now(), 'service_scope': _scope(provider, service), 'model_id':media_model or image_model, 'task_id': None, 'asset_ids': [], 'created': s.now()}
         with s.conn() as c:
             c.execute('BEGIN IMMEDIATE')
             row = c.execute('SELECT * FROM objects WHERE id=?', (id,)).fetchone()
@@ -696,6 +797,16 @@ def _claim(owner, id):
 def _poll(run, service):
     task = quote(_text(run.get('task_id'), '供应商任务ID', 500), safe='')
     provider = run['provider']
+    if provider == 'wavespeed':
+        value=_wavespeed_api(service,'GET','/api/v3/predictions/'+task+'/result')
+        status=value.get('status')
+        if status=='completed':
+            outputs=value.get('outputs')
+            if not isinstance(outputs,list) or not outputs or any(not isinstance(url,str) or not url.startswith('https://') for url in outputs):
+                return 'unknown',{}
+            return 'succeeded',{'urls':outputs,'asset_type':TOOLS[run['tool']][2]}
+        if status in ('failed','cancelled','timeout','deleted'):return 'failed',{}
+        return ('running' if status in ('created','pending','processing','running','queued') else 'unknown'),{}
     if provider == 'hifly':
         resource = 'avatar' if run['tool'] == 'avatar_create' else 'voice' if run['tool'] == 'voice_create' else 'video'
         value = _api(provider, 'GET', f'/api/v2/hifly/{resource}/task?task_id={task}', service=service)
@@ -830,7 +941,9 @@ def _work(owner, id):
             run=_update(owner,id,result={'asset_type':'image','data_uri':uri},status='archive_failed')
             _archive(owner,run)
             return
-        service = _service(run['provider'])
+        if run['provider']=='wavespeed':
+            model,service=_wavespeed_service(run['model_id'],run['tool'],active=bool(not run.get('task_id') and not run.get('result')))
+        else:service = _service(run['provider'])
         if _scope(run['provider'], service) != run['service_scope']:
             raise StudioError('服务账号或地域已变更，请恢复原配置后刷新；不重复提交')
         if run.get('task_id'):
@@ -848,17 +961,20 @@ def _work(owner, id):
             return
         _update(owner, id, status='preparing', error=None)
         _validate(owner, run['snapshot'], complete=True)
-        path, payload, asynchronous = _build(owner, run['snapshot'], service)
+        if run['provider']=='wavespeed':
+            payload=_wavespeed_payload(owner,run,model,service)
+            path='/api/v3/'+model['api_model_id']
+        else:path, payload, asynchronous = _build(owner, run['snapshot'], service)
         _update(owner, id, status='submitting')
         phase = 'submit'
-        value = _api(run['provider'], 'POST', path, payload, service, asynchronous)
+        value = _wavespeed_api(service,'POST',path,payload) if run['provider']=='wavespeed' else _api(run['provider'], 'POST', path, payload, service, asynchronous)
         if run['provider'] == 'aliyun' and run['tool'] in ('text_image', 'image_edit'):
             urls = [c['image'] for choice in value['output']['choices'] for c in choice['message']['content'] if c.get('image')]
             run = _update(owner, id, result={'asset_type': 'image', 'urls': urls}, status='archive_failed', provider_request_id=value.get('request_id'))
             phase = 'archive'
             _archive(owner, run)
         else:
-            task = value['response']['id'] if run['provider'] == 'shotstack' else value['output']['task_id'] if run['provider'] == 'aliyun' else value['task_id']
+            task = value['id'] if run['provider']=='wavespeed' else value['response']['id'] if run['provider'] == 'shotstack' else value['output']['task_id'] if run['provider'] == 'aliyun' else value['task_id']
             _update(owner, id, task_id=_text(task, '供应商任务ID', 500), status='running', submitted_at=s.now(), error=None)
     except PendingUpload as exc:
         _update(owner, id, status='preparing', error=str(exc))
@@ -946,15 +1062,17 @@ def register(app, user, admin, error):
             if id in media_registry.VIDEO_TOOLS:
                 binding=bindings.get(id,'')
                 provider='media_registry'
-                ready=False
+                selected=next((m for m in model_choices(id) if m['id']==binding),None)
+                ready=bool(selected and selected['configured'])
                 model=None
-                options={}
-                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':[], 'model':model,'configured':False,'binding':binding,'status':'unconfigured','reason':'Seedance 中转接口待接入；可以保存草稿','verification':'not_integrated','requires_confirmation':True})
+                options=selected['options'] if selected else {}
+                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':[], 'model':model,'configured':ready,'binding':binding,'status':'ready' if ready else 'unconfigured','reason':'请在管理后台绑定已配置密钥的 WaveSpeed Seedance 模型' if not ready else '', 'verification':'documented_not_live','requires_confirmation':True})
                 continue
             if binding.startswith('media:'):
-                ready=False
+                selected=next((m for m in model_choices(id) if m['id']==binding),None)
+                ready=bool(selected and selected['configured'])
                 provider='media_registry'
-                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':{},'models':model_choices(id),'optional':[], 'model':None,'configured':False,'binding':binding,'status':'unconfigured','reason':'数字人中转接口待接入；可以保存草稿','verification':'not_integrated','requires_confirmation':True})
+                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':selected['options'] if selected else {},'models':model_choices(id),'optional':[], 'model':None,'configured':ready,'binding':binding,'status':'ready' if ready else 'unconfigured','reason':'' if ready else '该模型尚未配置密钥或接口未适配；可以保存草稿','verification':'documented_not_live' if ready else 'not_integrated','requires_confirmation':True})
                 continue
             if bound_image(id):
                 try:
@@ -989,6 +1107,12 @@ def register(app, user, admin, error):
     def media_registry_model(data: dict, u=Depends(admin)):
         result=invoke(media_registry.save_model,data)
         s.audit(u['id'],'save_media_model',data.get('id',''))
+        return result
+
+    @app.post('/api/admin/media-registry/providers/{id}/discover')
+    def media_registry_discover(id: str, u=Depends(admin)):
+        result=invoke(media_registry.discover_provider,id)
+        s.audit(u['id'],'discover_media_models',id)
         return result
 
     @app.get('/api/studio/drafts')
