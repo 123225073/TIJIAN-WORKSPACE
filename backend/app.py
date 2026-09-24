@@ -74,7 +74,7 @@ synthesis.register(app,user)
 
 class Auth(BaseModel):
     email:str=Field(min_length=3,max_length=200)
-    password:str=Field(min_length=10,max_length=200)
+    password:str=Field(min_length=1,max_length=200)
     name:str=Field(default='行业创作者',max_length=80)
 
 ATTEMPTS={}
@@ -84,11 +84,13 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.17.1','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.18.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
     limit_auth(request)
+    if os.environ.get('TIJIAN_ALLOW_SELF_REGISTRATION')!='1':error(403,'请联系管理员创建账号')
+    if len(data.password)<10:error(400,'密码至少10个字符')
     email=data.email.strip().lower()
     if '@' not in email:error(400,'请输入有效邮箱')
     with s.conn() as c:
@@ -101,10 +103,22 @@ def register(data:Auth,request:Request):
 def login(data:Auth,request:Request):
     limit_auth(request)
     with s.conn() as c:r=c.execute('SELECT * FROM users WHERE email=?',(data.email.strip().lower(),)).fetchone()
-    if not r or not r['active'] or not s.password_ok(data.password,r['password']):error(401,'邮箱或密码不正确')
+    if not r or not r['active'] or not s.password_ok(data.password,r['password']):error(401,'账号或密码不正确')
     token=secrets.token_urlsafe(40)
     with s.conn() as c:c.execute('INSERT INTO sessions VALUES (?,?,?)',(s.digest(token),r['id'],time.time()+86400*7))
     return {'token':token,'user':{k:r[k] for k in ['id','email','name','role']}}
+
+@app.post('/api/auth/password')
+def change_password(data:dict,u=Depends(user)):
+    old=str(data.get('old_password',''))
+    new=str(data.get('new_password',''))
+    if len(new)<10 or len(new)>200:error(400,'新密码需要10至200个字符')
+    with s.conn() as c:
+        current=c.execute('SELECT password FROM users WHERE id=?',(u['id'],)).fetchone()
+        if not current or not s.password_ok(old,current['password']):error(401,'当前密码不正确')
+        c.execute('UPDATE users SET password=? WHERE id=?',(s.password_hash(new),u['id']))
+    s.audit(u['id'],'change_password')
+    return {'ok':True}
 
 @app.post('/api/auth/logout')
 def logout(request:Request,u=Depends(user)):
@@ -506,6 +520,18 @@ def manage_user(id:str,data:dict,u=Depends(admin)):
         if not data.get('active'):c.execute('DELETE FROM sessions WHERE user_id=?',(id,))
     s.audit(u['id'],'update_user',id);return {'ok':True}
 
+@app.post('/api/admin/users')
+def create_user(data:Auth,u=Depends(admin)):
+    email=data.email.strip().lower()
+    if '@' not in email:error(400,'请输入有效邮箱')
+    if len(data.password)<10:error(400,'密码至少10个字符')
+    with s.conn() as c:
+        if c.execute('SELECT id FROM users WHERE email=?',(email,)).fetchone():error(409,'此邮箱已存在')
+        id=s.uid()
+        c.execute('INSERT INTO users VALUES (?,?,?,?,?,1)',(id,email,data.name.strip() or '创作者',s.password_hash(data.password),'user'))
+    s.audit(u['id'],'create_user',id)
+    return {'id':id,'email':email}
+
 @app.get('/api/search')
 def search(q:str,u=Depends(user)):
     words=q.strip().lower()
@@ -519,6 +545,8 @@ artifacts.register(app,user,error)
 illustrations.register(app,user,error)
 from . import creation
 creation.register(app,user,admin,error)
+from . import topics
+topics.register(app,user,error)
 from . import interviews
 interviews.register(app,user)
 from . import media_studio, benchmark_api

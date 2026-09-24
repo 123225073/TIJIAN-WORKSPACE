@@ -1,0 +1,32 @@
+.ka-page{max-width:1180px;margin:0 auto;padding:28px 24px 80px;color:#21372f}
+.ka-header span{color:#178064;font-size:11px;letter-spacing:.18em;font-weight:750}
+.ka-header h1{font-size:34px;letter-spacing:-.04em;margin:8px 0}
+.ka-header p{color:#677a70;margin:0 0 26px;line-height:1.7}
+.ka-header a{display:inline-flex;align-items:center;gap:6px;color:#087b58;font-size:12px;text-decoration:none;font-weight:700;margin:-15px 0 24px}
+.ka-start{background:#f0f7f2;border:1px solid #dce9df;border-radius:22px;padding:28px;box-shadow:0 12px 36px #1c4d3220}
+.ka-start-title{display:flex;align-items:center;gap:15px;margin-bottom:18px}
+.ka-start-title>svg{color:#087b58}
+.ka-start-title h2{font-size:21px;margin:0 0 4px}
+.ka-start-title p{color:#718279;margin:0}
+.ka-start textarea{width:100%;min-height:106px;resize:vertical;border:1px solid #c9d9cf;background:white;border-radius:13px;padding:16px 18px;font:inherit;box-sizing:border-box;line-height:1.7;outline:none}
+.ka-start textarea:focus{border-color:#0d8460;box-shadow:0 0 0 3px #0d84601a}
+.ka-start-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:15px}
+.ka-start-foot span{display:flex;align-items:center;gap:8px;color:#667c6f;font-size:12px}
+.ka-submit{display:inline-flex;gap:8px;align-items:center;border:0;border-radius:9px;padding:12px 20px;background:#087b58;color:#fff;font-weight:700;cursor:pointer;white-space:nowrap}
+.ka-submit:disabled{opacity:.55;cursor:not-allowed}
+.ka-error{color:#a03535}
+.ka-section-title{display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 13px}
+.ka-section-title h2{font-size:18px;margin:0}
+.ka-section-title span{font-size:12px;color:#7c8c82}
+.ka-starters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.ka-starters button{border:1px solid #dee7df;background:#fff;border-radius:14px;min-height:157px;padding:19px;text-align:left;display:grid;grid-template-columns:1fr auto;gap:7px;cursor:pointer;color:#233b30}
+.ka-starters button>svg:first-child{grid-column:1/-1;color:#138365}
+.ka-starters button strong{grid-column:1/-1;font-size:16px}
+.ka-starters button span{font-size:12px;color:#718077;line-height:1.6}
+.ka-starters button:hover,.ka-history a:hover{border-color:#8fc3a7;background:#f9fcf8}
+.ka-history{display:grid;gap:7px}.ka-history a{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#fff;border:1px solid #e1e9e2;border-radius:11px;color:#284137;text-decoration:none}.ka-history a span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:800px){.ka-starters{grid-template-columns:1fr}.ka-start-foot{align-items:flex-start;flex-direction:column}.ka-page{padding:20px 15px}}
+.task-grid.qa-task-grid{grid-template-columns:minmax(0,1fr);max-width:1100px;margin-inline:auto}
+.qa-task-grid .conversation{border-right:0;min-height:0;background:#fff}
+.qa-task-grid .outcome-action,.qa-task-grid .artifact{display:none}
+.qa-task-grid .messages{max-height:none}

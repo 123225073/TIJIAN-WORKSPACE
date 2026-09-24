@@ -39,6 +39,9 @@ def init():
         CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,actor TEXT,action TEXT,target TEXT,created TEXT);
         ''')
+        if c.execute('SELECT COUNT(*) FROM users').fetchone()[0] == 0:
+            c.execute('INSERT INTO users VALUES (?,?,?,?,?,1)',
+                      (uid(), 'admin', '管理员', password_hash('admin'), 'admin'))
 
 def audit(actor,action,target=''):
     with conn() as c:c.execute('INSERT INTO audit VALUES (?,?,?,?,?)',(uid(),actor,action,target,now()))

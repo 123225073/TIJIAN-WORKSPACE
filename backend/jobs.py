@@ -1,7 +1,7 @@
 from __future__ import annotations
 import concurrent.futures, threading, re, json, time
 from functools import wraps
-from . import store as s, gateway as g, upstream, resources, capabilities, library, retrieval
+from . import store as s, gateway as g, upstream, resources, capabilities, library, retrieval, product_guide
 
 POOL=concurrent.futures.ThreadPoolExecutor(max_workers=3,thread_name_prefix='tijian')
 CANCEL={}
@@ -116,6 +116,8 @@ def task_turn(owner,task_id,text,source_ids=None,profile_id=None,mode='writing',
         retrieved=retrieval.retrieve(owner,text,scope,profile_id,task_id,expansions,need_original,method)
         used_ids=list(dict.fromkeys(x['id'] for x in retrieved['excerpts']))
         ctx=retrieval.context_text(retrieved)
+        if mode=='qa':
+            ctx+='\n'+product_guide.TEXT
         if task.get('upstream_body'):
             ctx+='\n创作依据（已确定的前序工作成果，保留其事实边界）：\n'+task['upstream_body']
         if task.get('content_id'):

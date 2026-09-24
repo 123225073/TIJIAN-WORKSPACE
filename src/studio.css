@@ -70,3 +70,9 @@
 .st-output:has(.article-editor)>.st-inline,.st-output:has(.article-editor)>.st-output-footer {padding:12px 20px}
 .studio-v2:has(.md-expanded) > .st-header {display:none}
 .st-preview:has(.md-expanded) > .st-panel-head,.st-preview:has(.md-expanded) > .st-version-note {display:none}
+.studio-v2:has(.ka-page)>.st-header{display:none}
+.st-library-tabs{display:flex;gap:8px;margin:8px 0 25px;border-bottom:1px solid #dce7df}
+.st-library-tabs a{display:flex;align-items:center;gap:8px;padding:12px 17px;color:#6b8074;text-decoration:none;font-weight:650;border-bottom:2px solid transparent}
+.st-library-tabs a[aria-current="page"]{color:#087b58;border-color:#087b58}
+.st-library-tabs span{font-size:11px;border-radius:10px;background:#edf5ef;padding:2px 6px;color:#5c866d}
+.st-about{max-width:920px;margin:auto;padding:10px 0 50px}

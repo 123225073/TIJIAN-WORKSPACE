@@ -36,7 +36,7 @@ from fastapi import Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image
 
-from . import gateway as g, jobs, network, store as s
+from . import gateway as g, jobs, network, store as s, media_registry
 
 MAX_FILE = 500 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024
@@ -75,8 +75,7 @@ OPTIONS = {
     'image_video': {'resolution': ['480P', '720P', '1080P'], 'watermark': [True, False]},
     'compose': {'resolution': ['sd', 'hd', '1080'], 'aspectRatio': ['16:9', '9:16', '1:1']},
 }
-MODELS = {'text_image': 'qwen-image-2.0-pro', 'image_edit': 'qwen-image-2.0-pro',
-          'text_video': 'wan2.7-t2v-2026-06-12', 'image_video': 'wan2.2-i2v-flash'}
+MODELS = {'text_image': 'qwen-image-2.0-pro', 'image_edit': 'qwen-image-2.0-pro'}
 
 
 class StudioError(ValueError):
@@ -165,13 +164,19 @@ def _service(provider):
 
 def validate_binding(tool, value):
     if not value:return
-    if value == 'service:' + TOOLS[tool][1] or (tool=='text_video' and value=='service:aliyun:wan2.7-t2v'):return
+    if value.startswith('media:'):
+        media_registry.choice(tool, value[6:]);return
+    if tool in media_registry.VIDEO_TOOLS:
+        raise ValueError('AI 视频只允许绑定已上架的 Seedance 2.0/2.5 中转模型')
+    if value == 'service:' + TOOLS[tool][1]:return
     if tool not in ('text_image','image_edit'):raise ValueError('此功能需要绑定对应媒体 API，不能绑定文本或图片模型')
     m,p=g.model_record(value)
     if m['capability']!='image' or not(m.get('verified') and m.get('published')):raise ValueError('请选择已验证、已上架的图片模型')
 
 
 def selection(tool, model_id=None):
+    if tool in media_registry.VIDEO_TOOLS:
+        return model_id or s.config('bindings',{}).get(tool) or ''
     return model_id or s.config('bindings',{}).get(tool) or 'service:'+TOOLS[tool][1]
 
 
@@ -181,6 +186,8 @@ def bound_image(tool, model_id=None):
 
 
 def tool_options(tool, model_id=None):
+    if tool in media_registry.VIDEO_TOOLS:
+        return {}
     mid=bound_image(tool,model_id)
     if mid:
         from .illustrations import sizes
@@ -189,8 +196,10 @@ def tool_options(tool, model_id=None):
 
 
 def model_choices(tool):
+    if tool in media_registry.VIDEO_TOOLS:
+        return media_registry.choices(tool)
     result=[{'id':'service:'+TOOLS[tool][1],'title':MODELS.get(tool,TOOLS[tool][0]),'options':OPTIONS[tool], 'configured':bool(s.config(CONFIG,{}).get(TOOLS[tool][1],{}).get('secret')) and s.config(CONFIG,{}).get(TOOLS[tool][1],{}).get('enabled',True)}]
-    if tool=='text_video':result.append({**result[0],'id':'service:aliyun:wan2.7-t2v','title':'wan2.7-t2v'})
+    if tool in media_registry.DIGITAL_TOOLS:result += media_registry.choices(tool)
     if tool in ('text_image','image_edit'):
         for m in s.config('models',[]):
             if m.get('capability')=='image' and m.get('verified') and m.get('published'):
@@ -404,7 +413,10 @@ def _validate(owner, data, complete=False):
     inputs, options = data.get('input', {}), data.get('options', {})
     chosen=data.get('model_id')
     if chosen is not None and not isinstance(chosen,str):raise StudioError('模型编号无效')
-    if chosen:validate_binding(tool,chosen)
+    if chosen:
+        if chosen.startswith('media:'):
+            media_registry.choice(tool,chosen[6:],active=complete)
+        else:validate_binding(tool,chosen)
     allowed = set(TOOLS[tool][3])
     if tool=='text_image' and bound_image(tool,chosen):allowed.add('image_id')
     if tool == 'avatar_create':
@@ -553,6 +565,8 @@ def _shotstack_source(owner, asset, service):
 
 def _build(owner, draft, service):
     tool, inputs, options = draft['tool'], draft['input'], draft['options']
+    if tool in media_registry.VIDEO_TOOLS:
+        raise StudioError('旧视频接口已停用；请选用 Seedance 模型，等待中转接口完成接入')
     provider = TOOLS[tool][1]
     assets = {key: _asset(owner, value, key[:-3], tool) for key, value in inputs.items() if key.endswith('_id') and value}
     if provider == 'hifly':
@@ -583,13 +597,7 @@ def _build(owner, draft, service):
         if tool in ('text_image', 'image_edit'):
             content = ([{'image': _image_data(owner, assets['image_id'])}] if tool == 'image_edit' else []) + [{'text': inputs['prompt']}]
             return '/api/v1/services/aigc/multimodal-generation/generation', {'model':draft.get('model_id','').split(':',2)[2] if draft.get('model_id','').count(':')==2 else MODELS[tool], 'input': {'messages': [{'role': 'user', 'content': content}]}, 'parameters': {'n': 1, **options}}, False
-        input_ = {'prompt': inputs['prompt']}
-        if tool == 'image_video':
-            asset = assets['image_id']
-            if not all(240 <= asset.get(k, 0) <= 8000 for k in ('width', 'height')):
-                raise StudioError('图生视频要求图片宽高均为240至8000像素')
-            input_['img_url'] = _image_data(owner, asset)
-        return '/api/v1/services/aigc/video-generation/video-synthesis', {'model':draft.get('model_id','').split(':',2)[2] if draft.get('model_id','').count(':')==2 else MODELS[tool], 'input': input_, 'parameters': options}, True
+        raise StudioError('当前阿里云服务仅用于图片创作')
     visuals, sounds, captions = [], [], []
     start = 0
     for scene in inputs['scenes']:
@@ -638,6 +646,8 @@ def generate(owner, data):
         clean = {k: v for k, v in draft.items() if k in {'tool', 'title', 'input', 'options', 'model_id', 'brand_id', 'profile_id', 'source_ids'}}
         clean['model_id']=selection(draft['tool'],draft.get('model_id'))
         _validate(owner, clean, complete=True)
+        if draft['tool'] in media_registry.VIDEO_TOOLS or clean['model_id'].startswith('media:'):
+            raise StudioError('此模型的中转接口尚未接入，已保存草稿；未上传素材、未提交付费生成')
         provider = TOOLS[draft['tool']][1]
         bindings=s.config('bindings',{})
         if draft['tool'] in bindings and not bindings[draft['tool']]:raise StudioError('此功能已停用，请联系管理员绑定服务')
@@ -921,6 +931,8 @@ def register(app, user, admin, error):
             return error(409, str(exc))
         except StudioError as exc:
             return error(400, str(exc))
+        except media_registry.RegistryError as exc:
+            return error(400, str(exc))
         except (ValueError, KeyError, TypeError, httpx.HTTPError, OSError):
             return error(400, '媒体请求失败，请检查字段、素材及服务配置')
 
@@ -931,6 +943,19 @@ def register(app, user, admin, error):
         tools=[];bindings=s.config('bindings',{})
         for id,(title,provider,kind,required) in TOOLS.items():
             binding=bindings.get(id,'service:'+provider);ready=bool(binding) and configured[provider];model=MODELS.get(id)
+            if id in media_registry.VIDEO_TOOLS:
+                binding=bindings.get(id,'')
+                provider='media_registry'
+                ready=False
+                model=None
+                options={}
+                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':[], 'model':model,'configured':False,'binding':binding,'status':'unconfigured','reason':'Seedance 中转接口待接入；可以保存草稿','verification':'not_integrated','requires_confirmation':True})
+                continue
+            if binding.startswith('media:'):
+                ready=False
+                provider='media_registry'
+                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':{},'models':model_choices(id),'optional':[], 'model':None,'configured':False,'binding':binding,'status':'unconfigured','reason':'数字人中转接口待接入；可以保存草稿','verification':'not_integrated','requires_confirmation':True})
+                continue
             if bound_image(id):
                 try:
                     validate_binding(id,binding);m,p=g.model_record(binding);model=m['title'];ready=True
@@ -949,6 +974,22 @@ def register(app, user, admin, error):
     @app.post('/api/studio/settings')
     def set_settings(data: dict, u=Depends(admin)):
         return invoke(save_settings, data)
+
+    @app.get('/api/admin/media-registry')
+    def media_registry_state(u=Depends(admin)):
+        return media_registry.catalogue()
+
+    @app.post('/api/admin/media-registry/providers')
+    def media_registry_provider(data: dict, u=Depends(admin)):
+        result=invoke(media_registry.save_provider,data)
+        s.audit(u['id'],'save_media_provider',data.get('id',''))
+        return result
+
+    @app.post('/api/admin/media-registry/models')
+    def media_registry_model(data: dict, u=Depends(admin)):
+        result=invoke(media_registry.save_model,data)
+        s.audit(u['id'],'save_media_model',data.get('id',''))
+        return result
 
     @app.get('/api/studio/drafts')
     def drafts(u=Depends(user)):

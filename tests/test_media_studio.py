@@ -193,7 +193,7 @@ def test_timeout_is_unknown_no_resubmit_on_new_request_or_refresh(studio, monkey
         raise httpx.ReadTimeout('https://secret.example/?key=must-not-leak')
 
     monkeypatch.setattr(m, '_request', timeout)
-    d = draft(studio, 'text_video')
+    d = draft(studio, 'text_image')
     run = submit(studio, d).json()
     assert run['status'] == 'unknown'
     assert 'must-not-leak' not in json.dumps(run)
@@ -204,26 +204,13 @@ def test_timeout_is_unknown_no_resubmit_on_new_request_or_refresh(studio, monkey
     assert studio.get('/api/studio/runs').json()['items'][0]['status'] == 'unknown'
 
 
-def test_archive_failure_retries_download_only(studio, monkeypatch):
+def test_retired_video_route_cannot_submit_or_archive(studio, monkeypatch):
     configure(studio)
     calls = []
-
-    def request(method, url, **kwargs):
-        calls.append(method)
-        if method == 'POST':
-            return {'output': {'task_id': 'persistent-task-id'}}
-        return {'output': {'task_status': 'SUCCEEDED', 'video_url': 'https://cdn.example/out.mp4'}}
-
-    monkeypatch.setattr(m, '_request', request)
-    monkeypatch.setattr(m, '_download', lambda *a: (_ for _ in ()).throw(m.StudioError('下载失败')))
+    monkeypatch.setattr(m, '_request', lambda *a, **kw: calls.append(a))
     d = draft(studio, 'text_video')
-    run = submit(studio, d).json()
-    assert run['task_id'] == 'persistent-task-id' and run['status'] == 'running'
-    url = '/api/studio/runs/' + run['id'] + '/refresh'
-    assert studio.post(url).json()['status'] == 'archive_failed'
-    assert studio.post(url).json()['status'] == 'archive_failed'
-    assert calls == ['POST', 'GET']
-    assert studio.post(url, headers={'authorization': 'Bearer bob'}).status_code == 404
+    assert submit(studio, d).status_code == 400
+    assert not calls and not s.list_('alice', 'studio_run')
     assert studio.get('/api/studio/runs', headers={'authorization': 'Bearer bob'}).json()['items'] == []
 
 
@@ -231,7 +218,7 @@ def test_concurrent_request_claim_is_single_and_version_snapshot(studio, monkeyp
     configure(studio)
     queue = []
     monkeypatch.setattr(m.jobs, 'POOL', SimpleNamespace(submit=lambda *args: queue.append(args)))
-    d = draft(studio, 'text_video')
+    d = draft(studio, 'text_image')
     body = {'draft_id': d['id'], 'version': 1, 'confirmed': True, 'request_id': 'concurrent'}
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(lambda _: m.generate('alice', body), range(8)))
@@ -302,18 +289,15 @@ def test_resource_compat_and_settings_account_change(studio):
     assert studio.post('/api/studio/drafts', json={'tool': 'tts', 'input': {'voice_id': voice['id']}}).status_code == 400
 
 
-def test_aliyun_image_edit_and_i2v_payload(studio, monkeypatch):
+def test_aliyun_image_edit_and_retired_i2v_payload(studio, monkeypatch):
     service = configure(studio)
     picture = asset(studio)
-    for tool in ('image_edit', 'image_video'):
-        d = draft(studio, tool, {'prompt': '保持产品结构', 'image_id': picture['id']})
-        path, payload, asynchronous = m._build('alice', d, service)
-        if tool == 'image_edit':
-            assert path.endswith('/multimodal-generation/generation') and not asynchronous
-            assert payload['input']['messages'][0]['content'][0]['image'].startswith('data:image/png;base64,')
-        else:
-            assert path.endswith('/video-generation/video-synthesis') and asynchronous
-            assert payload['model'] == 'wan2.2-i2v-flash' and payload['input']['img_url'].startswith('data:image/png;base64,')
+    d = draft(studio, 'image_edit', {'prompt': '保持产品结构', 'image_id': picture['id']})
+    path, payload, asynchronous = m._build('alice', d, service)
+    assert path.endswith('/multimodal-generation/generation') and not asynchronous
+    assert payload['input']['messages'][0]['content'][0]['image'].startswith('data:image/png;base64,')
+    video = draft(studio, 'image_video', {'prompt': '保持产品结构', 'image_id': picture['id']})
+    with pytest.raises(m.StudioError):m._build('alice', video, service)
     assert studio.post('/api/studio/drafts', json={'tool': 'image_video', 'input': {}, 'options': {'duration': 15}}).status_code == 400
 
 
@@ -436,7 +420,7 @@ def test_missing_duration_keeps_draft_but_never_submits_billable_task(studio, mo
     assert not s.list_('alice', 'studio_run')
 
 
-def test_recover_preserves_tasks_results_and_blocks_unknown_submissions(studio, monkeypatch):
+def test_recover_preserves_old_tasks_and_blocks_unknown_submissions(studio, monkeypatch):
     configure(studio)
     queue = []
     monkeypatch.setattr(m.jobs, 'POOL', SimpleNamespace(submit=lambda *args: queue.append(args)))
@@ -446,7 +430,7 @@ def test_recover_preserves_tasks_results_and_blocks_unknown_submissions(studio, 
               ('running', 'task-result', {'asset_type': 'video', 'urls': ['https://cdn.example/out.mp4']}, 'archive_failed')]
     for index, (status, task, result, expected) in enumerate(states):
         d = draft(studio, 'text_video')
-        run = submit(studio, d, 'recover-' + str(index)).json()
+        run = s.put('alice','studio_run',{'title':'旧任务','tool':'text_video','provider':'aliyun','draft_id':d['id'],'draft_version':d['version'],'snapshot':{'tool':'text_video','title':'旧任务','input':d['input'],'options':{}},'request_id':'recover-'+str(index),'status':'queued','confirmed_at':s.now(),'service_scope':m._scope('aliyun',m._service('aliyun')),'task_id':None,'asset_ids':[]})
         m._update('alice', run['id'], status=status, task_id=task, result=result, busy_until=9999999999)
         records.append((run['id'], expected))
     queued_before = len(queue)

@@ -6,6 +6,7 @@ from backend.app import app, ATTEMPTS
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
+    monkeypatch.setenv('TIJIAN_ALLOW_SELF_REGISTRATION','1')
     monkeypatch.setattr(s,'DATA',tmp_path)
     monkeypatch.setattr(s,'DB',tmp_path/'test.sqlite')
     monkeypatch.setattr(gateway,'KEYFILE',tmp_path/'provider.key')
@@ -14,11 +15,52 @@ def client(tmp_path,monkeypatch):
         yield c
 
 def account(c,email='creator@example.test'):
-    r=c.post('/api/auth/register',json={'email':email,'password':'test-password-381','name':'测试创作者'})
+    r=(c.post('/api/auth/login',json={'email':'admin','password':'admin'})
+       if email=='creator@example.test' else
+       c.post('/api/auth/register',json={'email':email,'password':'test-password-381','name':'测试创作者'}))
     assert r.status_code==200,r.text
     data=r.json();c.headers['Authorization']='Bearer '+data['token']
     assert c.post('/api/workspace',json={}).status_code==200
     return data
+
+def test_fresh_admin_account_and_managed_signup(client,monkeypatch):
+    monkeypatch.delenv('TIJIAN_ALLOW_SELF_REGISTRATION')
+    admin=client.post('/api/auth/login',json={'email':'admin','password':'admin'})
+    assert admin.status_code==200
+    client.headers['Authorization']='Bearer '+admin.json()['token']
+    assert admin.json()['user']['role']=='admin'
+    assert client.post('/api/auth/register',json={'email':'open@example.test','password':'test-password-381'}).status_code==403
+    created=client.post('/api/admin/users',json={'email':'new@example.test','password':'test-password-381','name':'新用户'})
+    assert created.status_code==200
+    changed=client.post('/api/auth/password',json={'old_password':'admin','new_password':'new-admin-password-381'})
+    assert changed.status_code==200
+    assert client.post('/api/auth/login',json={'email':'admin','password':'admin'}).status_code==401
+    assert client.post('/api/auth/login',json={'email':'admin','password':'new-admin-password-381'}).status_code==200
+    normal=client.post('/api/auth/login',json={'email':'new@example.test','password':'test-password-381'})
+    assert normal.status_code==200 and normal.json()['user']['role']=='user'
+
+def test_knowledge_assistant_receives_product_help(client,monkeypatch):
+    owner=account(client)['user']['id']
+    seen=[]
+    monkeypatch.setattr(gateway,'select',lambda *a,**k:'test-only')
+    def answer(model,messages):
+        seen.append(messages)
+        return '请进入知识库添加资料，再到问问梯见提问。'
+    monkeypatch.setattr(gateway,'generate',answer)
+    opened=client.post('/api/tasks/open',json={'title':'如何导入资料？','mode':'qa','source_ids':[]})
+    assert opened.status_code==200,opened.text
+    task=opened.json()
+    sent=client.post('/api/tasks/'+task['id']+'/send',json={'text':'如何导入资料？','mode':'qa','source_ids':[],
+                                                           'reference_scope':task['reference_scope']})
+    assert sent.status_code==200,sent.text
+    job=sent.json()
+    for _ in range(150):
+        if s.get(owner,job['id'])['status'] not in ['queued','running']:break
+        time.sleep(.02)
+    assert s.get(owner,job['id'])['status']=='done',s.get(owner,job['id']).get('error')
+    assert any('工作台内置使用说明' in message['content'] and '导入文件' in message['content']
+               for request in seen for message in request)
+    assert s.get(owner,task['id'])['messages'][-1]['role']=='assistant'
 
 def test_auth_isolation_and_admin(client):
     a=account(client)
@@ -80,7 +122,7 @@ def test_background_completion_and_no_fake_model(client,monkeypatch):
     for _ in range(100):
         if s.get(user,j['id'])['status'] not in ['queued','running']:break
         time.sleep(.02)
-    assert s.get(user,j['id'])['status']=='done'
+    assert s.get(user,j['id'])['status']=='done',s.get(user,j['id']).get('error')
     assert s.get(user,task['id'])['content_id']
 
 def test_source_url_boundaries(client):

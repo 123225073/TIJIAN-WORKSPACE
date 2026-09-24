@@ -1,5 +1,5 @@
 """Run only an isolated child backend from the release; never touch the user's process/data."""
-import os,sys,time,socket,subprocess,secrets,re,json
+import os,sys,time,socket,subprocess,re,json
 from pathlib import Path
 import httpx
 root=Path(__file__).resolve().parents[1]
@@ -23,7 +23,7 @@ try:
         assets=re.findall(r'(?:src|href)="(/assets/[^\"]+)"',html)
         assert assets and all(c.get(x).status_code==200 for x in assets)
         assert c.post('/api/discovery/source',json={'url':'http://127.0.0.1'}).status_code==401
-        r=c.post('/api/auth/register',json={'email':'release-check@example.test','password':secrets.token_hex(20),'name':'隔离验收'})
+        r=c.post('/api/auth/login',json={'email':'admin','password':'admin'})
         assert r.status_code==200
         c.headers['Authorization']='Bearer '+r.json()['token']
         assert c.post('/api/discovery/source',json={'url':'http://127.0.0.1/private'}).status_code==400

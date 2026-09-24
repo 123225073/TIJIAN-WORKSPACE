@@ -1,0 +1,13 @@
+import {ArrowRight, ArrowUpRight, BookOpenText, FileText, Film, FolderOpen, Image, Layers3, ScanLine, UserRound} from 'lucide-react';
+import './studio-home.css';
+
+export default function StudioHome({drafts}:{drafts:any[]}){
+  return <div className="sh-page">
+    <section className="sh-intro"><div className="sh-intro-copy"><span className="sh-overline">梯见 · 电梯行业内容工作台</span><h1>把专业经验，做成<br/><em>能交付的内容。</em></h1><p>找选题、查资料、写文案、做画面。在一处完成创作，再整理成适合渠道的作品。</p><div className="sh-actions"><a className="sh-main-action" href="#studio/flow">开始创作 <ArrowRight size={18}/></a><a className="sh-text-action" href="#studio/assistant">向知识库提问 <ArrowUpRight size={16}/></a></div></div><div className="sh-process" aria-label="创作流程"><span>01 / 找方向</span><strong>行业线索与对标账号</strong><i/><span>02 / 做内容</span><strong>文案、图片与视频草稿</strong><i/><span>03 / 留成果</span><strong>草稿、作品和素材统一保存</strong></div></section>
+    <div className="sh-section-heading"><div><small>WORKFLOW</small><h2>今天从哪里开始？</h2></div><p>按目标进入，工具会在创作过程中连接。</p></div>
+    <div className="sh-path-grid"><a href="#benchmark" className="sh-path"><span className="sh-path-no">01</span><ScanLine size={25}/><h3>找选题与案例</h3><p>看已采集的行业线索和对标账号，把可用内容带进选题库。</p><span className="sh-path-link">去找灵感 <ArrowRight size={16}/></span></a><a href="#studio/text" className="sh-path"><span className="sh-path-no">02</span><FileText size={25}/><h3>写一篇内容</h3><p>从真实资料或自己的经验出发，写成可编辑的文案。</p><span className="sh-path-link">开始写作 <ArrowRight size={16}/></span></a><a href="#studio/image" className="sh-path"><span className="sh-path-no">03</span><Film size={25}/><h3>制作视觉内容</h3><p>生成图片、准备视频草稿，把素材留在作品与素材中。</p><span className="sh-path-link">制作画面 <ArrowRight size={16}/></span></a></div>
+    <div className="sh-utility-row"><a href="#studio/assistant"><BookOpenText size={20}/><span><strong>问问梯见</strong><small>销售话术 · 软件使用 · 电梯知识</small></span><ArrowUpRight size={16}/></a><a href="#studio/brand"><UserRound size={20}/><span><strong>我的 IP</strong><small>让内容符合你的身份与表达</small></span><ArrowUpRight size={16}/></a><a href="#studio/works"><FolderOpen size={20}/><span><strong>作品与素材</strong><small>找回草稿、生成记录和上传文件</small></span><ArrowUpRight size={16}/></a></div>
+    <div className="sh-section-heading sh-continue"><div><small>CONTINUE</small><h2>继续上次的创作</h2></div><a href="#studio/works">查看全部 <ArrowRight size={15}/></a></div>
+    {drafts.length?<div className="sh-drafts">{drafts.slice(0,3).map(d=><a key={d.id} href={d.href}><Layers3 size={18}/><span><strong>{d.title||'未命名草稿'}</strong><small>{d.updated_at?new Date(d.updated_at).toLocaleDateString('zh-CN'):'草稿'}</small></span><ArrowRight size={16}/></a>)}</div>:<div className="sh-empty"><Image size={20}/><span>还没有草稿。完成第一步后，这里会接续你的创作。</span></div>}
+  </div>;
+}
