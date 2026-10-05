@@ -26,11 +26,19 @@ def chunks(body, size=CHUNK_SIZE, overlap=180):
 
 def body_of(obj):
     body = s.object_body(obj)
+    if obj['kind'] == 'studio_topic':
+        body = '\n'.join(str(obj.get(key) or '') for key in ('title', 'angle', 'rationale', 'audience', 'origin'))
     if obj['kind'] in ['metric', 'publication', 'benchmark', 'plan', 'feedback']:
         fields = ['platform', 'date', 'url', 'reason', 'views', 'likes', 'comments', 'shares', 'saves', 'followers', 'notes', 'position']
         body += '\n' + '\n'.join(f'{key}: {obj[key]}' for key in fields if key in obj)
     if obj['kind']=='douyin_work':body+='\n这是发布文案与目录信息，未转写视频口播。来源：'+obj.get('url','')
     return body.strip()
+
+
+def needs_knowledge(query):
+    """Only skip lookup for clear small talk; factual and ambiguous questions keep retrieval."""
+    compact = re.sub(r'[\s，。！？!?,.]+', '', query).lower()
+    return compact not in {'你好', '您好', '在吗', '谢谢', '多谢', '早上好', '晚上好', 'hi', 'hello', 'thanks'}
 
 
 def init_index(c):
@@ -128,7 +136,7 @@ def _retrieve(owner, query, scope, profile_id=None, task_id=None, expansions=Non
     def order(r):
         obj = by_id[r['object_id']]
         if recent:return (0 if obj['kind']=='source' else 1),r['rank']
-        priority = 0 if obj['id'] in explicit else 1 if obj['kind'] == 'knowledge' else 2 if obj['kind'] == 'memory' else 3
+        priority = 0 if obj['id'] in explicit else 1 if obj['kind'] == 'knowledge' else 2 if obj['kind'] in ('studio_topic', 'plan') else 3 if obj['kind'] == 'memory' else 4
         return priority, r['rank']
     rows.sort(key=order)
     # Two-pass allocation gives multiple selected documents room before extra chunks.
@@ -150,6 +158,6 @@ def _retrieve(owner, query, scope, profile_id=None, task_id=None, expansions=Non
 
 
 def context_text(result):
-    return ('以下为本次参考片段。AI整理的Wiki并不等于已核实事实；记忆只用于个性化。没有答案要说明缺口。'
+    return ('以下为本次参考片段。AI整理的Wiki与选题只是线索，不等于已核实事实；需要原文细节时应核对原始资料。没有答案要说明缺口。'
             '引用格式为[资料ID]，原始来源ID仅用于追溯，未提供原文时不要伪称已核对原文。\n'
             + json.dumps(result['excerpts'], ensure_ascii=False))

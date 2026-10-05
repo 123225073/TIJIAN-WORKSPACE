@@ -13,7 +13,7 @@ def test_task_reuse_trash_and_owner_boundary(client):
     owner=account(client)['user']['id']
     data={'title':'研究电梯改造','mode':'auto'}
     a=client.post('/api/tasks/open',json=data).json()
-    assert a['mode']=='research'
+    assert a['mode']=='auto'
     assert client.post('/api/tasks/open',json=data).json()['id']==a['id']
     assert client.post('/api/objects/'+a['id']+'/trash').status_code==200
     assert client.post('/api/tasks/'+a['id']+'/send',json={'text':'不能继续'}).status_code==400

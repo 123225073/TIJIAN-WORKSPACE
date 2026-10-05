@@ -1,0 +1,93 @@
+import {spawn} from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import net from 'node:net';
+import assert from 'node:assert/strict';
+import {chromium} from 'playwright-core';
+
+const dir=path.resolve('.runtime','feedback-ui-'+Date.now());
+fs.mkdirSync(dir,{recursive:true});
+const socket=net.createServer();
+await new Promise(resolve=>socket.listen(0,'127.0.0.1',resolve));
+const port=socket.address().port;
+await new Promise(resolve=>socket.close(resolve));
+const service=spawn(path.resolve('.runtime/venv/Scripts/python.exe'),['scripts/studio-ui-fixture.py'],{
+ windowsHide:true,stdio:['ignore','ignore','pipe'],env:{...process.env,TIJIAN_DATA:dir,TIJIAN_PORT:String(port),TIJIAN_ALLOW_SELF_REGISTRATION:'1'},
+});
+let errors='',browser;
+service.stderr.on('data',chunk=>errors+=chunk);
+const base='http://127.0.0.1:'+port;
+try{
+ let ready=false;
+ for(let i=0;i<150;i++){
+  try{ready=(await(await fetch(base+'/api/health')).json()).ok;if(ready)break}catch{}
+  await new Promise(resolve=>setTimeout(resolve,150));
+ }
+ if(!ready)throw Error(errors||'Fixture not ready');
+ const auth=await(await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'feedback@example.test',password:'isolated-test-only',name:'操作反馈验收'})})).json();
+ browser=await chromium.launch({headless:true,executablePath:'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',args:['--disable-gpu']});
+ const page=await browser.newPage({viewport:{width:1440,height:960}}),pageErrors=[];
+ page.on('pageerror',error=>pageErrors.push(error.message));
+ await page.goto(base);await page.evaluate(token=>sessionStorage.setItem('tijian-session',token),auth.token);
+ await page.goto(base+'/?ui=1#studio/topics');
+ await page.locator('.tlc-table').waitFor();
+ await page.getByRole('button',{name:/找题 \/ 添加选题/}).click();
+ await page.getByPlaceholder('写下客户、业务或方向').fill('老旧电梯更新');
+ await page.locator('.td-generate-row select').selectOption('3');
+ assert(await page.getByRole('button',{name:'生成候选选题'}).isEnabled());
+ await page.screenshot({path:path.join(dir,'topics-before.png')});
+ await page.getByRole('button',{name:'生成候选选题'}).click();
+ await page.locator('.td-review-status.running .td-indeterminate').waitFor({timeout:10000});
+ await page.locator('.td-candidate').first().waitFor({timeout:15000});
+ assert.equal(await page.locator('.tlc-table tbody tr').count(),0,'生成候选不能直接入库');
+ assert.equal(await page.locator('.td-candidate').count(),3);
+ await page.locator('.td-candidate').first().getByLabel('选题标题').fill('隔离测试：审核后的选题');
+ await page.getByRole('button',{name:/移除候选 隔离测试：电梯日常检查/}).click();
+ await page.getByRole('button',{name:'全选'}).click();
+ assert.equal(await page.locator('.td-candidate input[type="checkbox"]:checked').count(),2);
+ await page.locator('.td-candidate').nth(1).getByRole('checkbox').uncheck();
+ await page.reload();
+ await page.getByRole('button',{name:/找题 \/ 添加选题/}).click();
+ assert.equal(await page.locator('.td-candidate').first().getByLabel('选题标题').inputValue(),'隔离测试：审核后的选题');
+ assert.equal(await page.locator('.td-candidate input[type="checkbox"]:checked').count(),1);
+ await page.getByRole('button',{name:/确认 1 条，加入选题库/}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('.tlc-table tbody tr').length===1,undefined,{timeout:10000});
+ await page.screenshot({path:path.join(dir,'topics-after-confirm.png')});
+ await page.getByRole('button',{name:'关闭'}).click();
+ await page.locator('.tlc-table tbody tr').first().getByRole('button',{name:'发布稿'}).click();
+ await page.locator('.td-topic-heading').waitFor();
+ await page.screenshot({path:path.join(dir,'delivery-before.png')});
+ await page.locator('.wa-card input').first().waitFor();
+ const emptyDrafts=await(await fetch(base+'/api/studio/deliveries',{headers:{Authorization:'Bearer '+auth.token}})).json();
+ assert.equal(emptyDrafts.items.length,0,'打开发布表单不应新建空稿');
+ await page.getByRole('textbox',{name:/分享时显示的简介/}).fill('隔离测试摘要');
+ await page.getByRole('textbox',{name:'公众号文章正文'}).fill('隔离测试正文');
+ await page.route('**/api/studio/deliveries*',async route=>{if(['POST','PATCH'].includes(route.request().method()))await new Promise(resolve=>setTimeout(resolve,700));await route.continue()});
+ await page.getByRole('button',{name:'保存发布稿'}).click();
+ await page.getByRole('button',{name:/正在保存/}).waitFor();
+ await page.locator('.td-notice').getByText('发布稿已保存；尚未发布').waitFor({timeout:10000});
+ assert(!await page.locator('.page-operations').innerText().then(x=>x.includes('保存操作')).catch(()=>false),'本页保存应使用按钮和页面反馈');
+ await page.screenshot({path:path.join(dir,'delivery-after.png')});
+ assert(!pageErrors.some(x=>/ReferenceError|TypeError|Minified React|Maximum update depth/.test(x)),pageErrors.join('\n'));
+ const admin=await browser.newPage({viewport:{width:1440,height:960}});
+ admin.on('pageerror',error=>pageErrors.push(error.message));
+ const adminAuth=await(await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin',password:'admin'})})).json();
+ assert.equal(adminAuth.user?.role,'admin');
+ await admin.goto(base+'/admin.html');
+ await admin.evaluate(token=>sessionStorage.setItem('tijian-admin-session',token),adminAuth.token);
+ await admin.reload();
+ await admin.goto(base+'/admin.html#bindings');
+ await admin.getByRole('button',{name:'保存功能绑定'}).waitFor({timeout:10000});
+ await admin.route('**/api/admin/bindings',async route=>{await new Promise(resolve=>setTimeout(resolve,650));await route.continue()});
+ await admin.getByRole('button',{name:'保存功能绑定'}).click();
+ await admin.getByRole('button',{name:'正在保存功能绑定…'}).waitFor();
+ await admin.locator('.page-operations .working-dot').waitFor();
+ await admin.locator('.page-operations .working-dot').waitFor({state:'hidden',timeout:10000});
+ await admin.unroute('**/api/admin/bindings');
+ await admin.route('**/api/admin/bindings',route=>route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({detail:'隔离测试错误'})}));
+ await admin.getByRole('button',{name:'保存功能绑定'}).click();
+ await admin.getByRole('alert').filter({hasText:'隔离测试错误'}).first().waitFor();
+ await admin.screenshot({path:path.join(dir,'admin-feedback.png')});
+ assert(!pageErrors.some(x=>/ReferenceError|TypeError|Minified React|Maximum update depth/.test(x)),pageErrors.join('\n'));
+ console.log(JSON.stringify({passed:true,checks:['topic visible progress and selective reviewed confirmation','delivery save progress and page feedback','admin request pending and failure feedback'],dir,pageErrors}));
+}finally{if(browser)await browser.close();service.kill()}

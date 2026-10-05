@@ -1,6 +1,6 @@
 {
   "name": "elevator-workbench",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "description": "Elevator industry personal content workbench",
   "type": "module",
@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.fengsha.elevator.workbench",
-    "productName": "梯见工作台",
+    "productName": "梯世界工作台",
     "directories": {
       "output": "release/${version}"
     },
@@ -63,6 +63,10 @@
       "icon": "build/tijian.ico",
       "target": "nsis"
     },
-    "publish": null
+    "publish": null,
+    "nsis": {
+      "shortcutName": "梯世界工作台",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

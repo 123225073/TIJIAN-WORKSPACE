@@ -15,6 +15,8 @@ def error(status,msg):raise HTTPException(status,msg)
 async def watcher():
     while True:
         await asyncio.sleep(30)
+        try:await asyncio.to_thread(media_studio.tick)
+        except Exception:pass
         for u in s.all_users():
             try:
                 if s.config('workspace:'+u['id']):
@@ -85,7 +87,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.20.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.21.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -189,7 +191,7 @@ def update(id:str,data:dict,u=Depends(user)):
     if old['kind'] not in PUBLIC_KINDS|{'knowledge'}:error(400,'此对象请使用对应工作流程')
     forbidden={'id','kind','owner','check','file','file_hash','role','candidate_kind','file_missing','messages','candidates','last_model','evidence_excerpt','source_hashes','generated_body','entries','topic_key','retrieval'}
     if any(k in data for k in forbidden):error(400,'运行记录、核查与生成结果不能通过普通编辑接口修改')
-    if old['kind']=='task' and 'content_id' in data:error(400,'会话与成果关联由任务流程维护')
+    if old['kind']=='task' and set(data)&{'content_id','platform_outcomes','media_outcomes','media_runs','pending_creation','identity_skipped','identity_required','active_outcome'}:error(400,'会话与成果关联由任务流程维护')
     clean={k:v for k,v in data.items() if k not in forbidden}
     expected=clean.pop('version',None)
     if old['kind']=='content':
@@ -336,7 +338,11 @@ def collect(id:str,data:dict,u=Depends(user)):
 def send(id:str,data:dict,u=Depends(user)):
     text=data.get('text','').strip()
     if not text:error(400,'请输入要求')
-    return jobs.task_turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('mode','writing'),data.get('model_id'),data.get('reference_scope'))
+    mode=data.get('mode') or s.get(u['id'],id).get('mode','auto')
+    if mode=='auto':
+        from .assistant_workspace import turn
+        return turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('model_id'),data.get('reference_scope'),data.get('skip_profile') is True)
+    return jobs.task_turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),mode,data.get('model_id'),data.get('reference_scope'))
 
 @app.post('/api/content/{id}/check')
 def check(id:str,u=Depends(user)):return jobs.check_content(u['id'],id)
@@ -421,7 +427,8 @@ def export(id:str,format:str='md',u=Depends(user)):
     if format=='html':
         # Upstream converts editorial Markdown; strip active HTML before conversion.
         body=re.sub(r'<[^>]*>','',body)
-        html=upstream.wechat.convert_markdown_to_wechat_html(body)
+        from . import wechat_layout
+        html=wechat_layout.render(body,obj.get('wechat_style'))
         return Response(html,media_type='text/html',headers={'Content-Disposition':'attachment; filename="article.html"','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:"})
     return Response(body,media_type='text/markdown',headers={'Content-Disposition':'attachment; filename="article.md"'})
 
@@ -592,12 +599,16 @@ def search(q:str,u=Depends(user)):
 from . import agent
 agent.register(app,user,error)
 from . import artifacts, illustrations
+from . import assistant_workspace
+assistant_workspace.register(app,user)
 artifacts.register(app,user,error)
 illustrations.register(app,user,error)
 from . import creation
 creation.register(app,user,admin,error)
 from . import topics
 topics.register(app,user,error)
+from . import wechat_publish
+wechat_publish.register(app,user)
 from . import interviews
 interviews.register(app,user)
 from . import media_studio, benchmark_api
@@ -613,6 +624,7 @@ refresh_hotlists=hotlists.register(app,user,error)
 
 DIST=s.ROOT/'dist'
 if (DIST/'assets').exists():app.mount('/assets',StaticFiles(directory=DIST/'assets'),name='assets')
+if (DIST/'visuals').exists():app.mount('/visuals',StaticFiles(directory=DIST/'visuals'),name='visuals')
 @app.get('/{path:path}')
 def frontend(path:str):
     if path.startswith('api/'):error(404,'接口不存在')

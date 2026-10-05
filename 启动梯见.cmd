@@ -1,6 +1,14 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+if exist "%LOCALAPPDATA%\Programs\elevator-workbench\梯世界工作台.exe" (
+  start "" "%LOCALAPPDATA%\Programs\elevator-workbench\梯世界工作台.exe"
+  exit /b
+)
+if exist "release\0.21.0\win-unpacked\梯世界工作台.exe" (
+  start "" "release\0.21.0\win-unpacked\梯世界工作台.exe"
+  exit /b
+)
 if exist "release\0.13.0\win-unpacked\梯见工作台.exe" (
   start "" "release\0.13.0\win-unpacked\梯见工作台.exe"
   exit /b

@@ -35,10 +35,30 @@ def test_cancel_stops_stream(monkeypatch):
     event=threading.Event();event.set()
     with streaming.capture(lambda *a:None,event),pytest.raises(InterruptedError):g.generate('fixture',[])
 
+def test_cancelled_job_does_not_turn_into_done_after_worker_returns(client):
+    owner=account(client)['user']['id'];ready=threading.Event();release=threading.Event()
+    def work(_progress,_event):
+        ready.set();release.wait(5);return {'text':'candidate'}
+    job=jobs.start(owner,'取消并发测试',work,{'action':'test_cancel_race'})
+    assert ready.wait(3)
+    assert jobs.cancel(owner,job['id'])['status']=='cancelled'
+    release.set()
+    for _ in range(100):
+        result=s.get(owner,job['id'])
+        if result.get('finished_at'):break
+        time.sleep(.01)
+    assert result['status']=='cancelled'
+
 def test_non_streaming_provider_is_explicit_and_not_retried(monkeypatch):
     requests=configure(monkeypatch,'chat',b'{"choices":[{"message":{"content":"full"}}]}','application/json');seen=[]
     with streaming.capture(lambda phase,text:seen.append((phase,text)),threading.Event()):assert g.generate('fixture',[])=='full'
     assert len(requests)==1 and ('buffered','full') in seen
+
+@pytest.mark.parametrize('protocol,payload',[('chat',{'choices':[{'message':{'content':'partial'},'finish_reason':'length'}]}),('responses',{'status':'incomplete','output_text':'partial'})])
+def test_non_streaming_truncated_result_is_rejected(monkeypatch,protocol,payload):
+    configure(monkeypatch,protocol,json.dumps(payload).encode(),'application/json')
+    with pytest.raises(ValueError,match='未完整输出'):
+        g.generate('fixture',[])
 
 def test_json_stream_only_exposes_user_fields():
     assert streaming.readable('{"reply":"你好\\n世')=='你好\n世'

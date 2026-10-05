@@ -13,6 +13,7 @@
 !/scripts/
 !/build/
 !/vendor/
+!/public/
 !/package.json
 !/package-lock.json
 !/requirements.txt
@@ -47,6 +48,7 @@ __pycache__/
 *.log
 *.out
 *.err
+/build/lib/
 *.zip
 *.exe
 *.dll
@@ -76,6 +78,7 @@ __pycache__/
 # Reviewed Easel runtime subset, not its Git history or agent application.
 /vendor/*
 !/vendor/douyin_downloader/
+!/vendor/writing-skills/
 !/vendor/Easel/
 /vendor/Easel/*
 !/vendor/Easel/LICENSE
@@ -106,3 +109,10 @@ __pycache__/
 !/vendor/Easel/skills/shared/scripts/
 /vendor/Easel/skills/shared/scripts/*
 !/vendor/Easel/skills/shared/scripts/content_guard.py
+
+# Reviewed homepage visuals only; do not publish arbitrary local media.
+/public/*
+!/public/visuals/
+/public/visuals/*
+!/public/visuals/elevator-atrium-v1.png
+!/public/visuals/SOURCE.md

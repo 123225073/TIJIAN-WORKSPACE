@@ -86,14 +86,14 @@ def resource(kind, service, owner='alice'):
 
 def test_seedance_reference_limits_and_draft_round_trip(studio):
     images = [asset(studio)['id'] for _ in range(10)]
-    body = {'tool': 'image_video', 'title': '多参考视频', 'model_id': 'media:segmind-seedance-20',
+    body = {'tool': 'image_video', 'title': '多参考视频', 'model_id': 'media:ark-seedance-20',
             'input': {'prompt': '电梯门开启，保持产品外观', 'image_id': images[0], 'image_ids': images[:9]}, 'options': {}}
     saved = studio.post('/api/studio/drafts', json=body)
     assert saved.status_code == 200, saved.text
     assert saved.json()['input']['image_ids'] == images[:9]
     assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'image_ids': images}}).status_code == 400
     assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'image_ids': [images[0], images[0]]}}).status_code == 400
-    assert studio.post('/api/studio/drafts', json={**body, 'model_id': 'media:segmind-seedance-25', 'input': {**body['input'], 'image_ids': images}}).status_code == 200
+    assert studio.post('/api/studio/drafts', json={**body, 'model_id': 'media:ark-seedance-25', 'input': {**body['input'], 'image_ids': images}}).status_code == 200
     assert studio.post('/api/studio/drafts', headers={'authorization': 'Bearer bob'}, json=body).status_code == 404
 
 
@@ -114,6 +114,8 @@ def test_wavespeed_seedance_and_gpt_image_submit_poll_and_archive(studio, monkey
     monkeypatch.setattr(m,'_request',fake_request)
     monkeypatch.setattr(m,'_download',fake_download)
     media_registry.save_provider({'id':'wavespeed','api_key':'private-test-key'})
+    # Retained legacy adapter remains usable after an explicit administrator re-enable.
+    media_registry.save_model({'id':'wavespeed-seedance-25','published':True})
     s.set_config('bindings',{'image_edit':'media:wavespeed-gpt-image-25-flare-edit','text_video':'media:wavespeed-seedance-25'})
     catalogue=studio.get('/api/studio/catalog').json()['tools']
     assert next(x for x in catalogue if x['id']=='image_edit')['configured']
@@ -367,7 +369,7 @@ def test_aliyun_image_edit_and_retired_i2v_payload(studio, monkeypatch):
     assert payload['input']['messages'][0]['content'][0]['image'].startswith('data:image/png;base64,')
     video = draft(studio, 'image_video', {'prompt': '保持产品结构', 'image_id': picture['id']})
     with pytest.raises(m.StudioError):m._build('alice', video, service)
-    assert studio.post('/api/studio/drafts', json={'tool': 'image_video', 'input': {}, 'options': {'duration': 15}}).status_code == 400
+    assert studio.post('/api/studio/drafts', json={'tool': 'image_video', 'input': {}, 'options': {'duration': 15}}).status_code == 200
 
 
 def test_shotstack_upload_pending_resume_composition(studio, monkeypatch):
@@ -394,10 +396,14 @@ def test_shotstack_upload_pending_resume_composition(studio, monkeypatch):
         return {'success': True, 'response': {'id': 'render-id'}}
 
     monkeypatch.setattr(m, '_request', request)
-    run = submit(studio, draft(studio, 'compose', {'scenes': [{'asset_id': picture['id'], 'length': 5, 'caption': '电梯安全'}]})).json()
-    assert run['status'] == 'preparing' and run['task_id'] is None
+    composition = draft(studio, 'compose', {'scenes': [{'asset_id': picture['id'], 'length': 5, 'caption': '电梯安全'}]})
+    run = submit(studio, composition).json()
+    assert run['status'] == 'interrupted' and run['task_id'] is None
     run = studio.post('/api/studio/runs/' + run['id'] + '/refresh').json()
-    assert run['status'] == 'running' and run['task_id'] == 'render-id'
+    assert run['status'] == 'interrupted' and run['task_id'] is None
+    assert not any(c[1].endswith('/render') for c in calls)
+    resumed = submit(studio, composition, 'confirmed-resume').json()
+    assert resumed['id'] != run['id'] and resumed['status'] == 'running' and resumed['task_id'] == 'render-id'
     assert sum(c[1].endswith('/upload') for c in calls) == 1
     assert sum(c[1].endswith('/render') for c in calls) == 1
 

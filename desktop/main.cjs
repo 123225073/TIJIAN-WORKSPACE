@@ -1,9 +1,10 @@
-const {app,BrowserWindow,dialog,shell,ipcMain}=require('electron');
+const {app,BrowserWindow,clipboard,dialog,shell,ipcMain}=require('electron');
 const {spawn}=require('node:child_process');
 const path=require('node:path');
 const net=require('node:net');
 // An explicit development-test directory keeps acceptance data and locks isolated.
 if(process.env.TIJIAN_DESKTOP_DATA)app.setPath('userData',path.resolve(process.env.TIJIAN_DESKTOP_DATA));
+else if(app.isPackaged)app.setPath('userData',path.join(app.getPath('appData'),'elevator-workbench'));
 let backend,win,base;
 if(!app.requestSingleInstanceLock())app.quit();
 app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
@@ -23,7 +24,7 @@ async function start(){
    await new Promise(r=>setTimeout(r,500));
  }
  if(!ready)throw Error('本地服务启动超时，请稍后重新打开。');
- win=new BrowserWindow({width:1530,height:1000,minWidth:1000,minHeight:700,backgroundColor:'#eef1ed',title:'梯见工作台',autoHideMenuBar:true,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ win=new BrowserWindow({width:1530,height:1000,minWidth:1000,minHeight:700,backgroundColor:'#eef1ed',title:'梯世界工作台',autoHideMenuBar:true,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:\/\//.test(url)&&!url.startsWith(base+'/'))shell.openExternal(url);return {action:'deny'};});
  win.webContents.on('will-navigate',(e,url)=>{if(new URL(url).origin!==base){e.preventDefault();if(/^https?:\/\//.test(url))shell.openExternal(url);}});
  win.webContents.session.setPermissionRequestHandler((wc,permission,callback)=>callback(permission==='clipboard-sanitized-write'));
@@ -34,6 +35,16 @@ async function start(){
  win.once('ready-to-show',()=>win.show());await win.loadURL(base);
 }
 ipcMain.handle('choose-workspace',async event=>{if(event.sender!==win?.webContents)return null;const r=await dialog.showOpenDialog(win,{title:'选择空目录作为工作区',properties:['openDirectory','createDirectory']});return r.canceled?null:r.filePaths[0];});
+ipcMain.handle('clipboard:read-image',event=>{
+ if(event.sender!==win?.webContents)throw Error('无法从此窗口读取剪贴板');
+ const image=clipboard.readImage();
+ if(image.isEmpty())return null;
+ const {width,height}=image.getSize();
+ if(width*height>25_000_000)throw Error('剪贴板图片超过 2500 万像素，请缩小后再粘贴');
+ const png=image.toPNG();
+ if(png.length>50_000_000)throw Error('剪贴板图片超过 50 MB，请缩小后再粘贴');
+ return png.toString('base64');
+});
 require('./weread.cjs')(()=>win,()=>base);
 require('./wechat-body.cjs')(()=>win,()=>base);
 require('./wechat-discovery.cjs')(()=>win,()=>base);
@@ -41,7 +52,7 @@ require('./discovery.cjs')(()=>win,()=>base);
 require('./douyin.cjs')(()=>win,()=>base);
 require('./accounts.cjs')(()=>win,()=>base);
 require('./remember.cjs')(()=>win,()=>base);
-app.whenReady().then(start).catch(e=>{dialog.showErrorBox('梯见启动失败',e.message);app.quit();});
+app.whenReady().then(start).catch(e=>{dialog.showErrorBox('梯世界启动失败',e.message);app.quit();});
 app.on('window-all-closed',()=>app.quit());
 let flushed=false,flushing=false;
 app.on('before-quit',event=>{

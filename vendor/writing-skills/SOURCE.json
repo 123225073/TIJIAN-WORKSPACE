@@ -1,0 +1,27 @@
+{
+  "note": "GitHub commit API unavailable; immutable local snapshots identified by SHA256. Only text methods are used. No install or upstream execution.",
+  "sources": [
+    {
+      "name": "wechat-writing-style",
+      "repository": "https://github.com/yaoleifly/wechat-writing-style",
+      "source_ref": "main",
+      "retrieved_date": "2026-10-05",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "61fad49d5a8a4635830c5989ee211cdb82142225bee425e0e2e7624e03c054b6",
+        "SKILL.md": "2b5003cc62d143cf7ac64fdbacbba03efa507983a351d2d45bd680c56868def7"
+      }
+    },
+    {
+      "name": "humanizer",
+      "repository": "https://github.com/blader/humanizer",
+      "source_ref": "main",
+      "retrieved_date": "2026-10-05",
+      "license": "MIT",
+      "files": {
+        "LICENSE": "4ac4810254ab36d45419141aeb8e69bf50652cfafe5b2dab947d06d44e5cbf96",
+        "SKILL.md": "0612f1dfb1672b0ea9b97e139bf1f06cabe98d8b27424fe8ff01e1fb4cc99cad"
+      }
+    }
+  ]
+}

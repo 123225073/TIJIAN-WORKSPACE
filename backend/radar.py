@@ -1,7 +1,7 @@
 """Source-specific, bounded collection of public leads (never paywalled full text)."""
 import re
 import threading
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from datetime import date
 import httpx
 from bs4 import BeautifulSoup
@@ -61,7 +61,12 @@ def tender(url, keywords):
             region = str(row.get('area') or row.get('province') or '')
             category = str(row.get('chnldesc') or '招标线索')
             body = '\n'.join(x for x in [title, '地区：'+region, '类型：'+category, '采购单位：'+str(row.get('tenderee') or '未公开'), '网站时间标注：'+label, '项目编号（平台）：'+id, '以上为公开搜索线索，完整公告及联系方式需在来源网站查看。'] if x)
-            items[id] = {'external_id':id,'title':title,'url':url,'body':body,'published':published,'date_label':label,'region':region,'category':category,'link_scope':'source_search'}
+            detail = next((row.get(key) for key in ('detailUrl','detail_url','articleUrl','article_url','link','url') if isinstance(row.get(key),str) and row.get(key).strip()), '')
+            detail = urljoin(url,detail) if detail else ''
+            host = urlparse(detail).hostname or ''
+            if host not in ('xcc.bidizhaobiao.com','www.bidizhaobiao.com','bidizhaobiao.com') or detail.rstrip('/') == url.rstrip('/'):
+                detail = ''
+            items[id] = {'external_id':id,'title':title,'url':detail or url,'body':body,'published':published,'date_label':label,'region':region,'category':category,'link_scope':'article' if detail else 'source_search'}
     return {'title':'喜鹊招标 · 公开项目线索','url':url,'type':'tender','items':list(items.values()),'status':'ready' if items else 'no_match','note':'按关键词分别搜索首屏，每词最多15条；仅公开线索，不代表全部公告。完整公告需在来源网站登录查看。','query_counts':counts}
 
 def friendly_error(error):

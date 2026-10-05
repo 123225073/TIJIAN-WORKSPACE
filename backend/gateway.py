@@ -81,7 +81,10 @@ def generate(id,messages,probe=False):
     if not probe and (not m['published'] or not p.get('published',True)):raise ValueError('模型或平台已下架')
     path='responses' if p['protocol']=='responses' else 'chat/completions'
     payload={'model':m['model'],'stream':True,('input' if path=='responses' else 'messages'):messages}
-    target,host,extensions=public_target(endpoint(p,path))
+    try:target,host,extensions=public_target(endpoint(p,path))
+    except ValueError as exc:
+        if '本机、内网或保留地址' in str(exc):raise ValueError('模型服务域名被解析到受限地址，请检查本机网络或代理的 DNS 设置后重试；要求与已有成果已保留') from None
+        raise
     streaming.emit('start')
     text='';complete=False
     with httpx.Client(timeout=httpx.Timeout(240,connect=20),trust_env=False) as client:
@@ -90,6 +93,10 @@ def generate(id,messages,probe=False):
             if 'text/event-stream' not in r.headers.get('content-type',''):
                 # Some compatible providers ignore stream. Report this honestly, once; no duplicate request.
                 r.read();data=r.json()
+                if path=='responses' and (data.get('status')=='incomplete' or data.get('incomplete_details')):
+                    raise ValueError('模型未完整输出，请缩短要求或更换模型；未覆盖已有成果')
+                if path!='responses' and data.get('choices',[{}])[0].get('finish_reason') in ('length','content_filter'):
+                    raise ValueError('模型未完整输出，请缩短要求或更换模型；未覆盖已有成果')
                 text=(data.get('output_text') or '\n'.join(c.get('text','') for o in data.get('output',[]) for c in o.get('content',[]) if c.get('type')=='output_text')) if path=='responses' else data.get('choices',[{}])[0].get('message',{}).get('content','')
                 if isinstance(text,list):text='\n'.join(x.get('text','') for x in text)
                 complete=True;streaming.emit('buffered',text)

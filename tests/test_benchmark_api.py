@@ -1,11 +1,12 @@
 """Isolated contract tests: never call paid services or modify application fixtures."""
 import json
+import time
 import pytest
 import httpx
 from fastapi import FastAPI, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from backend import benchmark_api as b, store as s, gateway as g, capabilities
+from backend import benchmark_api as b, store as s, gateway as g, capabilities, jobs
 
 
 @pytest.fixture
@@ -48,6 +49,20 @@ def client(tmp_path, monkeypatch):
 
 def post(c, route, data):
     return c.post(b.PREFIX + route, json=data)
+
+
+def analysis_result(response, owner='alice'):
+    assert response.status_code == 200, response.text
+    job = response.json()
+    assert job['kind'] == 'job' and job['input']['action'] == 'benchmark_analysis'
+    until = time.monotonic() + 5
+    while time.monotonic() < until:
+        current = s.get(owner, job['id'])
+        if current['status'] not in ('queued', 'running'):
+            assert current['status'] == 'done', current
+            return current['result']
+        time.sleep(.01)
+    pytest.fail('analysis job did not finish')
 
 
 def setup(c, platform='douyin', provider='tikhub'):
@@ -241,7 +256,7 @@ def test_analysis_uses_actual_subset_and_sources_are_owner_scoped(client, monkey
     monkeypatch.setattr(g, 'select', lambda *a, **k: 'text-model')
     monkeypatch.setattr(g, 'generate', lambda model, messages: captured.append(messages) or '测试模型输出')
     monkeypatch.setattr(capabilities, 'snapshot', lambda *a: {'text': '方法', 'metadata': {'hash': 'snapshot'}})
-    result = post(client, '/analyze', {'item_ids': [item['id'], empty['id'], item['id']]}).json()
+    result = analysis_result(post(client, '/analyze', {'item_ids': [item['id'], empty['id'], item['id']]}))
     assert result['sample_count'] == 1 and result['coverage'] == 'partial'
     assert result['text_counts'] == {'article_text': 0, 'published_caption': 1}
     assert result['transcript_count'] == 0
@@ -327,7 +342,7 @@ def test_analysis_separates_obtained_article_from_caption_and_skips_unknown_type
     monkeypatch.setattr(g, 'select', lambda *a, **k: 'text-model')
     monkeypatch.setattr(g, 'generate', lambda model, messages: captured.append(messages) or '测试分析')
     monkeypatch.setattr(capabilities, 'snapshot', lambda *a: {'text': '方法', 'metadata': {}})
-    result = post(client, '/analyze', {'item_ids': [caption['id'], article['id'], unknown['id']]}).json()
+    result = analysis_result(post(client, '/analyze', {'item_ids': [caption['id'], article['id'], unknown['id']]}))
     assert result['sample_count'] == 2 and result['transcript_count'] == 0
     assert result['text_counts'] == {'article_text': 1, 'published_caption': 1}
     samples = json.loads(captured[0][1]['content'].split('\n', 1)[1])
@@ -335,3 +350,71 @@ def test_analysis_separates_obtained_article_from_caption_and_skips_unknown_type
     assert samples[1]['article_text'] == '取得的正文' and 'published_caption' not in samples[1]
     assert '不可作为正文的字段' not in captured[0][1]['content']
     assert post(client, '/analyze', {'item_ids': [unknown['id']]}).status_code == 400
+
+
+def test_analysis_job_returns_before_model_and_prevents_duplicate_calls(client, monkeypatch):
+    account = setup(client)
+    first, _ = b.save_item('alice', account, b.normalize(video('first'), account))
+    second, _ = b.save_item('alice', account, b.normalize(video('second'), account))
+    held, generated = [], []
+    monkeypatch.setattr(jobs.POOL, 'submit', lambda fn: held.append(fn))
+    monkeypatch.setattr(g, 'select', lambda *a, **k: 'text-model')
+    monkeypatch.setattr(g, 'generate', lambda *a: generated.append(1) or '异步分析结果')
+    monkeypatch.setattr(capabilities, 'snapshot', lambda *a: {'text': '方法', 'metadata': {}})
+    data = {'item_ids': [first['id']], 'request_id': 'analysis-request-1'}
+    started = post(client, '/analyze', data)
+    assert started.status_code == 200 and started.json()['status'] == 'queued'
+    assert not generated and len(held) == 1
+    assert post(client, '/analyze', data).json()['id'] == started.json()['id']
+    assert len(held) == 1
+    assert post(client, '/analyze', {'item_ids': [second['id']], 'request_id': 'analysis-request-2'}).status_code == 409
+    assert client.get(b.PREFIX + '/analyze/job').json()['job']['id'] == started.json()['id']
+    client.headers['Authorization'] = 'bob'
+    assert client.get(b.PREFIX + '/analyze/job').json()['job'] is None
+    client.headers['Authorization'] = 'alice'
+    held.pop()()
+    saved = s.get('alice', started.json()['id'])
+    assert saved['status'] == 'done' and saved['result']['body'] == '异步分析结果'
+    assert post(client, '/analyze', data).json()['id'] == saved['id']
+    assert post(client, '/analyze', {'item_ids': [second['id']], 'request_id': data['request_id']}).status_code == 409
+    assert len(generated) == 1 and not held
+
+
+def test_analysis_job_failure_is_recoverable_without_provider_error_leak(client, monkeypatch):
+    account = setup(client)
+    item, _ = b.save_item('alice', account, b.normalize(video(), account))
+    held = []
+    monkeypatch.setattr(jobs.POOL, 'submit', lambda fn: held.append(fn))
+    monkeypatch.setattr(g, 'select', lambda *a, **k: 'text-model')
+    monkeypatch.setattr(g, 'generate', lambda *a: (_ for _ in ()).throw(ValueError('secret-value')))
+    monkeypatch.setattr(capabilities, 'snapshot', lambda *a: {'text': '方法', 'metadata': {}})
+    data = {'item_ids': [item['id']], 'request_id': 'analysis-request-fail'}
+    started = post(client, '/analyze', data).json()
+    held.pop()()
+    failed = client.get(b.PREFIX + '/analyze/job').json()['job']
+    assert failed['id'] == started['id'] and failed['status'] == 'failed'
+    assert 'secret-value' not in failed['error']
+    assert not s.list_('alice', 'benchmark_api_analysis')
+    assert post(client, '/analyze', data).json()['id'] == started['id']
+    assert not held
+
+
+def test_cancelled_analysis_blocks_new_call_until_worker_exits(client, monkeypatch):
+    account = setup(client)
+    first, _ = b.save_item('alice', account, b.normalize(video('first'), account))
+    second, _ = b.save_item('alice', account, b.normalize(video('second'), account))
+    held = []
+    monkeypatch.setattr(jobs.POOL, 'submit', lambda fn: held.append(fn))
+    monkeypatch.setattr(g, 'select', lambda *a, **k: 'text-model')
+    monkeypatch.setattr(capabilities, 'snapshot', lambda *a: {'text': '方法', 'metadata': {}})
+    generated = []
+    monkeypatch.setattr(g, 'generate', lambda *a: generated.append(1) or '再次分析')
+    started = post(client, '/analyze', {'item_ids': [first['id']]}).json()
+    jobs.cancel('alice', started['id'])
+    assert post(client, '/analyze', {'item_ids': [second['id']]}).status_code == 409
+    held.pop()()
+    assert s.get('alice', started['id'])['status'] == 'cancelled'
+    assert not generated
+    assert post(client, '/analyze', {'item_ids': [second['id']]}).status_code == 200
+    held.pop()()
+    assert len(generated) == 1

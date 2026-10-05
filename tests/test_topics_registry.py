@@ -4,8 +4,17 @@ import threading
 import time
 from fastapi.testclient import TestClient
 
-from backend import gateway, media_studio, resources, store as s
+from backend import gateway, media_studio, resources, store as s, topics
 from backend.app import app, ATTEMPTS
+
+
+def test_ai_delivery_keeps_existing_inline_images():
+    picture = 'a' * 32
+    tag = f'![现场照片](/api/studio/assets/{picture}/file)'
+    body = topics._keep_inline_images('开场\n\n' + tag + '\n\n解释', '新开场\n\n新解释')
+    assert body.count(tag) == 1
+    assert body.index(tag) < body.index('新解释')
+    assert topics._keep_inline_images('开场\n\n' + tag, '新开场\n\n' + tag) == '新开场\n\n' + tag
 
 
 @pytest.fixture
@@ -24,7 +33,8 @@ def client(tmp_path, monkeypatch):
 
 def test_media_registry_encryption_classification_and_immediate_revocation(client):
     initial = client.get('/api/admin/media-registry').json()
-    assert {m['family'] for m in initial['models'] if m['category'] == 'AI 视频'} == {'seedance-2.0', 'seedance-2.5'}
+    assert {m['family'] for m in initial['models'] if m['category'] == 'AI 视频'} == {'seedance-2.0', 'seedance-2.5', 'seedance-2.0-fast', 'seedance-2.0-mini'}
+    assert all(not m['published'] for m in initial['models'] if m['category'] == 'AI 视频' and m['provider_id'] != 'ark')
     assert 'wan' not in client.get('/api/studio/catalog').text.lower()
     saved = client.post('/api/admin/media-registry/providers', json={'id': 'segmind', 'api_key': 'secret-never-public'})
     assert saved.status_code == 200, saved.text
@@ -36,6 +46,7 @@ def test_media_registry_encryption_classification_and_immediate_revocation(clien
     assert client.post('/api/admin/media-registry/providers', json={'id': 'segmind', 'api_key': 123}).status_code == 400
     assert client.post('/api/admin/media-registry/models', json={'id': 'segmind-seedance-20', 'tools': [{}]}).status_code == 400
     assert client.post('/api/admin/bindings', json={'text_video': 'service:aliyun'}).status_code == 400
+    assert client.post('/api/admin/media-registry/models', json={'id': 'segmind-seedance-20', 'published': True}).status_code == 200
     assert client.post('/api/admin/bindings', json={'text_video': 'media:segmind-seedance-20'}).status_code == 200
     before = next(x for x in client.get('/api/studio/catalog').json()['tools'] if x['id'] == 'text_video')
     assert not before['configured'] and any(m['id'] == 'media:segmind-seedance-20' for m in before['models'])
@@ -77,6 +88,11 @@ def test_topic_delivery_persistence_versions_and_tenant_boundary(client):
     assert client.post('/api/studio/deliveries/' + delivery['id'] + '/generate', json={'version': 2}).status_code == 400
     assert client.get('/api/studio/topics').json()['items'][0]['delivery_count'] == 2
     assert next(x for x in client.get('/api/studio/deliveries?topic_id=' + topic['id']).json()['items'] if x['id'] == delivery['id'])['body'] == '需要人工核对'
+    assert delivery['bundle_order'] == ['title', 'copy', 'cover', 'video']
+    assert client.patch('/api/studio/deliveries/' + delivery['id'], json={'version': 2, 'bundle_order': ['title', 'title'], 'bundle_hidden': []}).status_code == 400
+    reordered = client.patch('/api/studio/deliveries/' + delivery['id'], json={'version': 2, 'bundle_order': ['cover', 'title', 'copy', 'video'], 'bundle_hidden': ['copy']}).json()
+    assert reordered['bundle_order'] == ['cover', 'title', 'copy', 'video'] and reordered['bundle_hidden'] == ['copy']
+    assert next(x for x in client.get('/api/studio/deliveries?topic_id=' + topic['id']).json()['items'] if x['id'] == delivery['id'])['bundle_hidden'] == ['copy']
     archived = client.post('/api/studio/topics/' + topic['id'] + '/archive')
     assert archived.status_code == 200
     assert client.get('/api/studio/topics').json()['items'] == []
@@ -92,6 +108,55 @@ def test_topic_delivery_persistence_versions_and_tenant_boundary(client):
     assert client.get('/api/studio/topics').json()['items'] == []
     assert client.post('/api/studio/deliveries', json={'topic_id': topic['id'], 'platform': 'wechat'}).status_code == 404
     assert client.patch('/api/studio/deliveries/' + delivery['id'], json={'version': 2, 'body': '越权'}).status_code == 404
+
+
+def test_topic_batch_archive_soft_delete_restore_preserves_references_and_history(client):
+    owner = client.get('/api/state').json()['user']['id']
+    first = client.post('/api/studio/topics', json={'title': '既有发布稿选题'}).json()
+    second = client.post('/api/studio/topics', json={'title': '单独选题'}).json()
+    delivery = client.post('/api/studio/deliveries', json={'topic_id': first['id'], 'platform': 'wechat'}).json()
+    ids = [{'id': first['id'], 'version': first['version']}, {'id': second['id'], 'version': second['version']}]
+    batch = '/api/studio/topics/batch'
+    assert client.post(batch, json={'action': 'delete', 'items': [ids[0], ids[0]]}).status_code == 400
+    assert client.post(batch, json={'action': 'delete', 'items': [ids[0], {'id': second['id'], 'version': 99}]}).status_code == 409
+    assert not s.get(owner, first['id']).get('deleted') and not s.get(owner, second['id']).get('deleted')
+    archived = client.post(batch, json={'action': 'archive', 'items': ids})
+    assert archived.status_code == 200, archived.text
+    assert client.get('/api/studio/topics').json()['items'] == []
+    assert {x['id'] for x in client.get('/api/studio/topics?include_archived=true').json()['items']} == {first['id'], second['id']}
+    archived_ids = [{'id': x['id'], 'version': x['version']} for x in archived.json()['items']]
+    deleted = client.post(batch, json={'action': 'delete', 'items': archived_ids})
+    assert deleted.status_code == 200, deleted.text
+    assert client.get('/api/studio/topics?include_archived=true').json()['items'] == []
+    recycled = client.get('/api/studio/topics?include_deleted=true').json()['items']
+    assert {x['id'] for x in recycled} == {first['id'], second['id']}
+    assert next(x for x in recycled if x['id'] == first['id'])['delivery_count'] == 1
+    assert s.get(owner, delivery['id'])['topic_id'] == first['id']
+    assert len(s.versions(owner, first['id'])) == 2
+    assert client.post('/api/studio/deliveries', json={'topic_id': first['id'], 'platform': 'douyin'}).status_code == 404
+    assert client.patch('/api/studio/topics/' + first['id'], json={'version': 3, 'title': '禁止编辑回收区'}).status_code == 404
+    restored = client.post(batch, json={'action': 'restore', 'items': [{'id': x['id'], 'version': x['version']} for x in recycled]})
+    assert restored.status_code == 200, restored.text
+    assert {x['id'] for x in client.get('/api/studio/topics').json()['items']} == {first['id'], second['id']}
+    assert not s.get(owner, first['id'])['deleted'] and not s.get(owner, first['id'])['archived']
+    assert client.get('/api/studio/deliveries?topic_id=' + first['id']).json()['items'][0]['id'] == delivery['id']
+
+
+def test_topic_batch_rejects_foreign_and_wrong_kind_without_partial_change(client):
+    owner = client.get('/api/state').json()['user']['id']
+    own = client.post('/api/studio/topics', json={'title': '本账号选题'}).json()
+    source = client.post('/api/objects/source', json={'title': '原始资料', 'body': '内容'}).json()
+    batch = '/api/studio/topics/batch'
+    valid = {'id': own['id'], 'version': own['version']}
+    assert client.post(batch, json={'action': 'delete', 'items': [valid, {'id': source['id'], 'version': source['version']}]}).status_code == 404
+    assert not s.get(owner, own['id']).get('deleted')
+    other = client.post('/api/admin/users', json={'email': 'topic-other@example.test', 'name': '其他账号', 'password': 'password-12345'})
+    assert other.status_code == 200
+    token = client.post('/api/auth/login', json={'email': 'topic-other@example.test', 'password': 'password-12345'}).json()['token']
+    client.headers['Authorization'] = 'Bearer ' + token
+    assert client.post(batch, json={'action': 'delete', 'items': [valid]}).status_code == 404
+    assert client.get('/api/studio/topics?include_deleted=true').json()['items'] == []
+    assert not s.get(owner, own['id']).get('deleted')
 
 
 def test_ai_topic_and_delivery_jobs_are_idempotent_and_preserve_user_edits(client, monkeypatch):
@@ -123,8 +188,16 @@ def test_ai_topic_and_delivery_jobs_are_idempotent_and_preserve_user_edits(clien
 
     done = finish(first['id'])
     assert done['status'] == 'done', done
+    assert len(s.list_(owner, 'studio_topic')) == 0
+    assert done['result']['suggestions'][0]['title'] == '电梯维保常见疑问'
+    assert client.post('/api/studio/topics/generate/' + first['id'] + '/confirm', json={'items': [{'index': 1}]}).status_code == 400
+    reviewed = {'items': [{'index': 0, 'title': '物业经理关心的维保问题', 'angle': '维保记录'}]}
+    accepted = client.post('/api/studio/topics/generate/' + first['id'] + '/confirm', json=reviewed).json()['items']
+    assert len(accepted) == 1 and accepted[0]['title'] == '物业经理关心的维保问题'
+    assert accepted[0]['source_ids'] == [source['id']]
+    assert client.post('/api/studio/topics/generate/' + first['id'] + '/confirm', json=reviewed).json()['items'][0]['id'] == accepted[0]['id']
     assert len(s.list_(owner, 'studio_topic')) == 1
-    topic_id = done['result']['topic_ids'][0]
+    topic_id = accepted[0]['id']
     delivery = client.post('/api/studio/deliveries', json={'topic_id': topic_id, 'platform': 'wechat'}).json()
     job = client.post('/api/studio/deliveries/' + delivery['id'] + '/generate', json={'version': 1}).json()
     assert client.post('/api/studio/deliveries/' + delivery['id'] + '/generate', json={'version': 1}).json()['id'] == job['id']

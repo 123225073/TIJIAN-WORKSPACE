@@ -21,7 +21,7 @@ def readable(text):
     if not raw.startswith(('{','```json')):return text
     # Decode completed or partial JSON strings for user-facing fields only.
     result=[]
-    for m in re.finditer(r'"(reply|title|position|audience|style|views|body|summary)"\s*:\s*"',text):
+    for m in re.finditer(r'"(reply|title|position|audience|style|views|body|summary|cover_brief|keywords|publishing_notes)"\s*:\s*"',text):
         value=text[m.end():];end=re.search(r'(?<!\\)(?:\\\\)*"',value)
         value=value[:end.start()] if end else value
         for trim in range(min(7,len(value))+1):

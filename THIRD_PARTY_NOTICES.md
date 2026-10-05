@@ -1,5 +1,12 @@
 # 第三方来源与许可
 
+## 公众号写作与去 AI 味方法（2026-10-05）
+
+- 写作来源：[yaoleifly/wechat-writing-style](https://github.com/yaoleifly/wechat-writing-style)，MIT，Copyright 2026 yaoleifly。原始方法和完整许可保存在 `vendor/writing-skills/wechat-writing-style/`。
+- 去 AI 味来源：[blader/humanizer](https://github.com/blader/humanizer)，MIT，Copyright 2025 Siqi Chen。原始方法和完整许可保存在 `vendor/writing-skills/humanizer/`。
+- 实际使用：只加载经过审阅的文本方法。公众号方法按电梯行业适配，去掉上游金融主题、固定免责声明及强制第一人称要求；Humanizer 使用中文嵌入模式，要求保留事实、数字和作者立场。
+- 不执行上游命令、脚本、安装器或发布工具。快照下载日期、来源与每个文件的 SHA256 见 `vendor/writing-skills/SOURCE.json`；本次 GitHub 提交查询不可用，因此不伪造提交号。
+
 本项目没有因上传公开 GitHub 仓库而自动选择整体开源许可证。项目自身源码的进一步授权由权利人决定；以下第三方文件按各自原有许可提供，不能将上游许可扩大解释为本项目全部文件的许可。
 
 ## Easel

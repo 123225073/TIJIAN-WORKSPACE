@@ -47,8 +47,8 @@ def register(app,user,error):
     def open_task(data:dict,u=Depends(user)):
         text=str(data.get('title','')).strip()
         if not text:error(400,'请输入目标')
-        mode=data.get('mode') or 'auto';mode=infer(text) if mode=='auto' else mode
-        if mode not in DEFAULTS:error(400,'工作类型无效')
+        mode=data.get('mode') or 'auto'
+        if mode not in {*DEFAULTS,'auto'}:error(400,'工作类型无效')
         refs=data.get('source_ids',[]);jobs.contextual_ids(u['id'],refs,data.get('profile_id'))
         scope=library.normalize_scope(u['id'],data.get('reference_scope'),refs)
         with s.LOCK:

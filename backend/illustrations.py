@@ -7,10 +7,13 @@ from fastapi import Depends, UploadFile, File
 from . import store as s, gateway as g, jobs, network
 
 LIMIT=8_000_000
+INPUT_LIMIT=50_000_000
+OUTPUT_LIMIT=50_000_000
+RESPONSE_LIMIT=72_000_000
 PATTERN=re.compile(r'/api/illustrations/([a-f0-9]{32})/file')
 
 def image_uri(raw):
-    if not raw or len(raw)>LIMIT:raise ValueError('图片为空或超过8MB，请使用较小图片')
+    if not raw or len(raw)>INPUT_LIMIT:raise ValueError('图片为空或超过50MB，请使用较小图片')
     try:
         with Image.open(io.BytesIO(raw)) as im:
             if im.width*im.height>25_000_000 or im.format not in ['PNG','JPEG','WEBP']:raise ValueError()
@@ -28,7 +31,7 @@ def fetch_image(url):
                 raw=bytearray()
                 for chunk in response.iter_bytes():
                     raw.extend(chunk)
-                    if len(raw)>LIMIT:raise ValueError('图片超过8MB')
+                    if len(raw)>OUTPUT_LIMIT:raise ValueError('图片超过50MB')
                 return bytes(raw)
     raise ValueError('图片下载重定向过多')
 
@@ -42,16 +45,22 @@ def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=No
     m,p=g.model_record(model)
     if m['capability']!='image' or (not probe and not (m.get('published') and p.get('published',True))):raise ValueError('请选择已上架的生图模型及平台')
     if size not in sizes(model):raise ValueError('图片尺寸无效')
-    if quality not in (None,'auto','low','medium','high'):raise ValueError('图片质量无效')
-    if reference:image_uri(reference)
+    allowed_quality = (None,'auto','low','medium','high','xhigh','max') if m['model'].startswith('gpt-image-2.5') else (None,'auto','low','medium','high')
+    if quality not in allowed_quality:raise ValueError('图片质量无效')
+    references = reference if isinstance(reference, list) else [reference] if reference else []
+    if len(references) > 16:raise ValueError('参考图片最多16张')
+    for item in references:image_uri(item)
     target,host,extensions=network.public_target(g.endpoint(p,'images/edits' if reference else 'images/generations'))
     payload={'model':m['model'],'prompt':prompt,'n':1,'size':size}
     if quality:payload['quality']=quality
     request_headers={**g.headers(p),**host}
-    if reference:
+    if references:
         request_headers.pop('Content-Type',None)
-        mime=image_uri(reference).split(';')[0].split(':')[1]
-        request={'data':{k:str(v) for k,v in payload.items()},'files':{'image':('reference.'+mime.split('/')[1],reference,mime)}}
+        files=[]
+        for index,item in enumerate(references):
+            mime=image_uri(item).split(';')[0].split(':')[1]
+            files.append(('image[]' if len(references)>1 else 'image',('reference-'+str(index)+'.'+mime.split('/')[1],item,mime)))
+        request={'data':{k:str(v) for k,v in payload.items()},'files':files if len(files)>1 else {'image':files[0][1]}}
     else:request={'json':payload}
     with httpx.Client(timeout=httpx.Timeout(300,connect=20),trust_env=False) as client:
         with client.stream('POST',target,headers=request_headers,extensions=extensions,**request) as response:
@@ -59,7 +68,7 @@ def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=No
             raw=bytearray()
             for chunk in response.iter_bytes():
                 raw.extend(chunk)
-                if len(raw)>LIMIT*2:raise ValueError('生图响应超过上限')
+                if len(raw)>RESPONSE_LIMIT:raise ValueError('生图响应超过上限')
     import json
     try:entry=json.loads(raw).get('data',[])[0]
     except (ValueError,IndexError,TypeError):raise ValueError('服务没有返回图片')
@@ -75,7 +84,12 @@ def expanded(owner,body):
         obj=s.get(owner,match[1])
         if obj['kind']!='illustration' or obj.get('archived'):raise ValueError('配图不可用，请检查后再导出')
         return obj['data_uri']
-    return PATTERN.sub(replace,body)
+    output=PATTERN.sub(replace,body)
+    from . import media_studio
+    def asset_image(match):
+        asset=media_studio._asset(owner,match[1],'image','text_image')
+        return image_uri(media_studio._path(owner,asset['local_file']).read_bytes())
+    return re.sub(r'/api/studio/assets/([0-9a-f]{32}(?:[0-9a-f]{32})?)/file',asset_image,output)
 
 def register(app,user,error):
     def content(owner,id):

@@ -14,6 +14,17 @@ def scope(owner, **kw):
     return library.normalize_scope(owner,{'mode':'selected','modules':[],'folder_ids':[],'item_ids':[],'excluded_ids':[],**kw})
 
 
+def test_simple_chat_scope_uses_only_core_libraries_and_selected_identity(client):
+    owner=account(client)['user']['id']
+    assert library.DEFAULT_SCOPE['modules']==['source','wiki','topics']
+    assert not retrieval.needs_knowledge('你好！')
+    assert retrieval.needs_knowledge('旧电梯更新需要什么资料？')
+    source(client,'旧电梯档案','旧电梯更新需要检验记录。')
+    selected=client.post('/api/studio/topics',json={'title':'旧电梯更新选题','angle':'说明旧电梯更新准备','source_ids':[]}).json()
+    assert selected['id'] in [x['id'] for x in retrieval.retrieve(owner,'旧电梯更新选题',library.normalize_scope(owner))['excerpts']]
+    assert all(x['kind'] in {'source','knowledge','studio_topic','plan'} for x in library.candidates(owner,library.normalize_scope(owner)))
+
+
 def test_original_needs_no_confirmation_and_long_tail_is_retrieved(client):
     owner=account(client)['user']['id']
     obj=source(client,body='例行保养记录。'*4000+'\n设备密钥编号并非真实凭据，验收代号是紫铜海豚392。')

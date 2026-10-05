@@ -3,4 +3,16 @@
 .mw-pane-resizer{position:relative;cursor:col-resize;touch-action:none;border-radius:6px}
 .mw-pane-resizer:after{content:'';position:absolute;left:3px;top:38%;height:88px;width:2px;background:#9db8a8;border-radius:4px}
 .mw-pane-resizer:hover,.mw-pane-resizer:focus-visible{background:#e1efe4}
-@media(max-width:850px){.media-workbench.studio-v2{grid-template-columns:1fr;height:auto;min-height:0}.mw-pane-resizer{display:none}.mw-panel{min-height:500px}.mw-results{min-height:420px}}
+.media-workbench.studio-v2.image-workbench{grid-template-rows:auto minmax(0,1fr);gap:10px 8px}
+.media-workbench.image-workbench .mw-mode-bar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:8px 12px;border:1px solid #d8e6da;border-radius:13px;background:#fff;box-shadow:0 3px 14px #18382609}
+.mw-mode-switch{display:flex;gap:3px;padding:3px;background:#edf3ed;border-radius:9px}
+.mw-mode-switch a{min-width:112px;padding:8px 16px;border-radius:7px;color:#65806d;font-size:13px;font-weight:700;text-align:center;text-decoration:none}
+.mw-mode-switch a[aria-current=page]{background:#087856;color:#fff;box-shadow:0 2px 8px #08785628}
+.media-workbench .mw-mode-parameters{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid #b8d5c3;border-radius:8px;background:#f3faf5;color:#116447;font-size:12px;font-weight:700;cursor:pointer}
+.media-workbench.image-workbench .mw-panel,.media-workbench.image-workbench .mw-pane-resizer,.media-workbench.image-workbench .mw-results{grid-row:2}
+.media-workbench.image-workbench .mw-results{overflow:auto}
+.media-workbench.studio-v2.image-edit-mode{grid-template-columns:minmax(0,1fr);min-height:0}
+.media-workbench.image-edit-mode .mw-panel,.media-workbench.image-edit-mode .mw-pane-resizer{display:none}
+.media-workbench.image-edit-mode .mw-results{grid-column:1;grid-row:2;overflow:hidden;padding-right:0}
+.media-workbench.image-edit-mode .mw-results-heading,.media-workbench.image-edit-mode .mw-history,.media-workbench.image-edit-mode .mw-video-strip{display:none}
+@media(max-width:850px){.media-workbench.studio-v2{grid-template-columns:1fr;height:auto;min-height:0}.mw-pane-resizer{display:none}.mw-panel{min-height:500px}.mw-results{min-height:420px}.media-workbench.image-edit-mode .mw-results{overflow:visible}.media-workbench.image-workbench .mw-mode-bar{flex-wrap:wrap}}

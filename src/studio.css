@@ -68,6 +68,7 @@
 .st-workspace:has(.md-expanded)>.st-preview {position:static}
 .studio-v2 .st-output:has(.article-editor) {padding:0}
 .st-output:has(.article-editor)>.st-inline,.st-output:has(.article-editor)>.st-output-footer {padding:12px 20px}
+.studio-v2 .st-output-actions{display:inline-flex;align-items:center;gap:7px;margin-left:auto}.studio-v2 .st-output-footer:has(.st-output-actions){justify-content:flex-start}.mw-result-card .st-output-footer{flex-wrap:wrap}
 .studio-v2:has(.md-expanded) > .st-header {display:none}
 .st-preview:has(.md-expanded) > .st-panel-head,.st-preview:has(.md-expanded) > .st-version-note {display:none}
 .studio-v2:has(.ka-page)>.st-header{display:none}
@@ -76,3 +77,6 @@
 .st-library-tabs a[aria-current="page"]{color:#087b58;border-color:#087b58}
 .st-library-tabs span{font-size:11px;border-radius:10px;background:#edf5ef;padding:2px 6px;color:#5c866d}
 .st-about{max-width:920px;margin:auto;padding:10px 0 50px}
+.st-flow-context{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 16px;padding:12px 16px;border:1px solid #cfe3d4;border-radius:10px;background:#edf6ee;color:#365e48;font-size:12px;font-weight:600}.st-flow-context span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.st-flow-context b{color:#85a995;padding:0 6px}.st-flow-context button{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;background:#087b58;color:#fff;border:1px solid #087b58;font-size:12px}.studio-v2 .st-return{width:100%;text-align:left;border:0;color:#087b58;cursor:pointer}.st-flow-context button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:700px){.st-flow-context{align-items:stretch;flex-direction:column}.st-flow-context span{white-space:normal}.st-flow-context button{justify-content:center}}
+.st-flow-context{background:linear-gradient(100deg,#e9f5eb,#fff6df);border-color:#d8c586;border-left:4px solid #bc8129;box-shadow:0 2px 11px #375b3612}.st-flow-context button{background:#174e40;border-color:#174e40;color:#fff;font-weight:800;box-shadow:0 3px 0 #bc8129,0 7px 16px #174e4030}.st-flow-context button:hover{background:#0a7050;border-color:#0a7050;transform:translateY(-1px)}.st-flow-context button:focus-visible{outline:3px solid #e4a441;outline-offset:3px}
+.st-operating{display:inline-flex;align-items:center;gap:6px;color:#0c7355;font-size:12px;font-weight:650;padding:7px 10px;background:#eaf5ec;border:1px solid #cde6d4;border-radius:6px}

@@ -6,6 +6,7 @@ from . import store as s
 MODULES = {
     'source': ('原始资料库', ['source']),
     'wiki': ('Wiki 知识库', ['knowledge']),
+    'topics': ('选题库', ['studio_topic', 'plan']),
     'memory': ('个人记忆', ['memory']),
     'conversation': ('历史对话', ['task']),
     'content': ('作品与选题', ['content', 'plan']),
@@ -15,7 +16,7 @@ MODULES = {
     'review': ('发布与复盘', ['publication', 'metric', 'feedback']),
 }
 KINDS = {kind for _, kinds in MODULES.values() for kind in kinds}
-DEFAULT_SCOPE = {'mode': 'auto', 'modules': ['source', 'wiki', 'memory'], 'folder_ids': [], 'item_ids': [], 'excluded_ids': []}
+DEFAULT_SCOPE = {'mode': 'auto', 'modules': ['source', 'wiki', 'topics'], 'folder_ids': [], 'item_ids': [], 'excluded_ids': []}
 
 
 def fingerprint(obj):

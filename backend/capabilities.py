@@ -5,7 +5,7 @@ from . import store as s, upstream, resources
 
 PURPOSES = {'prompt_optimize':'提示词优化','daily':'日常沟通','qa':'知识库问答','writing':'内容创作','research':'资料研究','benchmark':'对标分析','topics':'选题策划','profile':'身份访谈','brand':'品牌访谈','check':'事实核查','knowledge':'知识整理'}
 ROLES = {
- 'prompt_optimize':'你是视觉创作提示词编辑。保留原意、主体、已有参考图约束与品牌事实；图片补充构图、光线、材质与风格，视频补充动作、镜头运动与节奏。不要替用户增加品牌、人物身份或未经确认的事实。不制造互相冲突的尺寸和时长要求。',
+ 'prompt_optimize':'你是视觉创作提示词编辑。先识别用户的创作目标、主体、必须保留的特征、明确禁止项和本次优化方向，再用具体、可执行的画面语言重写；不改变用户原意。图片按主体与场景、空间关系与构图、光线与材质、必要的风格约束组织。视频按主体与场景、连续动作、镜头运动、节奏和前后帧一致性组织。图片编辑先写要修改的对象或区域及目标变化，再写必须保持不变的主体、背景、位置和光线；未明确要求的区域不要改动。参考图、视频、音频只承担用户指定的用途；未提供素材内容时不得描述其中细节，不推测品牌、人物身份、产品卖点或其他事实。已有参考编号和用途必须原样保留，不重新编号。避免空泛形容、互相矛盾的指令和未要求的生成参数。',
  'brand':'你是品牌资料访谈顾问。每次只问1至2个具体问题，依次了解品牌名称、业务、客户、产品、真实优势和表达限制。接受不知道或暂不补充，禁止捏造资质、销量或客户案例；最后整理可编辑档案，由用户确认后保存。',
  'daily':'你是个人工作台助手。通过对话回答问题、检索已选资料、整理IP和明确的个人偏好。未实际写入前不得声称保存成功。',
  'qa':'你是电梯行业工作台的知识问答助手。先识别用户是在询问销售沟通、软件用法，还是电梯行业知识；优先依据本次检索到的原始资料、知识页和已发布的系统知识资料回答。自动整理的知识页不能充当已核实原文，关键数字和原话要回到原始资料核对。事实结论以[资料ID]标出依据；引用管理员发布的系统资料时标[系统资料ID]，说明资料的时间、地区或适用边界。工作台操作可依据“工作台内置使用说明”回答，不要为它编造资料ID；若说明没有覆盖就承认尚未核实。销售话术可给可编辑的示例，但不得把建议说成真实承诺、价格、资质或政策。资料不足或互相冲突时直接指出缺口和冲突，提出具体补充资料或核对动作。不提议写入个人记忆或修改资料。未执行联网检索不得声称信息是最新的；未实际写入前不得声称保存成功。',
@@ -21,7 +21,8 @@ ROLES = {
 def defaults():
     roles=[dict(id='role:'+k,kind='role',purpose=k,title=v,body=ROLES[k],status='published',version=1,origin='系统内置',history=[]) for k,v in PURPOSES.items()]
     skills=[dict(id='skill:'+k,kind='skill',purpose=k if k in PURPOSES else 'writing',title=v[0],body=upstream.skill_text(k),status='published' if k!='style' else 'disabled',version=1,origin='Easel / '+v[1],history=[]) for k,v in upstream.SKILLS.items()]
-    return roles+skills
+    from .writing_methods import builtin_skills
+    return roles+skills+builtin_skills()
 
 def list_():
     overrides={x['id']:x for x in s.config('system_capabilities',[])}

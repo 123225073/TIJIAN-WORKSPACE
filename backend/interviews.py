@@ -8,21 +8,34 @@ FIELDS={'brand':BRAND_FIELDS,'profile':PROFILE_FIELDS-{'brand_id'}}
 
 def register(app,user):
     @app.get('/api/studio/flow')
-    def flow_read(u=Depends(user)):
+    def flow_read(work_id:str='',u=Depends(user)):
+        if work_id:
+            row=owned(u['id'],work_id,'studio_flow')
+            return row
         rows=s.list_(u['id'],'studio_flow')
         return rows[0] if rows else {'version':0}
+
+    @app.get('/api/studio/flows')
+    def flow_list(u=Depends(user)):
+        return {'items':s.list_(u['id'],'studio_flow')}
 
     @app.post('/api/studio/flow')
     def flow_save(data:dict,u=Depends(user)):
         with s.LOCK:
-            rows=s.list_(u['id'],'studio_flow');old=rows[0] if rows else None
+            creating=data.get('new') is True
+            old=None if creating else (owned(u['id'],data['id'],'studio_flow') if data.get('id') else next(iter(s.list_(u['id'],'studio_flow')),None))
             if data.get('version')!=(old['version'] if old else 0):raise s.Conflict('创作主题已在其他页面更新，请刷新后重试')
-            fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','audio_id','brief','last_draft','topic_id','stage','tool_path','platform'})
+            fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','cover_id','video_id','audio_id','brief','last_draft','last_draft_tool','topic_id','stage','tool_path','platform','assembled'})
             if fields.get('stage','0') not in {'0','1','2','3','4'}:raise ValueError('创作步骤无效')
             if fields.get('tool_path','text') not in {'text','image','video','avatar/text','audio/tts','compose'}:raise ValueError('创作工具无效')
+            if fields.get('last_draft_tool') and fields['last_draft_tool'] not in {'text','image','video','avatar/text','audio/tts','compose'}:raise ValueError('草稿工具无效')
+            if fields.get('last_draft') and fields.get('last_draft_tool'):
+                owned(u['id'],fields['last_draft'],'studio_text_draft' if fields['last_draft_tool']=='text' else 'studio_draft')
             if fields.get('platform','wechat') not in {'wechat','channels','douyin'}:raise ValueError('交付平台无效')
-            for key,kind in [('brand_id','studio_brand'),('profile_id','profile'),('content_id','content'),('visual_id','studio_asset'),('audio_id','studio_asset'),('topic_id','studio_topic')]:
+            for key,kind in [('brand_id','studio_brand'),('profile_id','profile'),('content_id','content'),('visual_id','studio_asset'),('cover_id','studio_asset'),('video_id','studio_asset'),('audio_id','studio_asset'),('topic_id','studio_topic')]:
                 if fields.get(key):owned(u['id'],fields[key],kind)
+            for key,asset_type in [('cover_id','image'),('video_id','video'),('audio_id','audio')]:
+                if fields.get(key) and owned(u['id'],fields[key],'studio_asset').get('asset_type')!=asset_type:raise ValueError('所选'+asset_type+'素材类型不正确')
             return s.put(u['id'],'studio_flow',fields,old['id'] if old else None,expected=old['version'] if old else None)
 
     @app.get('/api/studio/interviews')
