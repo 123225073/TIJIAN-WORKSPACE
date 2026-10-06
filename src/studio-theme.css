@@ -381,6 +381,20 @@
 .ts-theme .tlc-search {background:#fff;border-color:#cbd7e6;color:#536278}
 .ts-theme .tlc-search input {background:transparent;color:var(--ts-text);border:0;font-size:13px}
 .ts-theme .tlc-search input::placeholder {color:#65738a}
+.ts-theme .td-page .tlc-search input {height:38px;min-height:0;flex:1;width:0;padding:0;border:0;border-radius:0;outline:none;box-shadow:none;background:transparent;line-height:38px;font-size:13px}
+.ts-theme .td-page .tlc-search input:focus {border:0;outline:none;box-shadow:none}
+.ts-theme .tlc-search:focus-within {border-color:#245bcc;box-shadow:0 0 0 3px #245bcc16}
+.ts-theme .tlc-search input::-webkit-search-cancel-button {appearance:none}
+.ts-theme .tlc-search .tlc-clear-search {flex-shrink:0;width:24px;height:24px;min-height:24px;padding:0;border:0;background:transparent;color:#536278;border-radius:4px}
+.ts-theme .tlc-toolbar {padding:14px 18px;gap:12px}
+.ts-theme .tlc-toolbar .tlc-views {height:40px;padding:3px;align-items:center}
+.ts-theme .tlc-toolbar .tlc-views button {height:32px;min-height:32px;padding:4px 11px;white-space:nowrap;line-height:22px}
+.ts-theme .tlc-toolbar .tlc-add {height:40px;min-height:40px;flex-shrink:0;padding:8px 13px;line-height:22px}
+.ts-theme .tlc-batch {min-height:46px;padding:8px 18px;gap:8px}
+.ts-theme .tlc-batch button {min-height:30px;padding:4px 9px;font-size:12px}
+.ts-theme .td-page:has(.tlc) .td-head {margin-bottom:18px}
+.ts-theme .td-page:has(.tlc) .td-head h1 {font-size:26px;line-height:1.4;letter-spacing:0;margin:5px 0 7px}
+.ts-theme .td-page:has(.tlc) .td-head p {font-size:13px;line-height:1.7}
 .ts-theme .tlc-views {background:#eaf0f7;border:1px solid #d4dde8}
 .ts-theme .tlc-views button {color:#445670;background:transparent;font-size:13px}
 .ts-theme .tlc-views button.is-active {color:#17479d;background:#fff;border:1px solid #b6c9e8;box-shadow:0 2px 5px #23436910}
@@ -393,6 +407,13 @@
 .ts-theme .tlc-table td strong {color:#18263a;font-size:13px;font-weight:650}
 .ts-theme .tlc-table td small {color:#536278;font-size:12px;line-height:1.6}
 .ts-theme .tlc-table td.tlc-rationale {color:#536278}
+.ts-theme .tlc-table td {padding:12px 10px}
+.ts-theme .tlc-next {color:#344960;background:#f3f5f8;border-color:#d4dde8}
+.ts-theme .tlc-next[data-action=create],.ts-theme .tlc-next[data-action=rework] {color:#17479d;background:#eef3ff;border-color:#c7d6ef}
+.ts-theme .tlc-next[data-action=done] {color:#176342;background:#eaf5ee;border-color:#bbd8c9}
+.ts-theme .tlc-next[data-action=hold] {color:#785714;background:#fff5df;border-color:#e7d3a5}
+.ts-theme .tlc-table tbody tr:has(.tlc-check input:checked) .tlc-next {color:#203c68;background:#fff;border-color:#a8bddf}
+@media(max-width:720px){.ts-theme .tlc-toolbar{padding:12px;gap:10px}.ts-theme .tlc-search{flex:1 1 100%;max-width:none;min-width:0}.ts-theme .tlc-toolbar .tlc-add{margin-left:0}.ts-theme .tlc-batch{padding:8px 12px}}
 .ts-theme .tlc-table tbody tr:hover:not(:has(.tlc-editor)) {background:#f1f5fc}
 .ts-theme .tlc-table tbody tr:has(.tlc-check input:checked) {background:#e7efff;box-shadow:inset 3px 0 #245bcc}
 .ts-theme .tlc-table tbody tr:has(.tlc-check input:checked)>td {background:#e7efff;color:#203c68}

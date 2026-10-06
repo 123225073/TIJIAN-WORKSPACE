@@ -5,7 +5,8 @@
 .tlc-views{display:flex;gap:4px;padding:3px;background:#e9efe9;border-radius:7px}
 .tlc-views button{border:0;border-radius:5px;background:transparent;color:#557064;padding:8px 13px;font-size:12px;font-weight:600}
 .tlc-views button.is-active{color:#fff;background:#1c6e51;box-shadow:0 2px 7px #1d533127}
-.tlc-search{display:flex;align-items:center;gap:8px;min-width:230px;flex:1;max-width:420px;padding:8px 11px;border:1px solid #cadace;border-radius:7px;background:#fff;color:#638070}
+.tlc-search{display:flex;align-items:center;gap:8px;min-width:220px;flex:0 1 320px;max-width:360px;height:40px;padding:0 11px;border:1px solid #cadace;border-radius:7px;background:#fff;color:#638070}
+.tlc-search>svg{flex-shrink:0}
 .tlc-search input{min-width:0;width:100%;border:0;outline:none;font-size:12px;background:transparent;color:var(--tlc-ink)}
 .tlc-add{margin-left:auto;border:1px solid #186c4e;border-radius:7px;padding:9px 13px;background:#186c4e;color:#fff;font-size:12px;font-weight:600}
 .tlc-batch{display:flex;align-items:center;gap:10px;min-height:53px;padding:9px 20px;border-bottom:1px solid var(--tlc-line);flex-wrap:wrap}
@@ -13,7 +14,14 @@
 .tlc-batch button,.tlc-row-actions button,.tlc-editor-actions button{display:inline-flex;align-items:center;gap:5px;border:1px solid #cbdccf;border-radius:6px;background:#fff;color:#255f48;padding:7px 10px;font-size:12px;font-weight:600}
 .tlc-batch button:hover:not(:disabled),.tlc-row-actions button:hover:not(:disabled){background:#eaf4ec;border-color:#91bba2}
 .tlc-scroll{overflow-x:auto}
-.tlc-table{width:100%;border-collapse:collapse;min-width:930px;font-size:12px;text-align:left}
+.tlc-table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:1080px;font-size:12px;text-align:left}
+.tlc-col-check{width:38px}.tlc-col-date{width:96px}.tlc-col-title{width:27%}.tlc-col-source{width:100px}.tlc-col-linked{width:168px}.tlc-col-status{width:92px}.tlc-col-actions{width:160px}
+.tlc-date{white-space:nowrap;font-variant-numeric:tabular-nums}
+.tlc-table td{overflow-wrap:anywhere}
+.tlc-status{white-space:nowrap}
+.tlc-next{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--tlc-line);border-radius:5px;min-height:26px;padding:2px 7px;font-size:12px;line-height:20px;white-space:nowrap}
+.tlc-row-buttons{display:flex;align-items:center;gap:5px}
+.tlc-table .tlc-row-actions button{margin:0;min-height:30px;gap:4px;padding:5px 7px;font-size:12px}
 .tlc-table th{padding:11px 10px;background:#f8faf7;color:#62786a;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--tlc-line)}
 .tlc-table td{padding:13px 10px;vertical-align:top;border-bottom:1px solid #e8efe9;line-height:1.5}
 .tlc-table tbody tr:hover:not(:has(.tlc-editor)){background:#f8fbf8}

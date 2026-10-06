@@ -1,5 +1,5 @@
 import {Fragment, useEffect, useMemo, useState} from 'react';
-import {Archive, ArrowRight, Pencil, RotateCcw, Search, Trash2} from 'lucide-react';
+import {Archive, ArrowRight, Pencil, RotateCcw, Search, Trash2, X} from 'lucide-react';
 import {api} from './api';
 import './topic-library-controls.css';
 
@@ -88,7 +88,7 @@ export default function TopicLibraryControls({topics,deliveries,onRefresh,onOpen
     <button type="button" className={view==='archived'?'is-active':''} onClick={()=>switchView('archived')}>已归档</button>
     <button type="button" className={view==='deleted'?'is-active':''} onClick={()=>switchView('deleted')}>回收区</button>
    </div>
-   <label className="tlc-search"><Search size={16}/><span className="tlc-sr">搜索选题</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索选题、来源或理由"/></label>
+   <div className="tlc-search" role="search"><Search size={16} aria-hidden="true"/><input type="search" aria-label="搜索选题" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索选题、来源或理由"/>{search&&<button type="button" className="tlc-clear-search" aria-label="清空选题搜索" onClick={()=>setSearch('')}><X size={14}/></button>}</div>
    {view==='active'&&onAddTopic&&<button type="button" className="tlc-add" onClick={onAddTopic}>找题 / 添加选题</button>}
   </div>
   {(error||notice)&&<p className={error?'tlc-error':'tlc-notice'} role={error?'alert':'status'}>{error||notice}</p>}
@@ -98,18 +98,18 @@ export default function TopicLibraryControls({topics,deliveries,onRefresh,onOpen
    {view!=='deleted'&&<button type="button" disabled={busy||!chosen.length} onClick={()=>void batch('delete')}><Trash2 size={15}/>批量删除 · 可恢复</button>}
    {view!=='active'&&<button type="button" disabled={busy||!chosen.length} onClick={()=>void batch('restore')}><RotateCcw size={15}/>批量恢复</button>}
   </div>
-  <div className="tlc-scroll"><table className="tlc-table"><thead><tr>
+  <div className="tlc-scroll" tabIndex={0} aria-label="选题表格，可横向滚动"><table className="tlc-table"><colgroup><col className="tlc-col-check"/><col className="tlc-col-date"/><col className="tlc-col-title"/><col className="tlc-col-source"/><col/><col className="tlc-col-linked"/><col className="tlc-col-status"/><col className="tlc-col-actions"/></colgroup><thead><tr>
    <th className="tlc-check"><input type="checkbox" aria-label="选择当前列表全部选题" checked={allSelected} disabled={!rows.length||busy} onChange={toggleAll}/></th>
    <th>日期</th><th>选题与角度</th><th>来源</th><th>推荐理由</th><th>关联内容</th><th>下一步</th><th>操作</th>
   </tr></thead><tbody>{rows.map(topic=><Fragment key={topic.id}><tr>
    <td className="tlc-check"><input type="checkbox" aria-label={'选择选题 '+topic.title} checked={selected.includes(topic.id)} disabled={busy} onChange={()=>toggle(topic.id)}/></td>
-   <td>{topic.created?new Date(topic.created).toLocaleDateString('zh-CN'):'—'}</td>
+   <td className="tlc-date">{topic.created?new Date(topic.created).toLocaleDateString('zh-CN'):'—'}</td>
    <td className="tlc-title"><strong>{topic.title}</strong><small>{topic.angle||'尚未填写切入角度'}</small></td>
-   <td>{topic.origin||'自己添加'}</td>
+   <td className="tlc-source">{topic.origin||'自己添加'}</td>
    <td className="tlc-rationale">{topic.rationale||'待补充'}</td>
-   <td>{topic.delivery_count||topic.flow_count?<><strong>{topic.delivery_count||0} 份发布稿 · {topic.flow_count||0} 项创作</strong><small>{linkedTitles(topic)||'关联记录已保留'}</small></>:'未创作'}</td>
-   <td>{view==='deleted'?'待恢复':view==='archived'?'已归档':actions.find(x=>x[0]===(topic.next_action||'create'))?.[1]||'待创作'}</td>
-   <td className="tlc-row-actions">{view==='active'&&<><button type="button" disabled={busy} onClick={()=>startEdit(topic)}><Pencil size={14}/>编辑</button><button type="button" disabled={busy} onClick={()=>onOpenTopic(topic)}>发布稿<ArrowRight size={14}/></button></>}</td>
+   <td className="tlc-linked">{topic.delivery_count||topic.flow_count?<><strong>{topic.delivery_count||0} 份发布稿 · {topic.flow_count||0} 项创作</strong><small>{linkedTitles(topic)||'关联记录已保留'}</small></>:'未创作'}</td>
+   <td className="tlc-status"><span className="tlc-next" data-action={view==='active'?topic.next_action||'create':view}>{view==='deleted'?'待恢复':view==='archived'?'已归档':actions.find(x=>x[0]===(topic.next_action||'create'))?.[1]||'待创作'}</span></td>
+   <td className="tlc-row-actions">{view==='active'&&<div className="tlc-row-buttons"><button type="button" disabled={busy} onClick={()=>startEdit(topic)}><Pencil size={14}/>编辑</button><button type="button" disabled={busy} onClick={()=>onOpenTopic(topic)}>发布稿<ArrowRight size={14}/></button></div>}</td>
   </tr>{editing===topic.id&&view==='active'&&<tr key={topic.id+'-edit'}><td colSpan={8}><div className="tlc-editor" aria-label={'编辑选题 '+topic.title}>
    <div className="tlc-editor-head"><strong>直接编辑选题</strong><span>修改会保存到选题库；已有发布稿与历史版本保留。</span></div>
    <div className="tlc-form">
