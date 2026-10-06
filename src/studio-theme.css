@@ -1,7 +1,7 @@
-/* Platinum workspace, graphite navigation and restrained cobalt actions. */
+/* Obsidian shell; bright content panels and independent document paper. */
 :root.ts-theme {
   color-scheme: light;
-  --ts-bg: #f3f5f8;
+  --ts-bg: #0b0d12;
   --ts-panel: #ffffff;
   --ts-elevated: #edf2fa;
   --ts-text: #18263a;
@@ -460,3 +460,33 @@
 @media(prefers-reduced-motion:reduce) {
   .ts-theme * {scroll-behavior:auto!important;animation:none!important;transition:none!important}
 }
+
+/* Dark chrome never crosses the light editing surfaces or document descendants. */
+.ts-theme .studio-shell .sidebar {background:linear-gradient(165deg,#191d26,#10131b 70%);border-right-color:#343b49}
+.ts-theme .sidebar .search-button,.ts-theme .sidebar .account-control {background:#242b38;border-color:#4f5d73;color:#e1e8f4}
+.ts-theme .studio-shell .sidebar nav button.active {background:#2a3950;color:#fff;box-shadow:inset 3px 0 #a0c4ff}
+.ts-theme .topbar {background:#121721;border-color:#343d4d}
+.ts-theme .breadcrumb,.ts-theme .breadcrumb strong,.ts-theme .top-actions,.ts-theme .studio-sidebar-toggle {color:#e0e8f6}
+.ts-theme .top-actions .quiet {background:#222d40;color:#dbe6f8;border-color:#4b5d79}
+.ts-theme .page-area {background:radial-gradient(ellipse at 100% 0,#172130,transparent 50%),#0b0d12}
+.ts-theme :is(.page-heading,.st-header,.knowledge-heading,.td-head,.bv-header) :is(h1,h2) {color:#f5f7fc}
+.ts-theme :is(.page-heading,.st-header,.knowledge-heading,.td-head,.bv-header)>p,
+.ts-theme :is(.page-heading,.st-header,.knowledge-heading,.td-head,.bv-header)>div>p {color:#bcc7d6}
+.ts-theme .knowledge-heading p.muted,.ts-theme .bv-head-count {color:#bcc7d6}
+.ts-theme .studio-v2 .st-header p,.ts-theme .td-page .td-head>div>p {color:#bcc7d6}
+.ts-theme .st-header .st-eyebrow,.ts-theme .td-page .td-head>div>small {color:#e4c891}
+.ts-theme .st-header-tools :is(.st-save,.st-records) {color:#bdcce3!important}
+.ts-theme .cf-page {--cf-bg:#f3f5f8}
+.ts-theme .cf-title h1 {color:#f5f7fc}
+.ts-theme .cf-overview,.ts-theme .cf-overview small,.ts-theme .cf-restore-status,.ts-theme .cf-bottom>span {color:#bcc7d6}
+.ts-theme .cf-overview strong,.ts-theme .cf-data-loading,.ts-theme .cf-page .cf-bottom button {color:#a0c4ff}
+.ts-theme .cf-work-controls>label,.ts-theme .cf-node-manifest>span {color:#bcc7d6}
+.ts-theme .cf-node-manifest strong {color:#f5f7fc}
+.ts-theme .boot,.ts-theme .fatal {background:#0b0d12;color:#f5f7fc}
+.ts-theme .admin-main {background:#f3f5f8}
+.ts-theme .tw-home :is(.tw-hero-title h1,.tw-hero-title h2,.tw-section-head h2,.tw-history h3) {color:var(--tw-text)}
+.ts-theme .tw-home .tw-chat textarea {color:var(--tw-text);caret-color:var(--tw-accent);color-scheme:dark}
+.ts-theme .tw-home .tw-chat textarea::placeholder {color:var(--tw-muted);opacity:1}
+.ts-theme .tw-home .tw-filters button.active {background:#cbdcff;color:#16396f;border-color:#94baff}
+.ts-theme .tw-home button:disabled {background:#242d3d!important;color:#c2cede!important;border-color:#52627b!important;opacity:1!important}
+.ts-theme .tw-home :is(button,a):focus-visible {outline-color:#a0c4ff}

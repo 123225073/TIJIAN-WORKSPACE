@@ -5,8 +5,8 @@ if exist "%LOCALAPPDATA%\Programs\elevator-workbench\梯世界工作台.exe" (
   start "" "%LOCALAPPDATA%\Programs\elevator-workbench\梯世界工作台.exe"
   exit /b
 )
-if exist "release\0.22.4\win-unpacked\梯世界工作台.exe" (
-  start "" "release\0.22.4\win-unpacked\梯世界工作台.exe"
+if exist "release\0.22.5\win-unpacked\梯世界工作台.exe" (
+  start "" "release\0.22.5\win-unpacked\梯世界工作台.exe"
   exit /b
 )
 if exist "release\0.13.0\win-unpacked\梯见工作台.exe" (
