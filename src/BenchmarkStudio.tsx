@@ -3,13 +3,13 @@ import {api, type Item} from './api';
 import './benchmark-studio.css';
 
 // Mount user view in discovery; mount the two named exports ONLY in admin.html.
-const root:CSSProperties={maxWidth:1400,margin:'0 auto',padding:'24px 24px 80px',color:'#23302e'};
-const panel:CSSProperties={background:'#fff',border:'1px solid #d7dfdb',borderRadius:12,padding:22,marginBottom:18};
+const root:CSSProperties={maxWidth:1400,margin:'0 auto',padding:'24px 24px 80px',color:'var(--ts-text, #23302e)'};
+const panel:CSSProperties={background:'var(--ts-panel, #fff)',border:'1px solid var(--ts-line, #d7dfdb)',borderRadius:12,padding:22,marginBottom:18};
 const row:CSSProperties={display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'};
 const field:CSSProperties={display:'grid',gap:6,flex:'1 1 180px',fontSize:13};
-const input:CSSProperties={width:'100%',padding:'10px 12px',border:'1px solid #bdcbc5',borderRadius:6,background:'#fff',color:'#23302e',boxSizing:'border-box'};
-const button:CSSProperties={padding:'10px 16px',border:'1px solid #20574b',borderRadius:6,background:'#20574b',color:'#fff',cursor:'pointer'};
-const subtle:CSSProperties={fontSize:13,color:'#576b63',lineHeight:1.7};
+const input:CSSProperties={width:'100%',padding:'10px 12px',border:'1px solid var(--ts-line, #bdcbc5)',borderRadius:9,background:'var(--ts-bg, #fff)',color:'var(--ts-text, #23302e)',boxSizing:'border-box'};
+const button:CSSProperties={padding:'10px 16px',border:'1px solid var(--ts-accent, #20574b)',borderRadius:9,background:'var(--ts-accent, #20574b)',color:'#081522',cursor:'pointer'};
+const subtle:CSSProperties={fontSize:13,color:'var(--ts-muted, #576b63)',lineHeight:1.7};
 const platforms:Record<string,string>={douyin:'抖音',channels:'视频号',wechat:'公众号'};
 const kinds:Record<string,string>={article_text:'已取得正文文字',published_caption:'发布文案（非口播）',catalogue_only:'仅目录'};
 const missingNames:Record<string,string>={published:'发布日期',text:'文字',article_body:'文章正文',transcript:'口播转写',visual_analysis:'画面分析'};

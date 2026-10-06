@@ -20,6 +20,7 @@ import './information-layout.css';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {ArrowUpRight,ArrowLeft,ArrowRight,ArrowUp,Plus,Search,Compass,PanelsTopLeft,Layers3,BookOpen,PenLine,Radio,ScanLine,UserRound,ChartNoAxesCombined,Settings2,LogOut,ChevronDown,ChevronRight,FolderOpen,FileText,Film,AudioLines,Download,Upload,RefreshCw,Check,Clock3,AlertTriangle,X,ShieldCheck,Server,MoreHorizontal,Paperclip,Send,LoaderCircle,Link2,Archive,CheckCheck,History,Eye,Square,CalendarDays} from 'lucide-react';
 import {api,download,exportedHTML,getToken,hasToken,setToken,restoreLogin,type Item,type State} from './api';
+import {mergeObjects,queuedRefresh,reconcileState} from './stateLoading';
 import Markdown from './Markdown';
 import {Today,RadarPage} from './WorkPages';
 import {RecordManager,PromptEditor,PlatformAccounts} from './WorkflowPanels';
@@ -54,12 +55,32 @@ export default function App(){
  const beginResize=(e:React.PointerEvent<HTMLDivElement>)=>{e.preventDefault();resizeRef.current={x:e.clientX,width:sidebarHidden?0:sidebarCompact?74:sidebarWidth};e.currentTarget.setPointerCapture(e.pointerId)};
  const resize=(e:React.PointerEvent<HTMLDivElement>)=>{if(!resizeRef.current)return;const width=Math.max(0,Math.min(360,resizeRef.current.width+e.clientX-resizeRef.current.x));if(width<35){setSidebarHidden(true);setSidebarCompact(false);localStorage.setItem('tijian-sidebar-hidden','1')}else if(width<120){setSidebarHidden(false);setSidebarCompact(true);localStorage.setItem('tijian-sidebar-hidden','0');localStorage.setItem('tijian-sidebar-compact','1')}else{setSidebarHidden(false);setSidebarCompact(false);localStorage.setItem('tijian-sidebar-hidden','0');localStorage.setItem('tijian-sidebar-compact','0');setSidebarWidth(width);localStorage.setItem('tijian-sidebar-width',String(width))}};
  const setForm=(value:Form|null)=>{setError('');setFormState(value)};
- const refreshing=useRef(false);
+ const refreshing=useRef<ReturnType<typeof queuedRefresh>|null>(null);
  useEffect(()=>{setError('');setForm(null);document.querySelector('.page-area')?.scrollTo(0,0)},[route]);
- useEffect(()=>{void restoreLogin().then(()=>setAuth(hasToken())).catch(()=>{})},[]);
- const refresh=useCallback(async()=>{if(!hasToken()||refreshing.current)return;refreshing.current=true;try{setState(await api<State>('/state'))}catch(e){setError(String((e as Error).message))}finally{refreshing.current=false}},[]);
+ useEffect(()=>{void restoreLogin().then(()=>setAuth(hasToken())).catch(e=>{setAuth(hasToken());if(hasToken())setError((e as Error).message)})},[]);
+ const refresh=useCallback(()=>{
+  if(!refreshing.current)refreshing.current=queuedRefresh(async()=>{const session=getToken();if(!session)return;const started=Date.now();try{const next=await api<State>('/state');if(session===getToken())setState(previous=>reconcileState(previous,next,started))}catch(e){if(session===getToken())setError((e as Error).message)}});
+  return refreshing.current();
+ },[]);
  useEffect(()=>{const f=()=>setRoute(location.hash.slice(1)||'studio/home');const expired=()=>{setAuth(false);setState(null)};window.addEventListener('hashchange',f);window.addEventListener('session-expired',expired);const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();setSearchOpen(v=>!v)}};window.addEventListener('keydown',key);return()=>{window.removeEventListener('hashchange',f);window.removeEventListener('session-expired',expired);window.removeEventListener('keydown',key)}},[]);
- useEffect(()=>{if(auth){void refresh();const id=setInterval(refresh,4000);return()=>clearInterval(id)}},[auth,refresh]);
+ useEffect(()=>{
+  if(!auth)return;let live=true,timer:ReturnType<typeof setTimeout>;const session=getToken();
+  void api<State>('/bootstrap').then(next=>{if(!live||session!==getToken())return;setState(previous=>previous?.complete&&previous.user.id===next.user.id?previous:reconcileState(previous,next));timer=setTimeout(()=>{if(live)void refresh()},0)}).catch(e=>{if(live&&session===getToken())setError((e as Error).message)});
+  return()=>{live=false;clearTimeout(timer)};
+ },[auth,refresh]);
+ // Background jobs have their own progress polling. Only the open conversation
+ // needs its linked outcomes refreshed; never poll the entire library for it.
+ useEffect(()=>{
+  if(!auth||!state||!route.startsWith('task/')||state.complete===false)return;
+  let live=true,timer:ReturnType<typeof setTimeout>;const id=route.split('?')[0].split('/')[1],session=getToken();
+  const tick=async()=>{try{if(document.visibilityState!=='hidden'){const response=await api<{items:Item[]}>('/state/updates?ids='+encodeURIComponent(id));if(live&&session===getToken())setState(previous=>{if(!previous)return previous;const objects=mergeObjects(previous.objects,response.items,true);return objects===previous.objects?previous:{...previous,objects}})}}catch(e){if(live&&session===getToken())setError((e as Error).message)}finally{if(live)timer=setTimeout(tick,1500)}};
+  void tick();return()=>{live=false;clearTimeout(timer)};
+ },[auth,route,state?.complete]);
+ useEffect(()=>{
+  let last=Date.now();const focus=()=>{if(hasToken()&&document.visibilityState!=='hidden'&&Date.now()-last>30000){last=Date.now();void refresh()}};
+  window.addEventListener('focus',focus);document.addEventListener('visibilitychange',focus);
+  return()=>{window.removeEventListener('focus',focus);document.removeEventListener('visibilitychange',focus)};
+ },[refresh]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),4500);return()=>clearTimeout(t)},[toast]);
  const run=async(fn:()=>Promise<any>,message='已保存')=>{const origin=location.hash;setBusy(true);setError('');try{const result=await fn();if(result?.kind==='job'){setToast('已开始处理，进度显示在当前页面')}else if(message)setToast(message);await refresh();return result}catch(e){if(location.hash===origin)setError((e as Error).message);throw e}finally{setBusy(false)}};
  const action=(fn:()=>Promise<any>,message='已保存')=>{void run(fn,message).catch(()=>{})};
@@ -76,7 +97,7 @@ export default function App(){
  const onUpload=(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(f){const fd=new FormData();fd.append('file',f);action(async()=>{const x=await api<Item>('/import/file',fd);if(route.startsWith('knowledge')&&x.id)location.hash='knowledge/source/'+x.id;return x},'已导入文稿')}e.target.value=''};
  const downloadFile=(path:string,name:string)=>action(()=>download(path,name),'已导出');
 
- if(!auth)return <LoginPage onLogin={()=>setAuth(true)}/>;
+ if(!auth)return <LoginPage onLogin={()=>{setState(null);setAuth(true)}}/>;
  if(!state)return <div className="boot"><div className="brand-mark">Ⅱ</div><h2>正在打开工作区</h2>{error?<><p>{error}</p><button onClick={()=>{setAuth(false);setToken('')}}>返回登录</button></>:<LoaderCircle className="spin"/>}</div>;
  const [page,id]=route.split('?')[0].split('/');const current=get(id);const isAdmin=page==='admin';
  const title=page==='studio'?(STUDIO_NAV.find(x=>x[0]===route.split('?')[0])?.[1]||'创作工作台'):page==='benchmark'?'灵感与对标':page==='task'?(current?.title||'任务工作区'):(page==='settings'||page==='accounts')?'设置中心':page==='tasks'?'任务中心':isAdmin?'管理后台':NAV.find(x=>x[0]===page)?.[1]||'今日工作';
@@ -90,20 +111,23 @@ export default function App(){
  <section className="workspace"><header className="topbar"><div className="breadcrumb"><button className="studio-sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarHidden||sidebarCompact?'展开完整目录':'收成图标目录'} title={sidebarHidden||sidebarCompact?'展开完整目录':'收成图标目录'}><PanelsTopLeft size={17}/></button><span>创作空间</span><ChevronRight size={13}/><strong>{title}</strong></div><div className="top-actions"><button className="quiet" onClick={()=>go('studio/works')}><span className={'status-dot '+(activeJobs.length?'live':'')}/>{activeJobs.length?'进行中 '+activeJobs.length:'作品与素材'}</button></div></header>
  <main className={'page-area '+(page==='task'?'task-area':'')}>
  {error&&<div className="error-banner"><AlertTriangle size={17}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="关闭错误"><X size={16}/></button></div>}
- <OperationFeedback route={route} jobs={jobs} userId={state.user.id} onJob={job=>setState(previous=>{if(!previous)return previous;const index=previous.objects.findIndex(x=>x.id===job.id);if(index>=0&&previous.objects[index].version===job.version)return previous;const objects=[...previous.objects];if(index>=0)objects[index]=job;else objects.unshift(job);return {...previous,objects}})} onComplete={()=>void refresh()}/>
+ <OperationFeedback route={route} jobs={jobs} userId={state.user.id} onJob={job=>setState(previous=>{if(!previous)return previous;const objects=mergeObjects(previous.objects,[job],true);return objects===previous.objects?previous:{...previous,objects}})} onComplete={()=>void refresh()}/>
  {!state.workspace&&<div className="onboarding-strip"><FolderOpen/><div><strong>先为资料选择一个家</strong><p>创建本地目录，保存品牌资料、草稿与创作作品。</p></div><button className="primary" onClick={()=>setForm({title:'初始化工作区',fields:[{key:'path',label:'本地目录',hint:'留空使用当前用户专属目录；指定目录必须为空。'}],submit:'创建工作区',action:d=>api('/workspace',d)})}>设置工作区<ArrowRight size={16}/></button></div>}
+ {state.complete===false&&page!=='studio'&&page!=='settings'?<section className="surface" role="status"><LoaderCircle className="spin" size={18}/> 正在载入本页资料{error&&<button onClick={()=>void refresh()}>重试加载</button>}</section>:<>
  {page==='home'&&<Today {...tools}/>}
  {page==='radar'&&<RadarPage {...tools}/>}
  {page==='benchmark'&&<BenchmarkStudio t={tools}/>}
  {page==='studio'&&<Studio t={tools} route={route}/>}
  {page==='content'&&<Contents {...tools}/>}
  {page==='task'&&current&&!current.archived&&<TaskWorkspace key={id} task={current} {...tools}/>}
+ {page==='task'&&(!current||current.archived)&&<Empty title="找不到这条对话" description="这条记录可能已移到回收站，或属于其他账号。" action={<button onClick={()=>go('studio/home')}>返回首页</button>}/>}
  {page==='identity'&&<Identities {...tools}/>}
  {page==='knowledge'&&<KnowledgePage {...tools}/>}
  {page==='review'&&<Review {...tools}/>}
  {page==='records'&&<RecordManager {...tools}/>}{page==='tasks'&&<Tasks {...tools}/>}
  {page==='settings'&&<Studio t={tools} route='studio/settings'/>}
  {isAdmin&&state.user.role==='admin'&&<section className='surface'><h2>管理后台已独立</h2><a className='button' href='/admin.html'>打开管理后台</a></section>}
+ </>}
  {isAdmin&&state.user.role!=='admin'&&<Empty title="没有管理权限" description="请联系平台管理员。"/>}
  </main></section>
  {toast&&!route.startsWith('studio/')&&<div className="toast"><Check size={17}/>{toast}</div>}

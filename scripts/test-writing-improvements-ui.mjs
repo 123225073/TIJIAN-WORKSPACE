@@ -108,20 +108,22 @@ try{
  assert.equal(await page.getByRole('textbox',{name:'配图提示词'}).inputValue(),'电梯维保人员查看设备记录，纪实摄影。');
  assert.equal(await editor.inputValue(),body);
 
- const flowDraft=await api('/studio/text/drafts','POST',{title:'流程文案',input:{brief:'流程稿',format:'通用文案'}});
- await page.evaluate(id=>location.hash='studio/text?draft='+id+'&return='+encodeURIComponent('studio/flow?step=2'),flowDraft.id);
+ const flowWork=await api('/studio/flow','POST',{new:true,version:0,brief:'流程字数验收'});
+ const flowDraftPath='/studio/flows/'+flowWork.id+'/drafts';
+ const flowDraft=await api(flowDraftPath,'POST',{title:'流程文案',input:{brief:'流程稿',format:'通用文案'}});
+ await page.evaluate(({draft,work})=>location.hash='studio/text?draft='+draft+'&return='+encodeURIComponent('studio/flow?work='+work+'&step=2'),{draft:flowDraft.id,work:flowWork.id});
  await page.getByLabel('目标字数').waitFor();
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('label')).some(label=>label.textContent?.includes('内容形式')&&label.querySelector('select')?.value==='通用文案'));
  assert.equal(await page.getByLabel('内容形式').inputValue(),'通用文案');
  assert.equal(await page.getByLabel('目标字数').inputValue(),'1200');
  for(let i=0;i<30;i++){
-  const saved=(await api('/studio/text/drafts')).items.find(x=>x.id===flowDraft.id);
+  const saved=(await api(flowDraftPath)).items.find(x=>x.id===flowDraft.id);
   if(saved?.input.target_words===1200)break;
   await page.waitForTimeout(200);
  }
- assert.equal((await api('/studio/text/drafts')).items.find(x=>x.id===flowDraft.id)?.input.target_words,1200);
- const explicitFlowDraft=await api('/studio/text/drafts','POST',{title:'流程自定字数',input:{brief:'流程稿',format:'通用文案',target_words:750}});
- await page.evaluate(id=>location.hash='studio/text?draft='+id+'&return='+encodeURIComponent('studio/flow?step=2'),explicitFlowDraft.id);
+ assert.equal((await api(flowDraftPath)).items.find(x=>x.id===flowDraft.id)?.input.target_words,1200);
+ const explicitFlowDraft=await api(flowDraftPath,'POST',{title:'流程自定字数',input:{brief:'流程稿',format:'通用文案',target_words:750}});
+ await page.evaluate(({draft,work})=>location.hash='studio/text?draft='+draft+'&return='+encodeURIComponent('studio/flow?work='+work+'&step=2'),{draft:explicitFlowDraft.id,work:flowWork.id});
  await page.getByLabel('目标字数').waitFor();
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('label')).some(label=>label.textContent?.includes('目标字数')&&label.querySelector('input')?.value==='750'));
  assert.equal(await page.getByLabel('目标字数').inputValue(),'750');

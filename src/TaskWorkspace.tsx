@@ -115,7 +115,7 @@ function MediaOutcome({draft,task,type,t,registerSave}:any){
  useEffect(()=>{void api('/studio/catalog').then(r=>setCatalog(r.items||r.capabilities||r.tools||[])).catch((e:Error)=>t.setError(e.message))},[draft.id]);
  useEffect(()=>{if(dirty)localStorage.setItem(key,JSON.stringify({prompt,model,options,version}))},[prompt,model,options,version,dirty]);
  useEffect(()=>{if(!running)return;let live=true;const timer=setInterval(()=>{void api('/studio/runs/'+run.id+'/refresh',{},'POST').then(()=>{if(live)void t.refresh()}).catch(()=>{})},3500);return()=>{live=false;clearInterval(timer)}},[run?.id,running]);
- const save=async()=>{if(!dirty)return;const next=await api('/studio/drafts/'+draft.id,{version,input:{...draft.input,prompt},model_id:model,options},'PATCH');setVersion(next.version);setSaved(JSON.stringify([prompt,model,options]));localStorage.removeItem(key);await t.refresh();return next};
+ const save=async()=>{if(!dirty)return;const next=await api('/studio/tasks/'+task.id+'/drafts/'+draft.id,{version,input:{...draft.input,prompt},model_id:model,options},'PATCH');setVersion(next.version);setSaved(JSON.stringify([prompt,model,options]));localStorage.removeItem(key);await t.refresh();return next};
  useEffect(()=>{registerSave.current=save;return()=>{registerSave.current=null}},[prompt,model,options,version,saved]);
  const generate=async()=>{setBusy(true);try{const next=await save();await api('/tasks/'+task.id+'/media/generate',{type,draft_id:draft.id,version:next?.version||version,confirmed:true,request_id:task.id+':'+draft.id+':'+(next?.version||version)});await t.refresh()}finally{setBusy(false)}};
  const assets=(run?.asset_ids||[]).map((id:string)=>t.get(id)).filter(Boolean);

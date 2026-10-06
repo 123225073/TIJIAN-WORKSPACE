@@ -6,4 +6,5 @@ installFormKeys();
 import './style.css';
 import './capabilities.css';
 import './admin.css';
+import './studio-theme.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><AdminApp/></React.StrictMode>);

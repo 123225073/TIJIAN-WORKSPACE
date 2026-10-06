@@ -33,6 +33,7 @@ try{
  await page.getByRole('textbox',{name:'成果摘要'}).waitFor();
  assert.equal(await page.locator('.aw-section h3').filter({hasText:'封面图片'}).count(),1);
  assert(!(await page.getByRole('textbox',{name:'公众号文章正文'}).innerText()).includes('a'.repeat(32)));
+ await page.waitForFunction(()=>{const button=document.querySelector('.aw-outcome-bar button');return button&&!button.disabled});
  await page.getByRole('textbox',{name:'公众号文章正文'}).fill('人工编辑的公众号正文。\n\n这段内容必须保留。');
  await page.getByRole('button',{name:'保存修改',exact:true}).click();
  await page.getByRole('button',{name:'保存修改',exact:true}).waitFor({state:'visible'});
@@ -49,15 +50,17 @@ try{
  assert.equal(await page.locator('.aw-platform-tabs button').count(),2);
  await page.getByRole('textbox',{name:'对话要求'}).fill('帮我生成图片：现代电梯门');await page.getByRole('button',{name:'发送要求',exact:true}).click();
  await page.getByRole('textbox',{name:'媒体画面要求'}).waitFor({timeout:15000});
+ await page.getByRole('textbox',{name:'媒体画面要求'}).fill('现代电梯门，深蓝金属边框和冷色灯光');
  await page.getByRole('button',{name:'生成图片 · 可能计费',exact:true}).waitFor();
  assert.equal((await api('/studio/runs')).items.length,0,'整理图片方案不得偷偷调用付费生成');
  await page.getByRole('button',{name:'生成图片 · 可能计费',exact:true}).click();
  await page.locator('.aw-media-result img').waitFor({timeout:15000});
- assert.equal((await api('/studio/runs')).items.length,1);
+ const mediaRuns=(await api('/studio/runs')).items;assert.equal(mediaRuns.length,1);
+ assert.equal(mediaRuns[0].generation.input.prompt,'现代电梯门，深蓝金属边框和冷色灯光','AI 媒体人工修改应通过本任务专属接口保存');
  await page.getByRole('button',{name:'用作公众号封面',exact:true}).click();
  await page.waitForTimeout(500);
  await page.locator('.aw-platform-tabs button').filter({hasText:'公众号'}).click();
- await page.locator('.aw-cover img').waitFor();
+ await page.locator('.aw-cover').scrollIntoViewIfNeeded();await page.locator('.aw-cover img').waitFor();
  for(const [request,platform] of [['再帮我写小红书文案','小红书'],['再帮我写视频号脚本','视频号'],['再帮我写抖音脚本','抖音']]){
   await page.getByRole('textbox',{name:'对话要求'}).fill(request);await page.getByRole('button',{name:'发送要求',exact:true}).click();
   await page.locator('.aw-platform-tabs button.active').filter({hasText:platform}).waitFor({timeout:15000});
@@ -65,7 +68,7 @@ try{
  }
  await page.getByRole('textbox',{name:'对话要求'}).fill('再帮我改写公众号文章');await page.getByRole('button',{name:'发送要求',exact:true}).click();
  await page.locator('.aw-platform-tabs button.active').filter({hasText:'公众号'}).waitFor({timeout:15000});
- await page.locator('.aw-cover img').waitFor();
+ await page.locator('.aw-cover').scrollIntoViewIfNeeded();await page.locator('.aw-cover img').waitFor();
  const taskId=page.url().split('#task/')[1],task=(await api('/state')).objects.find(x=>x.id===taskId);
  assert.equal(Object.keys(task.platform_outcomes).length,5);assert(task.media_runs.image);
  const article=(await api('/state')).objects.find(x=>x.id===task.platform_outcomes.wechat);

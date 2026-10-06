@@ -318,11 +318,14 @@ def choice(tool, id, *, active=True):
 
 def choices(tool):
     out = []
+    # A catalogue request asks for several tools. Read each configuration once
+    # per tool, rather than reloading the entire registry for every model row.
+    available = {p['id']: p for p in providers() if p.get('published')}
     for model in models():
-        try:
-            m, p = choice(tool, model['id'])
-        except RegistryError:
+        p = available.get(model['provider_id'])
+        if tool not in TOOLS or tool not in model['tools'] or not model.get('published') or not p:
             continue
+        m = model
         ready = adapter_ready(m)
         out.append({'id': 'media:' + m['id'], 'title': m['title'] + ' · ' + p['title'], 'family': m['family'], 'provider': p['id'], 'storage_ready': ark_video.storage_ready(p), 'modes': ark_video.MODES if m['family'] == 'seedance-2.5' else ark_video.MODES[:4] if m['family'].startswith('seedance-') else [], 'reference_limits': REFERENCE_LIMITS.get(m['family'], {}), 'options': options(m) if ready else {}, 'configured': ready and bool(p.get('secret')), 'adapter_ready': ready, 'reason': '请在管理后台配置平台 API Key' if ready and not p.get('secret') else '接口适配待完成' if not ready else ''})
     return out

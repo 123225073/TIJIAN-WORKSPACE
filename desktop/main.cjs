@@ -24,7 +24,7 @@ async function start(){
    await new Promise(r=>setTimeout(r,500));
  }
  if(!ready)throw Error('本地服务启动超时，请稍后重新打开。');
- win=new BrowserWindow({width:1530,height:1000,minWidth:1000,minHeight:700,backgroundColor:'#eef1ed',title:'梯世界工作台',autoHideMenuBar:true,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+ win=new BrowserWindow({width:1530,height:1000,minWidth:1000,minHeight:700,backgroundColor:'#080f1b',title:'梯世界工作台',autoHideMenuBar:true,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:\/\//.test(url)&&!url.startsWith(base+'/'))shell.openExternal(url);return {action:'deny'};});
  win.webContents.on('will-navigate',(e,url)=>{if(new URL(url).origin!==base){e.preventDefault();if(/^https?:\/\//.test(url))shell.openExternal(url);}});
  win.webContents.session.setPermissionRequestHandler((wc,permission,callback)=>callback(permission==='clipboard-sanitized-write'));

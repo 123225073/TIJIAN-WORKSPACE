@@ -1,6 +1,6 @@
 """One-stop creation keeps each work and its delivery separate."""
 
-from test_workflows import account, client
+from test_creation_workflow_isolation import account, client
 
 
 def test_creation_works_are_independent_and_deliveries_follow_their_work(client):

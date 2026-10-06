@@ -378,12 +378,12 @@ def _metadata(path, ext):
     return result
 
 
-def _public(obj):
+def _public(obj, models=None):
     if obj.get('asset_type')=='image':obj={**obj,'compat':COMPAT['image']}
     out = {k: v for k, v in obj.items() if k not in {'local_file', 'remote', 'provider_resource_id', 'service_scope', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
-        title=next((m.get('title',mid) for m in s.config('models',[]) if m.get('id')==mid),mid)
+        title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
         out['generation']={k:snap.get(k) for k in ('input','options','model_id','brand_id','profile_id')}
         out['generation']['model_title']=title
         if obj.get('prompt_original') is not None:
@@ -1756,7 +1756,15 @@ def register(app, user, admin, error):
 
     @app.get('/api/studio/runs')
     def runs(u=Depends(user)):
-        return {'items': [_public(x) for x in s.list_(u['id'], 'studio_run')]}
+        # History needs metadata and result presence, never the archived image's
+        # Base64. Drop that blob in SQL before decoding; do not change storage.
+        with s.conn() as c:
+            rows = c.execute("""SELECT id,kind,version,updated,
+                json_replace(data,'$.result.data_uri',length(json_extract(data,'$.result.data_uri'))>0) AS data
+                FROM objects WHERE owner=? AND kind='studio_run' ORDER BY updated DESC""", (u['id'],)).fetchall()
+            configured = c.execute("SELECT value FROM config WHERE key='models'").fetchone()
+            models = json.loads(configured['value']) if configured else []
+        return {'items': [_public(s.unpack(row), models) for row in rows]}
 
     @app.post('/api/studio/runs/{id}/refresh')
     def refresh_run(id: str, u=Depends(user)):

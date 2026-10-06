@@ -159,7 +159,12 @@ def _delivery_payload(platform, data, old=None, owner=None):
 
 
 def _delivery(owner, id):
-    return _owned(owner, id, 'studio_delivery')
+    item = _owned(owner, id, 'studio_delivery')
+    if item.get('flow_id'):
+        flow = _owned(owner, item['flow_id'], 'studio_flow')
+        if flow.get('topic_id') != item.get('topic_id'):
+            raise s.Conflict('交付稿与当前作品选题不一致，请重新选择')
+    return item
 
 
 def register(app, user, error):
@@ -328,10 +333,15 @@ def register(app, user, error):
         return {'items': saved}
 
     @app.get('/api/studio/deliveries')
-    def deliveries(topic_id: str = '', u=Depends(user)):
+    def deliveries(topic_id: str = '', flow_id: str = '', u=Depends(user)):
         if topic_id:
             _owned(u['id'], topic_id, 'studio_topic')
-        return {'items': [x for x in s.list_(u['id'], 'studio_delivery') if not x.get('archived') and (not topic_id or x['topic_id'] == topic_id)]}
+        flow = _owned(u['id'], flow_id, 'studio_flow') if flow_id else None
+        return {'items': [x for x in s.list_(u['id'], 'studio_delivery')
+                          if not x.get('archived') and not x.get('deleted')
+                          and x.get('flow_id', '') == flow_id
+                          and (not topic_id or x['topic_id'] == topic_id)
+                          and (not flow or x['topic_id'] == flow.get('topic_id'))]}
 
     @app.post('/api/studio/deliveries')
     def delivery_create(data: dict, u=Depends(user)):
@@ -353,9 +363,11 @@ def register(app, user, error):
     @app.patch('/api/studio/deliveries/{id}')
     def delivery_update(id: str, data: dict, u=Depends(user)):
         old = _delivery(u['id'], id)
+        if 'flow_id' in data and data['flow_id'] != old.get('flow_id', ''):
+            raise s.Conflict('交付稿不属于当前作品，不能修改归属')
         if type(data.get('version')) is not int:
             raise ValueError('保存交付稿需要当前版本号')
-        values = _delivery_payload(old['platform'], data, old, u['id'])
+        values = _delivery_payload(old['platform'], {k: v for k, v in data.items() if k != 'flow_id'}, old, u['id'])
         item = s.put(u['id'], 'studio_delivery', {**old, **values, 'status': 'draft'}, id, expected=data['version'])
         s.audit(u['id'], 'update_delivery', id)
         return item

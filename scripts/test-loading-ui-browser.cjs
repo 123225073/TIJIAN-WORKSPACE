@@ -1,0 +1,57 @@
+const {chromium}=require('playwright-core');
+const fs=require('fs'),path=require('path'),assert=require('assert/strict');
+const [dir,base,ui]=process.argv.slice(2);
+(async()=>{
+ let browser;const checks=[],requests=[],held=[];
+ try{
+  const authResponse=await fetch(base+'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'loading@example.test',password:'isolated-loading-test',name:'Loading fixture'})});
+  assert(authResponse.ok);const auth=await authResponse.json();
+  const api=async(url,body)=>{const r=await fetch(base+'/api'+url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:'Bearer '+auth.token},body:body?JSON.stringify(body):undefined});assert(r.ok,'Fixture request failed');return r.json()};
+  await api('/workspace',{});
+  const source=await api('/import/text',{title:'Isolated long source',body:'Isolated source, not real data. '.repeat(14000)});
+  const olderTask=await api('/objects/task',{title:'Older isolated task',mode:'qa',reference_scope:{mode:'selected',modules:['source'],item_ids:[source.id],folder_ids:[],excluded_ids:[]}});
+  for(let n=0;n<10;n++)await api('/objects/task',{title:'Newer isolated task '+n,mode:'qa'});
+  browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--disable-gpu']});
+  const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+  page.setDefaultTimeout(60000);
+  page.on('pageerror',error=>errors.push(error.message));
+  page.on('request',request=>{if(request.url().includes('/api/'))requests.push(new URL(request.url()).pathname)});
+  await page.addInitScript(token=>{if(window===window.top)sessionStorage.setItem('tijian-session',token)},auth.token);
+  let hold=true;
+  await page.route('**/api/state',async route=>{if(hold)held.push(route);else await route.continue()});
+  const waitHeld=async()=>{for(let n=0;!held.length&&n<40;n++)await new Promise(resolve=>setTimeout(resolve,100));assert(held.length,'Full history read should be paused')};
+  const unblock=async()=>{hold=false;await waitHeld();for(const route of held.splice(0))await route.continue();await page.waitForFunction(()=>performance.getEntriesByType('resource').some(e=>e.name.endsWith('/api/state')))};
+  const start=Date.now();await page.goto(ui+'/#studio/home',{waitUntil:'domcontentloaded',timeout:60000});
+  await page.locator('.sidebar').waitFor();await page.locator('textarea').first().waitFor();
+  const firstInputMs=Date.now()-start;await waitHeld();
+  await page.locator('textarea').first().fill('Do not replace my input');
+  checks.push('navigation and composer usable while /state is paused');
+  await unblock();assert.equal(await page.locator('textarea').first().inputValue(),'Do not replace my input');
+  checks.push('background history hydration preserves typed input');
+  const count=()=>requests.filter(url=>url==='/api/state').length;
+  const before=count();await new Promise(resolve=>setTimeout(resolve,8500));assert.equal(count(),before);
+  assert.equal(requests.filter(url=>url==='/api/bootstrap').length,1);
+  checks.push('one bootstrap request and no 4-second full-state polling');
+  await page.evaluate(()=>location.hash='studio/text');await page.locator('.studio-v2 textarea').first().waitFor();
+  checks.push('current-source creation route opens');
+  const entries=await page.evaluate(()=>performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/')).map(e=>({path:new URL(e.name).pathname,ms:Math.round(e.duration*100)/100,bytes:e.encodedBodySize})));
+  hold=true;await page.goto(ui+'/?loading=old#task/'+olderTask.id,{waitUntil:'domcontentloaded'});await page.getByText('正在载入本页资料',{exact:false}).waitFor();
+  assert.equal(new URL(page.url()).hash,'#task/'+olderTask.id);
+  assert.equal(await page.locator('.task-area textarea').count(),0);
+  assert(!await page.getByText('对象不存在',{exact:false}).count());
+  await unblock();await page.locator('.task-area textarea').waitFor();
+  checks.push('old task outside recent eight waits before editor mount and keeps route');
+  const bootstrap=await api('/bootstrap'),recentTask=bootstrap.objects.find(x=>x.kind==='task');assert(recentTask.summary_only);
+  hold=true;await page.goto(ui+'/?loading=recent#task/'+recentTask.id,{waitUntil:'domcontentloaded'});await page.getByText('正在载入本页资料',{exact:false}).waitFor();
+  assert.equal(await page.locator('.task-area textarea').count(),0);
+  await unblock();await page.locator('.task-area textarea').waitFor();
+  checks.push('recent summary task also waits before editor mount');
+  hold=true;await page.goto(ui+'/?loading=knowledge#knowledge/source/'+source.id,{waitUntil:'domcontentloaded'});await page.getByText('正在载入本页资料',{exact:false}).waitFor();
+  assert.equal(new URL(page.url()).hash,'#knowledge/source/'+source.id);
+  await unblock();await page.getByText('Isolated long source',{exact:false}).first().waitFor();
+  checks.push('knowledge reader waits for full source and preserves direct route');
+  assert.deepEqual(errors,[]);
+  fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:true,checks,firstInputMs,stateRequests:count(),metrics:entries},null,2));
+ }catch(error){fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({passed:false,checks,error:error.message},null,2));process.exitCode=1}
+ finally{await browser?.close()}
+})();

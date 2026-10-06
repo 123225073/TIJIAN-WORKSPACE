@@ -1,6 +1,6 @@
 from __future__ import annotations
-import asyncio, csv, io, json, os, re, secrets, time, zipfile
-from contextlib import asynccontextmanager
+import asyncio, csv, io, json, os, re, secrets, sqlite3, time, zipfile
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from urllib.parse import urljoin
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File
@@ -12,17 +12,22 @@ from . import store as s, gateway as g, jobs, upstream, network, resources, main
 
 def error(status,msg):raise HTTPException(status,msg)
 
+def maintain_user_files(owner):
+    if s.config('workspace:'+owner):
+        s.sync_files(owner)
+        last=s.config('maintenance:'+owner,{}).get('at','')
+        if last[:10]!=s.now()[:10]:maintenance.inspect(owner)
+
 async def watcher():
     while True:
         await asyncio.sleep(30)
         try:await asyncio.to_thread(media_studio.tick)
         except Exception:pass
-        for u in s.all_users():
+        # All store reads may wait for a writer. Keep them off the ASGI event loop
+        # as well as the directory scan, so other requests can keep progressing.
+        for u in await asyncio.to_thread(s.all_users):
             try:
-                if s.config('workspace:'+u['id']):
-                    await asyncio.to_thread(s.sync_files,u['id'])
-                    last=s.config('maintenance:'+u['id'],{}).get('at','')
-                    if last[:10]!=s.now()[:10]:await asyncio.to_thread(maintenance.inspect,u['id'])
+                await asyncio.to_thread(maintain_user_files,u['id'])
             except Exception:pass
 
 @asynccontextmanager
@@ -57,9 +62,22 @@ async def secure(request,call_next):
     r.headers['X-Frame-Options']='DENY'
     return r
 
+@contextmanager
+def state_reader():
+    # WAL readers can use the last committed snapshot while a background writer
+    # holds store.LOCK for filesystem/network work. This connection never writes.
+    # DATA/DB are already absolute. Do not resolve a possibly mapped directory on
+    # every authentication/state request.
+    c=sqlite3.connect(s.DB.as_uri()+'?mode=ro',uri=True,timeout=5)
+    c.row_factory=sqlite3.Row
+    try:
+        c.execute('BEGIN')
+        yield c
+    finally:c.close()
+
 def user(request:Request):
     token=request.headers.get('authorization','').removeprefix('Bearer ')
-    with s.conn() as c:r=c.execute('SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>? AND active=1',(s.digest(token),time.time())).fetchone()
+    with state_reader() as c:r=c.execute('SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>? AND active=1',(s.digest(token),time.time())).fetchone()
     if not r:error(401,'请登录后继续')
     return {k:r[k] for k in ['id','email','name','role']}
 
@@ -87,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.21.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.22.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -128,15 +146,90 @@ def logout(request:Request,u=Depends(user)):
     with s.conn() as c:c.execute('DELETE FROM sessions WHERE token=?',(s.digest(request.headers.get('authorization','').removeprefix('Bearer ')),))
     return {'ok':True}
 
+@app.get('/api/auth/me')
+def current_user(u=Depends(user)):
+    return {'user':u}
+
+def state_config(c,u):
+    keys=['providers','models','bindings','workspace:'+u['id'],'settings:'+u['id'],'prefs:'+u['id']]
+    values={r['key']:json.loads(r['value']) for r in c.execute('SELECT key,value FROM config WHERE key IN ('+','.join('?' for _ in keys)+')',keys)}
+    providers=values.get('providers',[])
+    names={p['id']:p['title'] for p in providers}
+    active={p['id'] for p in providers if p.get('published',True)}
+    return {'user':u,'workspace':values.get('workspace:'+u['id']),
+            'settings':values.get('settings:'+u['id'],{'auto_memory':False,'retention':0}),
+            'preferences':values.get('prefs:'+u['id'],{}),
+            'models':[{**m,'provider_title':names.get(m['provider'],'')} for m in values.get('models',[]) if m['published'] and m['provider'] in active],
+            'skills':upstream.catalogue(),'bindings':values.get('bindings',{})},values.get('models',[])
+
+def public_state_object(x,models):
+    if x['kind']=='illustration':return {k:v for k,v in x.items() if k!='data_uri'}
+    if x['kind'] not in {'studio_asset','studio_run'}:return x
+    # _public looks up model titles once per run. Supply the identical generation
+    # metadata from this request's configuration snapshot, with no N+1 reads.
+    snap=x.get('snapshot')
+    out=media_studio._public({**x,'snapshot':None}) if snap else media_studio._public(x)
+    if snap:
+        mid=snap.get('model_id','')
+        out['generation']={k:snap.get(k) for k in ('input','options','model_id','brand_id','profile_id')}
+        out['generation']['model_title']=next((m.get('title',mid) for m in models if m.get('id')==mid),mid)
+        if x.get('prompt_original') is not None:out['generation']['prompt_original']=x['prompt_original']
+    return out
+
+# These blobs never enter public state, but reading them before filtering used
+# to copy/sort/decode tens of MB per refresh. Preserve only the result's presence
+# marker used by _public to calculate result_count; the stored JSON is untouched.
+STATE_COLUMNS="""id,kind,version,updated,CASE
+    WHEN kind='illustration' THEN json_remove(data,'$.data_uri')
+    WHEN kind='studio_run' THEN json_replace(data,'$.result.data_uri',length(json_extract(data,'$.result.data_uri'))>0)
+    ELSE data END AS data"""
+
+@app.get('/api/bootstrap')
+def bootstrap(u=Depends(user)):
+    # Only identities/folders and a small conversation index are needed to open
+    # navigation and the composer. No history, asset files, or directory traversal.
+    with state_reader() as c:
+        base,_=state_config(c,u)
+        rows=c.execute("SELECT * FROM objects WHERE owner=? AND (kind IN ('profile','folder','studio_brand') OR (kind='job' AND json_extract(data,'$.status') IN ('queued','running'))) ORDER BY updated DESC",(u['id'],)).fetchall()
+        tasks=c.execute("SELECT id,kind,version,updated,json_extract(data,'$.title') AS title,json_extract(data,'$.mode') AS mode FROM objects WHERE owner=? AND kind='task' AND COALESCE(json_extract(data,'$.archived'),0)=0 ORDER BY updated DESC LIMIT 8",(u['id'],)).fetchall()
+    return JSONResponse({**base,'objects':[s.unpack(r) for r in rows]+[{**dict(r),'summary_only':True} for r in tasks],'complete':False})
+
 @app.get('/api/state')
 def state(u=Depends(user)):
-    data=s.list_(u['id'])
-    data=[{k:v for k,v in x.items() if k!='data_uri'} if x['kind']=='illustration' else media_studio._public(x) if x['kind'] in {'studio_asset','studio_run'} else x for x in data]
+    with state_reader() as c:
+        base,models=state_config(c,u)
+        rows=c.execute('SELECT '+STATE_COLUMNS+' FROM objects WHERE owner=? ORDER BY updated DESC',(u['id'],)).fetchall()
+    data=[public_state_object(s.unpack(r),models) for r in rows]
     catalogue={x['id']:x for x in data}
     data=[{**x,'freshness_warning':library.freshness(x,catalogue)} if x['kind'] in ['knowledge','memory'] else x for x in data]
-    names={p['id']:p['title'] for p in g.public_providers()}
-    active_providers={p['id'] for p in g.providers() if p.get('published',True)}
-    return {'user':u,'objects':data,'workspace':s.config('workspace:'+u['id']),'settings':s.config('settings:'+u['id'],{'auto_memory':False,'retention':0}),'preferences':s.config('prefs:'+u['id'],{}),'models':[{**m,'provider_title':names.get(m['provider'],'')} for m in s.config('models',[]) if m['published'] and m['provider'] in active_providers],'skills':upstream.catalogue(),'bindings':s.config('bindings',{})}
+    # Objects/config were already decoded from JSON. Avoid FastAPI recursively
+    # walking large historical messages a second time before JSON serialization.
+    return JSONResponse({**base,'objects':data,'complete':True})
+
+@app.get('/api/state/updates')
+def state_updates(ids:str,u=Depends(user)):
+    selected=list(dict.fromkeys(x for x in ids.split(',') if x))
+    if len(selected)>100 or any(not re.fullmatch(r'[a-f0-9]{32,64}',x) for x in selected):error(400,'每次最多查询100条有效记录')
+    if not selected:return {'items':[]}
+    with state_reader() as c:
+        _,models=state_config(c,u)
+        rows=c.execute('SELECT '+STATE_COLUMNS+' FROM objects WHERE owner=? AND id IN ('+','.join('?' for _ in selected)+')',[u['id'],*selected]).fetchall()
+        objects={r['id']:s.unpack(r) for r in rows}
+        # Follow explicit task/result/asset links, always within the same owner's
+        # committed snapshot. A completed multi-platform job is applied atomically.
+        for _ in range(3):
+            linked=set()
+            for obj in objects.values():
+                for key in ('content_id','profile_id','result_id','cover_asset_id','draft_id'):
+                    if isinstance(obj.get(key),str):linked.add(obj[key])
+                for key in ('platform_outcomes','media_outcomes','media_runs'):
+                    linked.update(x for x in (obj.get(key) or {}).values() if isinstance(x,str))
+                linked.update(x for x in (obj.get('asset_ids') or []) if isinstance(x,str))
+            linked-=objects.keys()
+            if not linked:break
+            linked=list(linked)
+            for row in c.execute('SELECT '+STATE_COLUMNS+' FROM objects WHERE owner=? AND id IN ('+','.join('?' for _ in linked)+')',[u['id'],*linked]):objects[row['id']]=s.unpack(row)
+    return JSONResponse({'items':[public_state_object(x,models) for x in objects.values()]})
 
 @app.post('/api/workspace')
 def workspace(data:dict,u=Depends(user)):
