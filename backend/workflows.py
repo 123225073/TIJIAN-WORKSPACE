@@ -1,3 +1,4 @@
+import json
 import re
 from fastapi import Depends
 from . import store as s,jobs,network,upstream,gateway as g,library
@@ -37,34 +38,64 @@ def _task_draft(owner, obj):
     return bool(_draft_task_ids(owner, obj))
 
 
-def _sync_flow_outputs(owner):
+def _scope_objects(owner):
+    # Only scope metadata crosses into Python. Historical bodies, messages and
+    # inline media are not needed to recover bindings. Keep the same ordering
+    # as list_ so legacy setdefault precedence is unchanged.
+    fields = ('flow_id', 'origin_task_id', 'task_id', 'draft_id', 'studio_draft_id',
+              'run_id', 'job_id', 'media_outcomes', 'asset_ids', 'status',
+              'input_draft_id', 'input_task_id', 'result_content_id')
+    paths = ["'$." + key + "'" for key in fields[:10]] + [
+        "'$.input.draft_id'", "'$.input.task_id'", "'$.result.content_id'"]
+    with s.conn() as c:
+        rows = c.execute(
+            'SELECT id,kind,version,json_extract(data,' + ','.join(paths) + ') AS scope '
+            'FROM objects WHERE owner=? AND kind IN '
+            "('studio_text_draft','studio_draft','task','job','studio_run','content','studio_asset') "
+            'ORDER BY updated DESC', (owner,)).fetchall()
+    return {row['id']: {**dict(zip(fields, json.loads(row['scope']))),
+                       'id': row['id'], 'kind': row['kind'], 'version': row['version']}
+            for row in rows}
+
+
+def _latest_flow(owner):
+    with s.conn() as c:
+        row = c.execute('SELECT * FROM objects WHERE owner=? AND kind=? ORDER BY updated DESC LIMIT 1',
+                        (owner, 'studio_flow')).fetchone()
+    return s.unpack(row) if row else None
+
+
+def _sync_flow_outputs(owner, flow_id=None):
     """Recover output scope from stored jobs/runs; provider task IDs are opaque."""
-    objects = {obj['id']: obj for obj in s.list_(owner)}
+    objects = _scope_objects(owner)
     bindings = {ident: ('flow_id', obj['flow_id']) if obj.get('flow_id') else ('origin_task_id', obj['origin_task_id'])
                 for ident, obj in objects.items() if obj['kind'] in _DRAFT_KINDS
-                and (obj.get('flow_id') or obj.get('origin_task_id'))}
+                and (obj.get('flow_id') or obj.get('origin_task_id'))
+                and (flow_id is None or obj.get('flow_id') == flow_id)}
     for obj in objects.values():
-        if obj['kind'] == 'task':
+        if obj['kind'] == 'task' and flow_id is None:
             for ident in (obj.get('media_outcomes') or {}).values():
                 bindings.setdefault(ident, ('origin_task_id', obj['id']))
     outputs = {}
     for obj in objects.values():
         if obj['kind'] not in {'job', 'studio_run'}:
             continue
-        binding = bindings.get(obj.get('draft_id') or obj.get('input', {}).get('draft_id'))
-        if not binding or (obj['kind'] == 'job' and (obj.get('task_id') or obj.get('input', {}).get('task_id'))):
+        binding = bindings.get(obj.get('draft_id') or obj.get('input_draft_id'))
+        if not binding or (obj['kind'] == 'job' and (obj.get('task_id') or obj.get('input_task_id'))):
             continue
         outputs[obj['id']] = binding
-        result = obj.get('result') or {}
-        if obj['kind'] == 'job' and obj.get('status') == 'done' and result.get('content_id'):
-            outputs[result['content_id']] = binding
+        if obj['kind'] == 'job' and obj.get('status') == 'done' and obj.get('result_content_id'):
+            outputs[obj['result_content_id']] = binding
         if obj['kind'] == 'studio_run':
-            outputs.update({ident: binding for ident in obj.get('asset_ids', [])})
+            outputs.update({ident: binding for ident in obj.get('asset_ids') or []})
     for obj in objects.values():
         if obj['kind'] not in {'content', 'studio_asset', 'job', 'studio_run'} or (obj['kind'] in {'content', 'job'} and obj.get('task_id')) or obj.get('origin_task_id'):
             continue
         binding = outputs.get(obj['id']) or outputs.get(obj.get('run_id')) or outputs.get(obj.get('job_id')) or bindings.get(obj.get('studio_draft_id') or obj.get('draft_id'))
         if binding and not obj.get('flow_id'):
+            # Callers retain LOCK; fetch the full owned record only when writing
+            # a repair, preserving content and optimistic version/history checks.
+            obj = s.get(owner, obj['id'])
             s.put(owner, obj['kind'], {**obj, binding[0]: binding[1]}, obj['id'], obj['version'])
 
 
@@ -214,8 +245,8 @@ def _install_flow_routes(app, user):
 
     def flow_read(work_id, u):
         with s.LOCK:
+            row = _flow(u['id'], work_id) if work_id else _latest_flow(u['id'])
             _sync_flow_outputs(u['id'])
-            row = _flow(u['id'], work_id) if work_id else next(iter(s.list_(u['id'], 'studio_flow')), None)
             return _upgrade_flow(u['id'], row) if row else {'version': 0}
     endpoint('/api/studio/flow', 'GET').dependant.call = flow_read
 
@@ -223,10 +254,17 @@ def _install_flow_routes(app, user):
     def flow_drafts(flow_id: str, tool: str = '', u=Depends(user)):
         with s.LOCK:
             _flow(u['id'], flow_id)
-            _sync_flow_outputs(u['id'])
-            return {'items': [_display_draft(u['id'], obj) for kind in _DRAFT_KINDS for obj in s.list_(u['id'], kind)
-                             if not obj.get('archived') and obj.get('flow_id') == flow_id
-                             and (not tool or obj.get('tool') == tool)]}
+            _sync_flow_outputs(u['id'], flow_id)
+            kinds = list(_DRAFT_KINDS)
+            with s.conn() as c:
+                rows = c.execute(
+                    'SELECT * FROM objects WHERE owner=? AND kind IN (?,?) '
+                    "AND json_extract(data,'$.flow_id')=? AND json_extract(data,'$.archived') IS NOT 1 "
+                    + ("AND json_extract(data,'$.tool')=? " if tool else '')
+                    + 'ORDER BY kind=? DESC,updated DESC',
+                    [u['id'], *kinds, flow_id] + ([tool] if tool else []) + [kinds[0]]).fetchall()
+            return {'items': [_display_draft(u['id'], obj) for obj in map(s.unpack, rows)
+                             if not obj.get('archived')]}
 
     @app.get('/api/studio/tasks/{task_id}/drafts')
     def task_drafts(task_id: str, u=Depends(user)):

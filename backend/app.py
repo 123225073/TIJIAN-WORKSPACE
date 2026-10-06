@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.22.2','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.22.3','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -215,6 +215,13 @@ def state_updates(ids:str,u=Depends(user)):
         _,models=state_config(c,u)
         rows=c.execute('SELECT '+STATE_COLUMNS+' FROM objects WHERE owner=? AND id IN ('+','.join('?' for _ in selected)+')',[u['id'],*selected]).fetchall()
         objects={r['id']:s.unpack(r) for r in rows}
+        # A restored workflow also needs unselected document candidates. Read
+        # only documents in explicitly requested, owned flows after scope repair.
+        flow_ids=[x['id'] for x in objects.values() if x['kind']=='studio_flow']
+        if flow_ids:
+            for row in c.execute('SELECT '+STATE_COLUMNS+' FROM objects WHERE owner=? AND kind=? '
+                                 "AND json_extract(data,'$.flow_id') IN ("+','.join('?' for _ in flow_ids)+')',
+                                 [u['id'],'content',*flow_ids]):objects[row['id']]=s.unpack(row)
         # Follow explicit task/result/asset links, always within the same owner's
         # committed snapshot. A completed multi-platform job is applied atomically.
         for _ in range(3):

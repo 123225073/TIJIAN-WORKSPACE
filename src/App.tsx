@@ -62,6 +62,13 @@ export default function App(){
   if(!refreshing.current)refreshing.current=queuedRefresh(async()=>{const session=getToken();if(!session)return;const started=Date.now();try{const next=await api<State>('/state');if(session===getToken())setState(previous=>reconcileState(previous,next,started))}catch(e){if(session===getToken())setError((e as Error).message)}});
   return refreshing.current();
  },[]);
+ const refreshItems=useCallback(async(ids:string[])=>{
+  const selected=[...new Set(ids.filter(Boolean))];if(!selected.length)return;
+  const session=getToken();if(!session)return;
+  try{const response=await api<{items:Item[]}>('/state/updates?ids='+encodeURIComponent(selected.join(',')));
+   if(session===getToken())setState(previous=>{if(!previous)return previous;const objects=mergeObjects(previous.objects,response.items,true);return objects===previous.objects?previous:{...previous,objects}});
+  }catch(e){if(session===getToken())setError((e as Error).message)}
+ },[]);
  useEffect(()=>{const f=()=>setRoute(location.hash.slice(1)||'studio/home');const expired=()=>{setAuth(false);setState(null)};window.addEventListener('hashchange',f);window.addEventListener('session-expired',expired);const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();setSearchOpen(v=>!v)}};window.addEventListener('keydown',key);return()=>{window.removeEventListener('hashchange',f);window.removeEventListener('session-expired',expired);window.removeEventListener('keydown',key)}},[]);
  useEffect(()=>{
   if(!auth)return;let live=true,timer:ReturnType<typeof setTimeout>;const session=getToken();
@@ -102,7 +109,7 @@ export default function App(){
  const [page,id]=route.split('?')[0].split('/');const current=get(id);const isAdmin=page==='admin';
  const title=page==='studio'?(STUDIO_NAV.find(x=>x[0]===route.split('?')[0])?.[1]||'创作工作台'):page==='benchmark'?'灵感与对标':page==='task'?(current?.title||'任务工作区'):(page==='settings'||page==='accounts')?'设置中心':page==='tasks'?'任务中心':isAdmin?'管理后台':NAV.find(x=>x[0]===page)?.[1]||'今日工作';
  const jobs=list('job');const activeJobs=jobs.filter(x=>['queued','running'].includes(x.status));const pending=list('issue').filter(x=>x.status==='pending');
- const tools={route,action,run,refresh,update,editItem,newItem,openTask,promptTask,importForm,urlForm,downloadFile,setForm,setError,setToast,list,get,opts,profile,state};
+ const tools={route,action,run,refresh,refreshItems,update,editItem,newItem,openTask,promptTask,importForm,urlForm,downloadFile,setForm,setError,setToast,list,get,opts,profile,state};
  return <div className={'shell studio-shell'+(sidebarHidden?' sidebar-is-hidden':sidebarCompact?' sidebar-is-compact':'')} style={{'--sidebar-width':sidebarWidth+'px'} as React.CSSProperties}>
  <aside className="sidebar"><div className="wordmark"><span className="brand-mark"><i/><i/></span><div>梯世界<span>CONTENT STUDIO</span></div></div><div className="workspace-label"><span className="tiny-dot"/>电梯行业内容工作台</div><button className="search-button" onClick={()=>setSearchOpen(true)}><Search size={16}/><span>搜索资料与作品</span><kbd>⌃ K</kbd></button>
  <div className="sidebar-scroll"><nav aria-label="工作台导航">{STUDIO_GROUPS.map(group=><div className="studio-nav-group" key={group.label}><button className="studio-nav-heading" onClick={()=>toggleGroup(group.label)} aria-expanded={openGroups.includes(group.label)}>{group.label}<ChevronDown size={13}/></button>{(sidebarCompact||openGroups.includes(group.label))&&group.items.map(([key,label,Icon])=><button key={key} title={label} aria-label={label} className={route===key||(key==='studio/avatar/text'&&route.startsWith('studio/avatar/'))?'active':''} onClick={()=>go(key)}><Icon size={17} strokeWidth={1.6}/><span>{label}</span></button>)}</div>)}</nav></div>

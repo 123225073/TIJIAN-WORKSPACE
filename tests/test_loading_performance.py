@@ -9,6 +9,26 @@ from fastapi.testclient import TestClient
 from backend import app as backend, gateway as g, media_registry as registry, media_studio as media, store as s
 
 
+def test_restored_flow_updates_include_unselected_owned_documents(isolated):
+    client, owner = isolated
+    flow = s.put(owner, 'studio_flow', {'brief': 'Target restore', 'stage': 3})
+    other = s.put(owner, 'studio_flow', {'brief': 'Other work'})
+    draft = s.put(owner, 'studio_text_draft', {'flow_id': flow['id'], 'tool': 'text'})
+    candidate = s.put(owner, 'content', {'title': 'Unselected result', 'body': 'Keep this body'})
+    s.put(owner, 'job', {'input': {'draft_id': draft['id']}, 'status': 'done', 'result': {'content_id': candidate['id']}})
+    excluded = [s.put(owner, 'content', {'flow_id': other['id']}),
+                s.put('foreign-owner', 'content', {'flow_id': flow['id']})]
+    assert not candidate.get('flow_id') and not flow.get('content_id')
+    assert client.get('/api/studio/flow', params={'work_id': flow['id']}).status_code == 200
+    response = client.get('/api/state/updates', params={'ids': flow['id']})
+    assert response.status_code == 200
+    items = {x['id']: x for x in response.json()['items']}
+    assert items[candidate['id']]['flow_id'] == flow['id']
+    assert items[candidate['id']]['body'] == 'Keep this body'
+    assert not {x['id'] for x in excluded} & items.keys()
+    assert not items[flow['id']].get('content_id')
+
+
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(s, 'DATA', tmp_path)
