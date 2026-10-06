@@ -1,6 +1,6 @@
 {
   "name": "elevator-workbench",
-  "version": "0.22.5",
+  "version": "0.22.6",
   "private": true,
   "description": "Elevator industry personal content workbench",
   "type": "module",

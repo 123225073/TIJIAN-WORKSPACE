@@ -25,7 +25,7 @@ try {
  const contrast=await page.evaluate(measureContrast,{scope:'#chrome,#result,#chat,#platform,#replace',excludeUserPaper:true});
  assert(contrast.checked>=15,'paper readability coverage');assert.deepEqual(contrast.violations,[],'paper/chrome WCAG contrast');
  const excluded=await page.evaluate(measureContrast,{scope:'#chat span',excludeUserPaper:true});assert.equal(excluded.checked,0,'manual authored red is excluded from UI contrast');
- assert.deepEqual(await page.locator('#chrome').evaluate(node=>({background:getComputedStyle(node).backgroundColor,color:getComputedStyle(node).color})),{background:'rgb(243, 246, 251)',color:'rgb(52, 73, 96)'},'article chrome platinum pairing');
- assert.equal(await page.locator('#result').evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(255, 255, 255)','result pane white');
+ assert.deepEqual(await page.locator('#chrome').evaluate(node=>({background:getComputedStyle(node).backgroundColor,color:getComputedStyle(node).color})),{background:'rgb(28, 37, 51)',color:'rgb(177, 190, 209)'},'article chrome dark pairing');
+ assert.equal(await page.locator('#result').evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(23, 29, 40)','result pane graphite');
  console.log(JSON.stringify({passed:true,checks:['chat article','platform article','image replacement preview','light theme result pane','manual red preserved','paper/chrome WCAG'],computed,contrast}));
 }finally{await browser.close()}
