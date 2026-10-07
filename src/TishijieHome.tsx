@@ -1,3 +1,4 @@
+import VideoPlayer from './VideoPlayer';
 import {useEffect,useRef,useState} from 'react';
 import {ArrowRight,BookOpenText,Compass,FileText,Film,ImageIcon,Layers3,MessageCircleMore,Play,Send,UserRound} from 'lucide-react';
 import {api,getToken} from './api';
@@ -34,7 +35,7 @@ function VideoThumb({asset}:{asset:any}){
   finally{if(!request.signal.aborted){controller.current=null;setLoading(false)}}
  };
  return <div className="tw-video-thumb">
-  {url?<video controls preload="metadata" src={url} aria-label={asset.title||'视频素材预览'} onError={()=>setError('该视频无法播放，请到素材库查看')}/>:<><Film size={30} aria-hidden="true"/><button type="button" disabled={loading} aria-label={'预览视频：'+(asset.title||'未命名视频')} onClick={()=>void load()}>{!loading&&<Play size={13} aria-hidden="true"/>}{loading?'正在读取视频…':error?'重试预览':'播放预览'}</button></>}
+  {url?<VideoPlayer controls preload="metadata" src={url} aria-label={asset.title||'视频素材预览'} onError={()=>setError('该视频无法播放，请到素材库查看')}/>:<><Film size={30} aria-hidden="true"/><button type="button" disabled={loading} aria-label={'预览视频：'+(asset.title||'未命名视频')} onClick={()=>void load()}>{!loading&&<Play size={13} aria-hidden="true"/>}{loading?'正在读取视频…':error?'重试预览':'播放预览'}</button></>}
   {error&&<span className="tw-video-error" role="status">{error}</span>}
  </div>;
 }

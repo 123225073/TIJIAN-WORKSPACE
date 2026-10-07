@@ -388,7 +388,7 @@ def _metadata(path, ext):
 
 def _public(obj, models=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
-    out = {k: v for k, v in obj.items() if k not in {'local_file', 'remote', 'provider_resource_id', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
@@ -431,6 +431,8 @@ def _public(obj, models=None):
         out['file_url'] = '/api/studio/assets/' + obj['id'] + '/file'
         if obj.get('asset_type') == 'image':
             out['thumbnail_url'] = '/api/studio/assets/' + obj['id'] + '/thumbnail'
+            if obj.get('original_file'):
+                out['original_file_url'] = '/api/studio/assets/' + obj['id'] + '/original'
     return out
 
 
@@ -447,6 +449,8 @@ def upload(owner, file, provider=None, confirmed=False, enqueue=None):
         raise StudioError('文件格式不支持')
     id = s.uid()
     path = _path(owner, id + ext)
+    original_file = None
+    adjustment = None
     total = 0
     try:
         with path.open('xb') as output:
@@ -457,12 +461,21 @@ def upload(owner, file, provider=None, confirmed=False, enqueue=None):
                 output.write(chunk)
         if not total:
             raise StudioError('不能上传空文件')
-        metadata = _metadata(path, ext)
+        if EXTENSIONS[ext].startswith('image/'):
+            from . import image_upload
+            try:
+                path, adjustment, original_file = image_upload.prepare(path)
+            except ValueError as exc:
+                raise StudioError(str(exc)) from None
+        metadata = _metadata(path, path.suffix.lower())
     except Exception:
         path.unlink(missing_ok=True)
+        if original_file:
+            _path(owner, original_file).unlink(missing_ok=True)
         raise
     asset = s.put(owner, 'studio_asset', {**metadata, 'title': name[:200], 'local_file': path.name,
-                  'status': 'ready', 'provider': 'local', 'compat': COMPAT[metadata['asset_type']]}, id)
+                  'status': 'ready', 'provider': 'local', 'compat': COMPAT[metadata['asset_type']],
+                  **({'original_file': original_file, 'image_adjustment': adjustment} if adjustment else {})}, id)
     if provider:
         asset = s.put(owner, 'studio_asset', {**asset, 'upload_status': 'queued',
                       'upload_scope': _scope('hifly', _service('hifly'))}, id)
@@ -1994,6 +2007,19 @@ def register(app, user, admin, error):
                 'X-Content-Type-Options': 'nosniff',
             })
         return invoke(get_thumbnail)
+
+    @app.get('/api/studio/assets/{id}/original')
+    def asset_original(id: str, u=Depends(user)):
+        def get_original():
+            asset = _object(u['id'], id, 'studio_asset')
+            if not asset.get('original_file') or asset.get('status') != 'ready':
+                raise s.Missing()
+            path = _path(u['id'], asset['original_file'])
+            if not path.is_file():
+                raise s.Missing()
+            return FileResponse(path, media_type='application/octet-stream', filename=asset['title'],
+                                headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+        return invoke(get_original)
 
     @app.get('/api/studio/assets/{id}/file')
     def asset_file(id: str, u=Depends(user)):

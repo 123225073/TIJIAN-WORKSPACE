@@ -1,4 +1,5 @@
 import MediaWorkbench,{hasImageEditRequest} from './MediaWorkbench';
+import VideoPlayer from './VideoPlayer';
 import type {ImageLayer} from './ImageEditWorkspace';
 import {useEffect, useRef, useState} from 'react';
 import {ArrowLeft, ArrowRight, ArrowUpRight, AudioLines, BookOpen, Check, ChevronDown, Download, FileText, Film, FolderOpen, Image, Layers3, LoaderCircle, Mic, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Upload, UserRound, WandSparkles, X} from 'lucide-react';
@@ -87,7 +88,8 @@ function catalogFields(cap:Capability|undefined,fallback:Field[]):Field[]{
  return keys.map((key:string)=>{const resource=key.endsWith('_id')?key.slice(0,-3):'';return {key,label:names[key]||key,required:cap.id!=='avatar_create'&&!(cap.optional||[]).includes(key),type:resource?'asset':key==='scenes'?'scenes':'textarea',resource_kind:resource,accept:['image','video','audio'].includes(resource)?resource+'/*':undefined}});
 }
 function transferInput(owner:string){try{const raw=JSON.parse(sessionStorage.getItem('studio-transfer:'+owner)||'null');return raw&&typeof raw.brief==='string'&&Array.isArray(raw.source_ids)&&raw.source_ids.every((x:any)=>typeof x==='string')?raw:null}catch{return null}}
-function Media({asset,noZoom=false}:{asset:Asset;noZoom?:boolean}){
+type PlaybackState={time:number;volume:number;muted:boolean;rate:number;playing:boolean};
+function Media({asset,noZoom=false,playback}:{asset:Asset;noZoom?:boolean;playback?:PlaybackState}){
  const [url,setUrl]=useState(''),[error,setError]=useState('');
  useEffect(()=>{let live=true,object='';setUrl('');setError('');const source=assetUrl(asset);if(!source)return;
   if(!source.startsWith('/api/')){setUrl(source);return}
@@ -96,32 +98,45 @@ function Media({asset,noZoom=false}:{asset:Asset;noZoom?:boolean}){
  const kind=mediaKind(asset);if(asset.text||asset.body)return <pre className="st-text-result">{asset.text||asset.body}</pre>;
  if(error)return <p className="st-muted">{error}</p>;
  if(!url)return <div className="st-media-placeholder">{assetUrl(asset)?'预览加载中…':'该资源暂无可验证预览'}</div>;
- return kind==='image'?<img src={url} alt={asset.title||'生成图片'} data-no-zoom={noZoom?'true':undefined} onError={()=>setError('预览不可用，请尝试下载原文件')}/>:kind==='audio'||kind==='voice'?<audio controls src={url} preload="metadata"/>:kind==='video'||kind==='avatar'?<video controls src={url} preload="metadata"/>:<p className="st-muted">此文件不支持内嵌预览，可下载查看。</p>;
+ return kind==='image'?<img src={url} alt={asset.title||'生成图片'} data-no-zoom={noZoom?'true':undefined} onError={()=>setError('预览不可用，请尝试下载原文件')}/>:kind==='audio'||kind==='voice'?<audio controls src={url} preload="metadata"/>:kind==='video'||kind==='avatar'?<VideoPlayer controls src={url} preload="metadata" expandable={!noZoom} aria-label={asset.title||"视频素材"} onLoadedMetadata={e=>{if(!playback)return;const video=e.currentTarget;video.currentTime=playback.time;video.volume=playback.volume;video.muted=playback.muted;video.playbackRate=playback.rate;if(playback.playing)void video.play().catch(()=>{})}}/>:<p className="st-muted">此文件不支持内嵌预览，可下载查看。</p>;
 }
 function HumanMediaPreview({asset}:{asset:Asset}){
  const [expanded,setExpanded]=useState(false),preview=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),stage=useRef<HTMLDivElement>(null);
+ const playback=useRef<PlaybackState>({time:0,volume:1,muted:false,rate:1,playing:false});
  useEffect(()=>{if(!expanded)return;const dialog=stage.current?.closest('dialog');return()=>{dialog?.close()}},[expanded]);
- const closePreview=()=>{stage.current?.closest('dialog')?.close();setExpanded(false);if(trigger.current?.isConnected)trigger.current.focus()};
+ const closePreview=()=>{const large=stage.current?.querySelector('video'),original=preview.current?.querySelector('.st-human-preview-inline video') as HTMLVideoElement|null;if(large&&original){const playing=!large.paused;large.pause();original.currentTime=large.currentTime;original.volume=large.volume;original.muted=large.muted;original.playbackRate=large.playbackRate;if(playing)void original.play().catch(()=>{})}stage.current?.closest('dialog')?.close();setExpanded(false);if(trigger.current?.isConnected)trigger.current.focus()};
  const label=asset.title||asset.name||'人物素材';
  return <div className="st-human-media-preview" ref={preview}>
-  <div className="st-human-preview-head"><span title={label}>{label}</span><button ref={trigger} type="button" onClick={e=>{e.preventDefault();e.stopPropagation();preview.current?.querySelector('video')?.pause();setExpanded(true)}} aria-label={'放大预览：'+label}>放大预览 <ArrowUpRight size={14}/></button></div>
+  <div className="st-human-preview-head"><span title={label}>{label}</span><button ref={trigger} type="button" onClick={e=>{e.preventDefault();e.stopPropagation();const video=preview.current?.querySelector('video');if(video){playback.current={time:video.currentTime,volume:video.volume,muted:video.muted,rate:video.playbackRate,playing:!video.paused};video.pause()}setExpanded(true)}} aria-label={'放大预览：'+label}>放大预览 <ArrowUpRight size={14}/></button></div>
   <div className="st-human-preview-inline"><Media asset={asset} noZoom/></div>
-  {expanded&&<StudioModal title={label} onClose={closePreview}><div ref={stage} className="st-human-preview-stage"><Media asset={asset} noZoom/></div><p className="st-human-preview-help">完整显示素材 · 视频可使用播放控件 · Esc 关闭</p></StudioModal>}
+  {expanded&&<StudioModal title={label} onClose={closePreview}><div ref={stage} className="st-human-preview-stage"><Media asset={asset} noZoom playback={playback.current}/></div><p className="st-human-preview-help">完整显示素材 · 视频可使用播放控件 · Esc 关闭</p></StudioModal>}
  </div>;
 }
 async function saveFile(asset:Asset){
  if(asset.text||asset.body){const object=URL.createObjectURL(new Blob([asset.text||asset.body],{type:'text/plain;charset=utf-8'})),link=document.createElement('a');link.href=object;link.download=(asset.title||'文稿')+'.md';link.click();setTimeout(()=>URL.revokeObjectURL(object),10000);return}
- const url=safeUrl(asset.download_url||asset.url)||assetUrl(asset);if(!url)throw new Error('暂时没有可下载文件');
+ const url=safeUrl(asset.original_file_url||asset.download_url||asset.url)||assetUrl(asset);if(!url)throw new Error('暂时没有可下载文件');
  const r=await fetch(url,{headers:url.startsWith('/api/')?{Authorization:'Bearer '+getToken()}:undefined});if(!r.ok)throw new Error('下载失败，原生成任务会保留，请稍后重试');
  const object=URL.createObjectURL(await r.blob()),link=document.createElement('a');link.href=object;link.download=asset.filename||asset.name||asset.title||'作品';link.click();setTimeout(()=>URL.revokeObjectURL(object),10000);
 }
 /** Pass the existing App context as t; route accepts hash or plain studio/... . */
 export function Studio({t,route}:{t:any;route:string}){
  const normalized=route.replace(/^#\/?/,'').replace(/^studio\/?/,'')||'home';
- if(normalized.split('?')[0]==='flow')return <div className="studio-v2 st-flow-page"><CreationFlow key={normalized} t={t} route={normalized}/></div>;
- return <StudioPage key={(t.state?.user?.id||'guest')+':'+normalized} t={t} page={normalized}/>;
+ return <StudioEditors key={profileScope(t.state)} t={t} page={normalized}/>;
 }
-function StudioPage({t,page}:{t:any;page:string}){
+function StudioEditors({t,page:normalized}:{t:any;page:string}){
+ // Keep standalone editors alive across navigation. Explicit draft / return
+ // routes still restore and verify their scope before becoming editable.
+ const [editorPath,query='']=normalized.split('?'),queryParams=new URLSearchParams(query);
+ const reusable=!!pages[editorPath]&&[...queryParams.keys()].every(key=>key==='mode')&&(!queryParams.has('mode')||pages[editorPath].tools.includes(queryParams.get('mode')!))&&!(editorPath==='text'&&sessionStorage.getItem('studio-transfer:'+t.state?.user?.id));
+ const cachePage=queryParams.get('mode')===pages[editorPath]?.tools[0]?editorPath:normalized;
+ const [visited,setVisited]=useState<string[]>([]);
+ const retained=reusable&&!visited.includes(cachePage)?[...visited,cachePage].slice(-6):reusable?visited:visited.filter(page=>page.split('?')[0]!==editorPath);
+ useEffect(()=>{if(retained.join('|')!==visited.join('|'))setVisited(retained)},[normalized,reusable]);
+ const active=normalized.split('?')[0];
+ useEffect(()=>{for(const video of document.querySelectorAll<HTMLVideoElement>('.st-retained-editor[hidden] video'))video.pause()},[normalized]);
+ return <>{retained.map(page=><div className="st-retained-editor" key={page} hidden={!reusable||page!==cachePage}><StudioPage t={t} page={page} visible={reusable&&page===cachePage}/></div>)}{!reusable&&(active==='flow'?<div className="studio-v2 st-flow-page"><CreationFlow key={normalized} t={t} route={normalized}/></div>:<StudioPage key={normalized} t={t} page={normalized}/>)}</>;
+}
+function StudioPage({t,page,visible=true}:{t:any;page:string;visible?:boolean}){
  const [path,query='']=page.split('?'),params=new URLSearchParams(query),spec=pages[path];
  const owner=t.state?.user?.id||'guest',workspace=t.state?.workspace||'',scope=owner+':'+workspace;
  const mode=params.get('mode')||spec?.tools[0]||path;
@@ -165,7 +180,7 @@ function StudioPage({t,page}:{t:any;page:string}){
  const visibleAssets=assets;
  const baseCap=catalog.find(c=>c.id===draft.tool);
  const selectedModel=baseCap?.models?.find((m:any)=>m.id===(draft.model_id||baseCap.binding));
- useEffect(()=>{if(!synced||!isHumanTool(draft.tool)||!baseCap?.models?.some((m:any)=>m.id==='service:hifly')||draft.model_id==='service:hifly')return;dirty.current=true;setDraft(d=>({...d,model_id:'service:hifly',inputs:d.tool==='audio_avatar'?Object.fromEntries(Object.entries(d.inputs).filter(([k])=>k!=='image_id')):d.inputs,options:{},version:d.version+1,request_id:undefined}));setNotice('已切换到飞影服务，旧素材与历史结果保留在素材库和生成记录中；请按当前字段检查出镜素材。')},[synced,baseCap,draft.model_id,draft.tool]);
+ useEffect(()=>{if(!synced||!isHumanTool(draft.tool)||!baseCap?.models?.some((m:any)=>m.id==='service:hifly')||draft.model_id==='service:hifly')return;dirty.current=true;setDraft(d=>({...d,model_id:'service:hifly',inputs:d.tool==='audio_avatar'?Object.fromEntries(Object.entries(d.inputs).filter(([k])=>k!=='image_id')):d.inputs,options:{},version:d.version+1,request_id:undefined}));setNotice(previous=>previous||'已切换到飞影服务，旧素材与历史结果保留在素材库和生成记录中；请按当前字段检查出镜素材。')},[synced,baseCap,draft.model_id,draft.tool]);
  useEffect(()=>{if(!synced)return;if(['avatar','video','image'].includes(draft.human_source)){setHumanSource(draft.human_source);return}if(draft.tool==='avatar_create')setHumanSource(draft.inputs.image_id?'image':'video');else if(['text_avatar','audio_avatar'].includes(draft.tool))setHumanSource(draft.inputs.video_id?'video':'avatar')},[synced,draft.id,draft.tool]);
  useEffect(()=>{if(path!=='video'||!baseCap?.models?.length||!draft.model_id||baseCap.models.some((m:any)=>m.id===draft.model_id))return;dirty.current=true;setDraft(d=>({...d,model_id:baseCap.binding||'media:ark-seedance-25',options:{},version:d.version+1,request_id:undefined}));setNotice('原视频平台已切换为官方Seedance；提示词和素材已保留，请检查参数。')},[baseCap,draft.model_id]);
  const supportsImageReferences=(model:any)=>Number(model?.reference_limits?.image||0)>0;
@@ -197,6 +212,8 @@ function StudioPage({t,page}:{t:any;page:string}){
  const perform=async(fn:()=>Promise<void>)=>{setError('');setBusy(true);try{await fn()}catch(e){if(alive.current)setError(message(e))}finally{if(alive.current)setBusy(false)}};
  const libraryKind=path.startsWith('avatar')?'avatar':'voice';
  const loadAssets=async(added:Asset[]=[])=>{const epoch=libraryEpoch.current;if(added.length&&alive.current)setAssets(current=>[...added,...current.filter(asset=>!added.some(item=>item.id===asset.id))]);const response=await api('/studio/assets'+(path.endsWith('/library')?'?asset_type='+libraryKind:''));if(alive.current&&(!path.endsWith('/library')||epoch===libraryEpoch.current))setAssets(rows(response,'assets'))};
+ const wasVisible=useRef(visible);
+ useEffect(()=>{const returned=visible&&!wasVisible.current;wasVisible.current=visible;if(!returned||!synced)return;void loadAssets().catch(()=>{});void api('/studio/runs').then(raw=>{if(alive.current)setRuns(rows(raw,'runs'))}).catch(()=>{})},[visible,synced]);
  const syncLibrary=()=>perform(async()=>{libraryEpoch.current++;const response=await api('/studio/assets?asset_type='+libraryKind+'&refresh=true');setAssets(rows(response,'assets'));setLibraryStatus(response.public_library_status||'queued');setNotice('飞影公共资源已加入后台同步，请稍候。')});
  useEffect(()=>{if(!path.endsWith('/library')||!['queued','running'].includes(libraryStatus))return;let cancelled=false,timer:ReturnType<typeof setTimeout>;const poll=async()=>{try{const response=await api('/studio/assets?asset_type='+libraryKind);if(cancelled)return;libraryEpoch.current++;setAssets(rows(response,'assets'));const status=response.public_library_status||'idle';setLibraryStatus(status);if(['queued','running'].includes(status))timer=setTimeout(poll,1500);else if(status==='ready')setNotice('飞影公共资源同步完成。');else if(['failed','interrupted'].includes(status))setError(response.public_library_error||'飞影公共资源同步未完成，可以稍后重试。')}catch{if(!cancelled)timer=setTimeout(poll,3000)}};timer=setTimeout(poll,1200);return()=>{cancelled=true;clearTimeout(timer)}},[path,libraryKind,libraryStatus]);
  useEffect(()=>{let live=true;void (async()=>{
@@ -205,7 +222,7 @@ function StudioPage({t,page}:{t:any;page:string}){
    // asset shelves can finish in the background without holding the page blank.
    const catalogRead=api('/studio/catalog').then(raw=>{if(live)setCatalog(rows(raw,'tools').length?rows(raw,'tools'):rows(raw,'capabilities'))}).catch(e=>{if(live)setError('服务目录暂不可用：'+message(e))});
    const originRead=flowContext?api('/studio/flow?work_id='+encodeURIComponent(requestedFlow)).then(flow=>{if(!live)return;if(flow.id!==requestedFlow)throw Error('原作品不存在或不可用');const choice=readProfileChoice(profileChoiceKey(profileScope(t.state),'flow:'+requestedFlow));setOriginIdentity({ready:true,value:flowProfileInitial(flow,choice)})}).catch(e=>{if(live){scopeFailure.current='原作品读取失败：'+message(e);setError(scopeFailure.current)}}):Promise.resolve();
-   const draftRead=api(flowContext?'/studio/flows/'+encodeURIComponent(requestedFlow)+'/drafts':taskContext?'/studio/tasks/'+encodeURIComponent(requestedTask)+'/drafts':path==='text'?'/studio/text/drafts':'/studio/drafts').then(raw=>{if(!live)return;const list=rows(raw,'drafts').filter(belongsToScope).map(decodeDraft).sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));setDrafts(list);const remote=params.get('draft')?list.find((d:Draft)=>d.id===params.get('draft')):list.find((d:Draft)=>d.tool===mode);const local=readScopedLocal();if(local?.server_id&&!list.some(d=>d.id===local.server_id)){persisted.current={};dirty.current=false;setDraft(fresh());if(params.get('draft')){scopeFailure.current='指定草稿不属于当前创作范围，请从原入口重新打开';setError(scopeFailure.current)}return}if(params.get('draft')&&!remote){scopeFailure.current='指定草稿不属于当前创作范围，请从原入口重新打开';setError(scopeFailure.current);return}if(remote&&!dirty.current&&(!local||String(remote.updated_at||'')>String(local.updated_at||''))){const opened=withSuggestedTextTarget(remote,flowReturn);persisted.current={id:remote.id,version:remote.server_version};if(opened!==remote)dirty.current=true;setDraft(opened);if(opened!==remote)void persist(opened)}else if(local&&(!remote||String(local.updated_at||'')>=String(remote.updated_at||''))){if(remote)persisted.current={id:remote.id,version:remote.server_version};dirty.current=true}}).catch(e=>{if(live){const failure='草稿读取失败：'+message(e);if(params.get('draft')||flowContext||taskContext)scopeFailure.current=failure;setError(failure)}});
+   const draftRead=api(flowContext?'/studio/flows/'+encodeURIComponent(requestedFlow)+'/drafts':taskContext?'/studio/tasks/'+encodeURIComponent(requestedTask)+'/drafts':path==='text'?'/studio/text/drafts':'/studio/drafts').then(raw=>{if(!live)return;const list=rows(raw,'drafts').filter(belongsToScope).map(decodeDraft).sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));setDrafts(list);const local=readScopedLocal();const remote=params.get('draft')?list.find((d:Draft)=>d.id===params.get('draft')):list.find((d:Draft)=>d.id===local?.server_id&&d.tool===mode)||list.find((d:Draft)=>d.tool===mode);if(local?.server_id&&!list.some(d=>d.id===local.server_id)){persisted.current={};dirty.current=false;setDraft(fresh());if(params.get('draft')){scopeFailure.current='指定草稿不属于当前创作范围，请从原入口重新打开';setError(scopeFailure.current)}return}if(params.get('draft')&&!remote){scopeFailure.current='指定草稿不属于当前创作范围，请从原入口重新打开';setError(scopeFailure.current);return}if(remote&&!dirty.current&&(!local||String(remote.updated_at||'')>String(local.updated_at||''))){const opened=withSuggestedTextTarget(remote,flowReturn);persisted.current={id:remote.id,version:remote.server_version};if(opened!==remote)dirty.current=true;setDraft(opened);if(opened!==remote)void persist(opened)}else if(local&&(!remote||String(local.updated_at||'')>=String(remote.updated_at||''))){if(remote)persisted.current={id:remote.id,version:remote.server_version};dirty.current=true}}).catch(e=>{if(live){const failure='草稿读取失败：'+message(e);if(params.get('draft')||flowContext||taskContext)scopeFailure.current=failure;setError(failure)}});
    void api('/studio/assets').then(raw=>{if(live)setAssets(rows(raw,'assets'))}).catch(()=>{});
    void api('/studio/runs').then(raw=>{if(live)setRuns(rows(raw,'runs'))}).catch(()=>{});
    await Promise.allSettled([catalogRead,draftRead,originRead]);
@@ -224,7 +241,7 @@ function StudioPage({t,page}:{t:any;page:string}){
   }
   setSynced(true);setLoading(false);setSaveState(readLocal(key)?'已恢复本机草稿':'草稿自动保存');
  })();return()=>{live=false}},[]);
- useEffect(()=>{draftRef.current=draft;if(!spec||!synced||!dirty.current)return;try{localStorage.setItem(key,JSON.stringify(draft));if(incoming.current){sessionStorage.removeItem('studio-transfer:'+owner);incoming.current=null;setNotice('已接收对标资料；品牌、身份与其他设置保持原选择。')}setSaveState('已暂存本机')}catch{setSaveState('本机保存失败，请检查存储空间')}
+ useEffect(()=>{draftRef.current=draft;if(!spec||!synced||!dirty.current)return;try{localStorage.setItem(key,JSON.stringify(draft));if(params.get('draft')&&belongsToScope(draft))localStorage.setItem('tijian-studio-v2:'+scope+':'+path+':'+mode+':latest'+((flowContext||taskContext)?':'+draftScope:''),JSON.stringify(draft));if(incoming.current){sessionStorage.removeItem('studio-transfer:'+owner);incoming.current=null;setNotice('已接收对标资料；品牌、身份与其他设置保持原选择。')}setSaveState('已暂存本机')}catch{setSaveState('本机保存失败，请检查存储空间')}
   const timer=setTimeout(()=>{void persist(draft)},850);return()=>clearTimeout(timer);
  },[draft,synced,profilesReady,originIdentity.ready]);
  const persist=async(value:Draft)=>{
@@ -245,7 +262,7 @@ function StudioPage({t,page}:{t:any;page:string}){
  useEffect(()=>{if(!runs.some(active))return;let cancelled=false;let timer:ReturnType<typeof setTimeout>;
   const poll=async()=>{try{await Promise.all(runs.filter(active).map(r=>api('/studio/runs/'+r.id+'/refresh',undefined,'POST')));const result=await api('/studio/runs');if(cancelled)return;const next=rows(result,'runs');setRuns(next);if(next.some(completed))void loadAssets();if(next.some(active))timer=setTimeout(poll,4500)}catch{if(!cancelled){setNotice('状态查询暂时失败，未重复提交生成。稍后继续核查原任务。');timer=setTimeout(poll,6000)}}};timer=setTimeout(poll,4000);return()=>{cancelled=true;clearTimeout(timer)};
  },[runs.map(r=>r.id+':'+r.status).join('|')]);
- const upload=async(file:File,inputKey?:string)=>perform(async()=>{const data=new FormData();data.append('file',file);const result=await api('/studio/upload',data),asset=result.asset||result;if(!asset.id)throw new Error('上传未返回有效素材编号');await loadAssets();if(inputKey)update({[inputKey]:asset.id});setNotice('文件已上传并保存，可继续创作。')});
+ const upload=async(file:File,inputKey?:string)=>perform(async()=>{const data=new FormData();data.append('file',file);const result=await api('/studio/upload',data),asset=result.asset||result;if(!asset.id)throw new Error('上传未返回有效素材编号');if(inputKey)update({[inputKey]:asset.id});void loadAssets([asset]).catch(()=>{});setNotice(asset.image_adjustment?.message||'文件已上传并保存，可继续创作。')});
  const assetKind=(a:Asset,kind:string)=>mediaKind(a)===kind||a.kind===kind||(kind==='image'&&a.mime_type?.startsWith('image/'));
  const compatible=(a:Asset)=>Array.isArray(a.compat)&&a.compat.includes(draft.tool);
  const draftRoute=(d:Draft)=>(d.route||'studio/'+Object.keys(pages).find(p=>pages[p].tools.includes(d.tool)))+'?draft='+d.id+'&mode='+d.tool;
@@ -308,7 +325,7 @@ function StudioPage({t,page}:{t:any;page:string}){
  const fieldUI=(f:Field)=>{
   const value=draft.inputs[f.key]??f.default??'';
   return <label className={'st-field '+(f.type==='textarea'?'st-wide':'')} key={f.key}><span>{f.label}{f.required&&<em>必填</em>}</span>
-   {f.type==='asset'||f.type==='upload'?<><select value={value} onChange={e=>update({[f.key]:e.target.value})}><option value="">选择{f.label}</option>{visibleAssets.filter(a=>assetKind(a,f.resource_kind||'')&&compatible(a)&&(!isHumanTool(draft.tool)||!['avatar','voice'].includes(f.resource_kind||'')||a.provider==='hifly')&&(!a.status||['ready','available','completed','done'].includes(a.status))).map(a=><option value={a.id} key={a.id}>{a.title||a.name||a.id}{a.visibility==='public'?' · 公共':''}</option>)}</select><div className="st-inline">{f.accept&&<label className="st-upload-inline"><Upload size={14}/>上传文件<input type="file" accept={f.accept} disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,f.key);e.target.value=''}}/></label>}{['avatar','voice'].includes(f.resource_kind||'')&&<button type="button" className="st-link" onClick={()=>chooseResource(f.resource_kind!)}><Plus size={14}/>创建{f.resource_kind==='avatar'?'形象':'声音'}</button>}</div>{value&&visibleAssets.find(a=>a.id===value)&&(isHumanTool(draft.tool)&&['image','video'].includes(f.resource_kind||'')?<HumanMediaPreview key={value} asset={visibleAssets.find(a=>a.id===value)!}/>:<div className="st-input-preview"><Media asset={visibleAssets.find(a=>a.id===value)!}/></div>)}</>:
+   {f.type==='asset'||f.type==='upload'?<><select value={value} onChange={e=>update({[f.key]:e.target.value})}><option value="">选择{f.label}</option>{visibleAssets.filter(a=>assetKind(a,f.resource_kind||'')&&compatible(a)&&(!isHumanTool(draft.tool)||!['avatar','voice'].includes(f.resource_kind||'')||a.provider==='hifly')&&(!a.status||['ready','available','completed','done'].includes(a.status))).map(a=><option value={a.id} key={a.id}>{a.title||a.name||a.id}{a.visibility==='public'?' · 公共':''}</option>)}</select><div className="st-inline">{f.accept&&<label className="st-upload-inline"><Upload size={14}/>上传文件<input type="file" accept={f.accept} disabled={busy||loading} onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file,f.key);e.target.value=''}}/></label>}{['avatar','voice'].includes(f.resource_kind||'')&&<button type="button" className="st-link" onClick={()=>chooseResource(f.resource_kind!)}><Plus size={14}/>创建{f.resource_kind==='avatar'?'形象':'声音'}</button>}</div>{value&&visibleAssets.find(a=>a.id===value)&&(isHumanTool(draft.tool)&&['image','video'].includes(f.resource_kind||'')?<HumanMediaPreview key={value} asset={visibleAssets.find(a=>a.id===value)!}/>:<div className="st-input-preview"><Media asset={visibleAssets.find(a=>a.id===value)!}/></div>)}</>:
    f.type==='textarea'?<textarea onKeyDown={e=>sendKey(e,()=>{if(canGenerate)setConfirm(true)},v=>update({[f.key]:v}))} rows={f.key==='text'?10:6} value={value} placeholder={f.placeholder||'输入创作要求 · Enter 继续，Ctrl + Enter 换行'} onChange={e=>update({[f.key]:e.target.value})}/>:
    f.type==='checkbox'?<input type="checkbox" checked={!!value} onChange={e=>update({[f.key]:e.target.checked})}/>:
    f.options?<select value={value} onChange={e=>update({[f.key]:e.target.value})}><option value="">请选择</option>{f.options.map((o:any)=><option key={typeof o==='string'?o:o.value} value={typeof o==='string'?o:o.value}>{typeof o==='string'?o:o.label}</option>)}</select>:

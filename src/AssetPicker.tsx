@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {getToken} from './api';
 export function StudioModal({title,children,onClose}:{title:string;children:ReactNode;onClose:()=>void}){
  const ref=useRef<HTMLDialogElement>(null);useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close()},[]);
+ useEffect(()=>{const route=()=>onClose();window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[onClose]);
  return createPortal(<dialog ref={ref} className="studio-modal" onCancel={e=>{e.preventDefault();onClose()}}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="关闭弹窗">关闭</button></header>{children}</dialog>,document.body)
 }
 export function AssetThumbnail({asset,full=false}:{asset:any;full?:boolean}){

@@ -23,6 +23,12 @@
   background: var(--ts-bg);
 }
 .ts-theme body {background:var(--ts-bg);color:var(--ts-text)}
+.ts-theme .st-retained-editor[hidden]{display:none!important}
+.ts-theme .studio-v2 .st-return{background:var(--ts-elevated);color:#c6d7f6;border-top:1px solid var(--ts-line)}
+.ts-theme .studio-v2 .st-return:hover{background:#293b55;color:#fff}
+.ts-theme .studio-v2 .st-alert{background:#372725;color:#ffccba;border-color:#795348}
+.ts-theme .studio-v2 .st-notice{background:#18322d;color:#bfe3d5;border-color:#3e6d60}
+.ts-theme .studio-v2 .st-warning{color:#f0ce8c}
 .ts-theme ::selection {background:#cbdcff;color:#142c55}
 .ts-theme * {scrollbar-color:#566780 #111722;scrollbar-width:thin}
 .ts-theme :where(h1,h2,h3,h4) {font-family:'Bahnschrift','Microsoft YaHei UI',sans-serif;letter-spacing:.01em;line-height:1.4}

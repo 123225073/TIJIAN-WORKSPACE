@@ -1,3 +1,4 @@
+import VideoPlayer from './VideoPlayer';
 import {useEffect, useRef, useState, type ClipboardEvent, type DragEvent} from 'react';
 import {AudioLines, ClipboardPaste, Film, Image as ImageIcon, LoaderCircle, UploadCloud, X} from 'lucide-react';
 import {api,getToken} from './api';
@@ -14,7 +15,7 @@ function ReferencePlayer({asset,kind}:{asset:Asset;kind:string}){
   fetch(asset.file_url,{headers:{Authorization:'Bearer '+getToken()},signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('无法读取参考文件');blob=URL.createObjectURL(await r.blob());if(active)setUrl(blob)}).catch(e=>{if(active&&e.name!=='AbortError')setError(e.message)});
   return()=>{active=false;controller.abort();if(blob)URL.revokeObjectURL(blob)};
  },[asset.id,asset.file_url]);
- return error?<small>{error}</small>:!url?<small>正在读取预览…</small>:kind==='video'?<video controls preload="metadata" src={url}/>:<audio controls preload="metadata" src={url}/>;
+ return error?<small>{error}</small>:!url?<small>正在读取预览…</small>:kind==='video'?<VideoPlayer controls preload="metadata" src={url}/>:<audio controls preload="metadata" src={url}/>;
 }
 
 const kinds = [
@@ -97,11 +98,11 @@ export default function MediaReferences({draft, model, assets, update, reload, b
     return;
    }
    change(kind,[...ids,...uploaded]);
-   setProgress('上传完成，可继续添加或移除');
+   setProgress(uploadedAssets.map((a:any)=>a.image_adjustment?.message).filter(Boolean).join(' ')||'上传完成，可继续添加或移除');
   };
   try{
    if(selected(kind).length+remoteCount(kind)+files.length>(limits[kind]||0))throw Error(`本次选择 ${files.length} 个文件，超过当前模型允许的 ${limits[kind]} 个参考素材上限`);
-   if(files.some(file=>!file.type.startsWith(kind+'/')))throw Error('请把'+kinds.find(x=>x.kind===kind)?.label+'文件放入对应输入框');
+   if(files.some(file=>!file.type.startsWith(kind+'/')&&!(kind==='image'&&/\.(jpe?g|png|webp|bmp|tiff?|gif)$/i.test(file.name))))throw Error('请把'+kinds.find(x=>x.kind===kind)?.label+'文件放入对应输入框');
    for(let i=0;i<files.length;i++){
     setProgress(`正在上传第 ${i+1} / ${files.length} 个：${files[i].name}`);
     const data=new FormData();
@@ -179,7 +180,7 @@ export default function MediaReferences({draft, model, assets, update, reload, b
    <input ref={input} hidden type="file" multiple onChange={e=>void upload(Array.from(e.target.files||[]),uploadKind.current)}/>
    {ark?<><div className="ark-link-input"><select aria-label="方舟外部素材类型" value={remoteKind} onChange={e=>setRemoteKind(e.target.value as Kind)}>{kinds.map(k=><option key={k.kind} value={k.kind}>{k.label}</option>)}</select><input aria-label="方舟素材地址" value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="HTTPS地址或asset://素材ID"/><button type="button" disabled={busy||!remoteUrl.trim()} onClick={addRemote}>添加</button></div><div className="media-refs-selected">{remote.map((r:any,i:number)=><div key={i}><span>{r.title}</span><button type="button" aria-label={'移除外部素材'+(i+1)} onClick={()=>update({remote_references:remote.filter((_:any,n:number)=>n!==i)})}><X size={13}/></button></div>)}</div><p>提示词中可用 @image1 / @video1 / @audio1 指定对应素材。视频与音频各自总时长不超过{model?.reference_limits?.duration||30}秒。{!model.storage_ready?'本地视频参考需管理员配置火山TOS；图片和音频可直接使用。':''}</p><a href="https://docs.volcengine.com/docs/ark/seedance-portrait-asset-guide?lang=zh" target="_blank" rel="noreferrer">真人肖像素材请使用官方授权素材库 ↗</a></>:<p>数量由当前模型决定；中转平台可能设置更低上限。生成前会再次检查。</p>}
   </>}
-  {uploading&&<p className="media-refs-progress" role="status"><LoaderCircle className="spin" size={14}/>{progress}</p>}
+  {progress&&<p className="media-refs-progress" role="status">{uploading&&<LoaderCircle className="spin" size={14}/>} {progress}</p>}
   {error&&<p className="mw-error" role="alert">{error}</p>}
  </section>;
 }

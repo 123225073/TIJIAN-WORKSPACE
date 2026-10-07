@@ -1,3 +1,4 @@
+import VideoPlayer from './VideoPlayer';
 import {useEffect,useRef,useState} from 'react';
 import {ArrowLeft,ArrowUp,BookOpen,Download,Eye,ImagePlus,MessageCircle,Paperclip,PenLine,Save} from 'lucide-react';
 import {useProfileDefault,profileScope,profileUnavailable,unavailableProfileOption,taskProfileInitial,profileChoiceKey,readProfileChoice} from './profile-defaults';
@@ -103,7 +104,7 @@ function PlatformOutcome({content,platform,task,t,pictures,running,registerSave,
 
 function AuthVideo({asset}:{asset:any}){
  const [url,setUrl]=useState('');useEffect(()=>{let live=true,objectUrl='';fetch(asset.file_url,{headers:{Authorization:'Bearer '+getToken()}}).then(r=>{if(!r.ok)throw Error();return r.blob()}).then(blob=>{objectUrl=URL.createObjectURL(blob);if(live)setUrl(objectUrl)}).catch(()=>{});return()=>{live=false;if(objectUrl)URL.revokeObjectURL(objectUrl)}},[asset.id]);
- return url?<video controls src={url} className="aw-media-result"/>:<p>正在读取视频预览…</p>;
+ return url?<VideoPlayer controls src={url} className="aw-media-result"/>:<p>正在读取视频预览…</p>;
 }
 function UseAsCover({asset,task,t}:any){
  const article=t.get(task.platform_outcomes?.wechat);

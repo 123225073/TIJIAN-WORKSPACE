@@ -27,7 +27,10 @@ async function start(){
  win=new BrowserWindow({width:1530,height:1000,minWidth:1000,minHeight:700,backgroundColor:'#0b0d12',title:'梯世界工作台',autoHideMenuBar:true,show:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:\/\//.test(url)&&!url.startsWith(base+'/'))shell.openExternal(url);return {action:'deny'};});
  win.webContents.on('will-navigate',(e,url)=>{if(new URL(url).origin!==base){e.preventDefault();if(/^https?:\/\//.test(url))shell.openExternal(url);}});
- win.webContents.session.setPermissionRequestHandler((wc,permission,callback)=>callback(permission==='clipboard-sanitized-write'));
+ win.webContents.session.setPermissionRequestHandler((wc,permission,callback,details)=>{
+  const local=wc===win?.webContents&&new URL(wc.getURL()).origin===base;
+  callback(local&&(permission==='clipboard-sanitized-write'||permission==='fullscreen'&&(!details?.requestingUrl||new URL(details.requestingUrl).origin===base)));
+ });
  require('./updater.cjs').registerUpdater({app,ipcMain,win,prepareInstall:async()=>{
   await require('./platform-sessions.cjs').bound(require('./platform-sessions.cjs').flushAll(),5000);
   flushed=true;
