@@ -21,8 +21,8 @@ export default function KnowledgeAssistant({t}:{t:any}){
     setBusy(true);setError('');
     try{
       const text=question.trim();
-      const task=await api<any>('/tasks/open',{title:text,mode:'auto',source_ids:[]});
-      if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope});
+      const task=await t.openTask(text,'auto',[],t.profile);
+      if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope,skip_profile:t.profileSkipped===true});
       await t.refresh();
       location.hash='task/'+task.id;
     }

@@ -1,0 +1,26 @@
+// Execute the actual Studio handlers with deferred GETs; no browser/provider needed.
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+const source=fs.readFileSync('src/Studio.tsx','utf8');
+const handlers=['loadAssets','syncLibrary'].map(name=>{const line=source.split('\n').find(line=>line.trimStart().startsWith('const '+name+'='));assert(line,name);return line}).join('\n');
+const compiled=ts.transpile(handlers, {target:ts.ScriptTarget.ES2022});
+const replies=[];let assets=[],status='idle';
+const libraryEpoch={current:0},alive={current:true};
+const api=path=>new Promise((resolve,reject)=>replies.push({path,resolve,reject}));
+const setAssets=next=>assets=typeof next==='function'?next(assets):next;
+const setLibraryStatus=next=>status=next;
+const factory=new Function('api','setAssets','setLibraryStatus','setNotice','libraryEpoch','alive','path','libraryKind','perform','rows',compiled+';return {loadAssets,syncLibrary};');
+const make=path=>factory(api,setAssets,setLibraryStatus,()=>{},libraryEpoch,alive,path,'avatar',fn=>fn(),raw=>raw.items);
+const library=make('avatar/library');
+const old=library.loadAssets();const sync=library.syncLibrary();
+replies[1].resolve({items:[{id:'queued-resource'}],public_library_status:'queued'});await sync;
+replies[0].resolve({items:[],public_library_status:'idle'});await old;
+assert.equal(status,'queued');assert.deepEqual(assets,[{id:'queued-resource'}]);
+const beforePoll=library.loadAssets();libraryEpoch.current++;setAssets([{id:'completed-resource'}]);setLibraryStatus('ready');
+replies[2].resolve({items:[],public_library_status:'idle'});await beforePoll;
+assert.equal(status,'ready');assert.deepEqual(assets,[{id:'completed-resource'}]);
+const regular=make('assets').loadAssets();libraryEpoch.current++;
+replies[3].resolve({items:[{id:'ordinary-asset'}]});await regular;
+assert.deepEqual(assets,[{id:'ordinary-asset'}]);
+console.log('PASS: deferred ordinary reads cannot reset public-library queue or erase completed resources; ordinary shelves still refresh');

@@ -46,9 +46,9 @@ export default function TishijieHome({drafts,t}:{drafts:any[];t:any}){
  const filtered=assets.filter((a:any)=>filter==='all'||a.asset_type===filter),visible=filtered.slice(0,12),loading=!t.state||t.state.complete===false;
  const bound=t.state?.bindings?.qa||t.state?.bindings?.writing;
  const ready=!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.published);
- const start=async()=>{const text=question.trim();if(!text||busy||!ready)return;setBusy(true);setError('');try{
-  const task=await api<any>('/tasks/open',{title:text,mode:'auto',source_ids:[],profile_id:t.profile||undefined});
-  if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope});
+ const start=async()=>{const text=question.trim();if(!text||busy||!ready||loading)return;setBusy(true);setError('');try{
+  const task=await t.openTask(text,'auto',[],t.profile);
+  if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope,skip_profile:t.profileSkipped===true});
   await t.refresh();location.hash='task/'+task.id;
  }catch(e){setError(e instanceof Error?e.message:'对话未能开始')}finally{setBusy(false)}};
  return <div className="tw-home"><section className="tw-hero" aria-labelledby="tw-title">

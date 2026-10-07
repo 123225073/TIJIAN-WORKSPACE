@@ -145,13 +145,13 @@ def test_wavespeed_seedance_and_gpt_image_submit_poll_and_archive(studio, monkey
     assert request[2]['payload']['prompt']=='电梯开门'
 
 
-def test_infinitetalk_requires_photo_and_audio_instead_of_saved_avatar(studio):
+def test_hifly_replaces_legacy_infinitetalk_frontend_entry(studio):
     picture = asset(studio)
     body = {'tool': 'audio_avatar', 'title': '照片驱动口播', 'model_id': 'media:wavespeed-infinitetalk',
             'input': {'image_id': picture['id']}, 'options': {}}
     saved = studio.post('/api/studio/drafts', json=body)
-    assert saved.status_code == 200, saved.text
-    assert saved.json()['input']['image_id'] == picture['id']
+    assert saved.status_code == 400, saved.text
+    assert '飞影官方' in saved.json()['detail']
     assert studio.post('/api/studio/drafts', json={**body, 'input': {**body['input'], 'avatar_id': 'unknown'}}).status_code == 400
 
 

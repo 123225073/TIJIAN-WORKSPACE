@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {ArrowLeft,ArrowUp,BookOpen,Download,Eye,ImagePlus,MessageCircle,Paperclip,PenLine,Save} from 'lucide-react';
+import {useProfileDefault,profileScope,profileUnavailable,unavailableProfileOption,taskProfileInitial,profileChoiceKey,readProfileChoice} from './profile-defaults';
 import {api,download,getToken,type Item} from './api';
 import Markdown from './Markdown';
 import {JobFeedback,activeJob} from './OperationFeedback';
@@ -19,20 +20,22 @@ const contentFields=['title','body','summary','cover_brief','cover_asset_id','ca
 export default function TaskWorkspace(t:any){
  const task=t.task as Item,composerKey='assistant-composer:'+t.state.user.id+':'+task.id;
  const cache=(()=>{try{return JSON.parse(localStorage.getItem(composerKey)||'null')}catch{return null}})();
- const [text,setText]=useState(cache?.text??(task.messages?.length?'':task.title)),[profile,setProfile]=useState(cache?.profile??task.profile_id??''),[model,setModel]=useState(cache?.model||'');
+ const [text,setText]=useState(cache?.text??(task.messages?.length?'':task.title)),[profile,setProfile]=useProfileDefault(t.list('profile'),profileScope(t.state),'task:'+task.id,taskProfileInitial(task,cache,profileScope(t.state)),t.state.complete!==false),[model,setModel]=useState(cache?.model||'');
  const [scope,setScope]=useState<ReferenceScope>(cache?.scope||task.reference_scope||defaultScope),[tab,setTab]=useState('body'),[references,setReferences]=useState(false),[selected,setSelected]=useState(task.active_outcome||Object.keys(task.platform_outcomes||{})[0]||'legacy'),[versions,setVersions]=useState<any[]>([]),[sending,setSending]=useState(false);
- const saveActive=useRef<null|(()=>Promise<void>)>(null),messages=useRef<HTMLDivElement>(null),lastOutcome=useRef(task.active_outcome),lastProfile=useRef(task.profile_id);
+ const saveActive=useRef<null|(()=>Promise<void>)>(null),messages=useRef<HTMLDivElement>(null),lastOutcome=useRef(task.active_outcome);
  const mapping:Record<string,string>={...(task.content_id&&!Object.keys(task.platform_outcomes||{}).length?{legacy:task.content_id}:{}),...task.platform_outcomes,...task.media_outcomes};
  const content=t.get(mapping[selected]);
  const jobs=t.list('job').filter((j:any)=>j.task_id===task.id),liveJob=jobs[0],running=sending||jobs.some(activeJob);
  const profiles=t.opts('profile'),pictures=t.list('studio_asset').filter((a:any)=>a.asset_type==='image'&&a.status==='ready');
  useEffect(()=>{const last=task.messages?.at(-1);if(task.active_outcome&&(lastOutcome.current!==task.active_outcome||last?.role==='assistant'&&/^(?:已生成|已整理(?:图片|视频))/.test(last.text))){setSelected(task.active_outcome);setTab('body');lastOutcome.current=task.active_outcome}},[task.active_outcome,task.messages?.length]);
- useEffect(()=>{if(lastProfile.current!==task.profile_id){setProfile(task.profile_id||'');lastProfile.current=task.profile_id}},[task.profile_id]);
- useEffect(()=>{localStorage.setItem(composerKey,JSON.stringify({text,profile,model,scope}))},[text,profile,model,scope,composerKey]);
+ useEffect(()=>{if(t.state.complete===false)return;localStorage.setItem(composerKey,JSON.stringify({text,profile,model,scope,profile_scope:profileScope(t.state)}))},[text,profile,model,scope,composerKey,t.state.complete]);
  useEffect(()=>{messages.current?.scrollTo({top:messages.current.scrollHeight,behavior:'smooth'})},[task.messages?.length]);
  const send=async(value=text,skip=false)=>{if(!value.trim()||running)return;setSending(true);try{
+  if(t.state.complete===false)throw new Error('身份档案尚未加载，请稍候');
+  if(!skip&&profileUnavailable(t.list('profile'),profile,t.state.complete!==false))throw new Error('原 IP 已删除或不可用，请重新选择');
   if(saveActive.current)await saveActive.current();
-  await api('/tasks/'+task.id+'/send',{text:value,mode:'auto',profile_id:profile,model_id:model||undefined,source_ids:scope.item_ids,reference_scope:scope,skip_profile:skip});
+  if(skip)setProfile('');
+  await api('/tasks/'+task.id+'/send',{text:value,mode:'auto',profile_id:skip?'':profile,model_id:model||undefined,source_ids:scope.item_ids,reference_scope:scope,skip_profile:skip||(profile===''&&readProfileChoice(profileChoiceKey(profileScope(t.state),'task:'+task.id))==='')});
   setText('');await t.refresh();
  }catch(e){t.setError(e instanceof Error?e.message:'对话提交失败')}finally{setSending(false)}};
  const select=async(key:string)=>{try{if(saveActive.current)await saveActive.current();setSelected(key);setTab('body')}catch(e){t.setError((e as Error).message)}};
@@ -41,7 +44,7 @@ export default function TaskWorkspace(t:any){
   <div className="aw-grid"><section className="aw-conversation"><header><MessageCircle size={16}/><strong>工作对话</strong><span>{task.messages?.length||0} 条记录</span></header>
    <div className="aw-messages" ref={messages}>{!task.messages?.length&&<div className="aw-empty"><PenLine size={30}/><h3>说说你的问题或创作想法</h3><p>聊行业、查资料，或明确告诉我想写哪个平台的内容。</p></div>}{(task.messages||[]).map((m:any,i:number)=><article className={'aw-message '+m.role} key={i}><small>{m.role==='user'?'你':'梯世界'}<time>{m.at?new Date(m.at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):''}</time></small><Markdown text={linkedReferences(m.text,t.get)}/></article>)}<JobFeedback job={liveJob} preview={activeJob(liveJob)&&liveJob?.input?.action!=='assistant'}/></div>
    {task.identity_required&&<div className="aw-identity-guide"><strong>先让内容有明确的身份与读者</strong><p>选择下面的运营身份后继续，或在对话中建立定位。</p><div><button disabled={running||!profile} onClick={()=>void send('使用这个身份，继续刚才的创作')}>使用已选身份继续</button><button disabled={running} onClick={()=>void send('请帮我建立身份定位')}>开始定位</button><button disabled={running} onClick={()=>void send('不需要身份，继续刚才的创作',true)}>跳过定位，通用创作</button></div></div>}
-   <div className="aw-composer"><div className="aw-composer-settings"><ChoiceMenu label="运营身份" value={profile} onChange={setProfile} options={[{value:'',label:task.identity_skipped?'通用创作':'选择运营身份',description:'创作前可选择或建立身份，也可以明确跳过'},...profiles]}/><button className="quiet" onClick={()=>setReferences(true)}><Paperclip size={14}/>参考资料</button></div>
+   <div className="aw-composer"><div className="aw-composer-settings"><ChoiceMenu label="运营身份" value={profile} onChange={setProfile} options={[{value:'',label:task.identity_skipped?'通用创作':'选择运营身份',description:'创作前可选择或建立身份，也可以明确跳过'},...unavailableProfileOption(t.list('profile'),profile,t.state.complete!==false),...profiles]}/><button className="quiet" onClick={()=>setReferences(true)}><Paperclip size={14}/>参考资料</button></div>
     <textarea aria-label="对话要求" value={text} disabled={sending} onChange={e=>setText(e.target.value)} onKeyDown={e=>sendKey(e,()=>void send(),setText)} placeholder="继续交流，或说：把这篇文章改写成朋友圈文案…"/>
     <footer><ChoiceMenu label="本次模型" value={model} onChange={setModel} options={[{value:'',label:'系统默认模型'},...t.state.models.filter((x:any)=>x.capability==='text').map((x:any)=>({value:x.id,label:x.title}))]}/><button className="aw-send" aria-label="发送要求" disabled={running||!text.trim()} onClick={()=>void send()}><ArrowUp size={19}/></button></footer>
    </div></section>

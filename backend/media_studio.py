@@ -8,7 +8,7 @@ Asset library: ?asset_type=voice|avatar&refresh=true imports PUBLIC Hifly resour
 Run statuses: queued/preparing/submitting/running/succeeded/failed/unknown/archive_failed/interrupted.
 Unknown submission is never automatically retried. Refresh polls existing task IDs.
 
-Contracts checked 2026-09-22 (account capabilities and real billing remain untested):
+Contracts checked 2026-10-07 (account capabilities and real billing remain untested):
 https://api.hifly.cc/hifly.html
 https://help.aliyun.com/zh/model-studio/text-to-video-api-reference
 https://help.aliyun.com/zh/model-studio/legacy-image-to-video-api-reference/
@@ -42,6 +42,7 @@ from . import gateway as g, jobs, network, store as s, media_registry, ark_video
 
 MAX_FILE = 500 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024
+HIFLY_POLL_TIMEOUT = 24 * 3600  # Local monitoring limit; no provider expiry is assumed.
 CONFIG = 'studio_services'
 PROVIDERS = {
     'hifly': {'title': '飞影', 'base_url': 'https://hfw-api.hifly.cc', 'docs_url': 'https://api.hifly.cc/hifly.html', 'signup_url': 'https://hifly.cc/intro/api.html'},
@@ -63,7 +64,7 @@ TOOLS = {
 }
 COMPAT = {
     'image': ['text_image', 'photo_talk', 'avatar_create', 'image_edit', 'text_video', 'image_video', 'audio_avatar', 'compose'],
-    'video': ['avatar_create', 'text_video', 'image_video', 'compose'], 'audio': ['audio_avatar', 'voice_create', 'text_video', 'image_video', 'compose'],
+    'video': ['avatar_create', 'text_avatar', 'audio_avatar', 'text_video', 'image_video', 'compose'], 'audio': ['audio_avatar', 'voice_create', 'text_video', 'image_video', 'compose'],
     'avatar': ['text_avatar', 'audio_avatar'], 'voice': ['text_avatar', 'photo_talk', 'tts'],
 }
 EXTENSIONS = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -165,6 +166,10 @@ def _service(provider):
 
 def validate_binding(tool, value):
     if not value:return
+    if TOOLS[tool][1] == 'hifly':
+        if value != 'service:hifly':
+            raise StudioError('数字人及声音功能仅支持飞影官方 API v2')
+        return
     if value.startswith('media:'):
         media_registry.choice(tool, value[6:]);return
     if tool in media_registry.VIDEO_TOOLS:
@@ -176,6 +181,9 @@ def validate_binding(tool, value):
 
 
 def selection(tool, model_id=None):
+    if TOOLS[tool][1] == 'hifly':
+        value = model_id if model_id is not None else s.config('bindings', {}).get(tool)
+        return '' if value == '' else 'service:hifly'
     if tool in media_registry.VIDEO_TOOLS:
         value = model_id or s.config('bindings',{}).get(tool)
         if value is None:return ark_video.DEFAULT_MODEL
@@ -288,7 +296,7 @@ def _api(provider, method, path, payload=None, service=None, asynchronous=False)
     if asynchronous:
         headers['X-DashScope-Async'] = 'enable'
     value = _request(method, base + path, headers=headers, payload=payload)
-    if provider == 'hifly' and value.get('code', 0) != 0:
+    if provider == 'hifly' and value.get('code', 0) != 0 and not (method == 'GET' and '/task?' in path and value.get('status') == 4):
         raise Rejected('飞影拒绝请求，请核对套餐、余额和素材；未采用供应商原始错误文本')
     if provider == 'shotstack' and value.get('success') is False:
         raise Rejected('Shotstack 拒绝请求，请核对素材及配置')
@@ -379,8 +387,8 @@ def _metadata(path, ext):
 
 
 def _public(obj, models=None):
-    if obj.get('asset_type')=='image':obj={**obj,'compat':COMPAT['image']}
-    out = {k: v for k, v in obj.items() if k not in {'local_file', 'remote', 'provider_resource_id', 'service_scope', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
+    out = {k: v for k, v in obj.items() if k not in {'local_file', 'remote', 'provider_resource_id', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
@@ -423,7 +431,7 @@ def _public(obj, models=None):
     return out
 
 
-def upload(owner, file, provider=None, confirmed=False):
+def upload(owner, file, provider=None, confirmed=False, enqueue=None):
     if provider not in (None, '', 'hifly'):
         raise StudioError('上传目标仅支持飞影；其他工具在确认生成后处理所选素材')
     if provider and confirmed is not True:
@@ -453,18 +461,38 @@ def upload(owner, file, provider=None, confirmed=False):
     asset = s.put(owner, 'studio_asset', {**metadata, 'title': name[:200], 'local_file': path.name,
                   'status': 'ready', 'provider': 'local', 'compat': COMPAT[metadata['asset_type']]}, id)
     if provider:
-        try:
-            _hifly_file(owner, asset, _service('hifly'))
-        except Exception:
-            asset = s.put(owner, 'studio_asset', {**s.get(owner, id), 'upload_status': 'failed', 'error': '本地文件已保存，飞影上传失败；生成时可再次上传'}, id)
+        asset = s.put(owner, 'studio_asset', {**asset, 'upload_status': 'queued',
+                      'upload_scope': _scope('hifly', _service('hifly'))}, id)
+        if enqueue is None:
+            jobs.POOL.submit(_upload_hifly, owner, id)
         else:
-            asset = s.get(owner, id)
+            enqueue(owner, id)
+        asset = s.get(owner, id)
     return _public(asset)
+
+
+def _upload_hifly(owner, id):
+    try:
+        asset = _object(owner, id, 'studio_asset')
+        service = _service('hifly')
+        if asset.get('upload_scope') != _scope('hifly', service):
+            raise StudioError('上传前服务账号已变更，请重新确认上传')
+        _hifly_file(owner, asset, service)
+        with s.LOCK:
+            asset = s.get(owner, id)
+            s.put(owner, 'studio_asset', {**asset, 'upload_status': 'uploaded', 'error': None}, id)
+    except PendingUpload:
+        return  # Another background worker owns this upload.
+    except Exception:
+        with s.LOCK:
+            asset = s.get(owner, id)
+            s.put(owner, 'studio_asset', {**asset, 'upload_status': 'failed',
+                  'error': '本地文件已保存，飞影上传未完成；生成时可再次上传'}, id)
 
 
 def _asset(owner, id, asset_type, tool):
     asset = _object(owner, id, 'studio_asset')
-    if asset.get('asset_type') != asset_type or asset.get('status') != 'ready' or tool not in (COMPAT['image'] if asset_type=='image' else asset.get('compat', [])):
+    if asset.get('asset_type') != asset_type or asset.get('status') != 'ready' or tool not in (COMPAT[asset_type] if asset_type in ('image', 'video') else asset.get('compat', [])):
         raise StudioError('所选素材类型、状态或兼容用途不符合当前工具')
     if asset_type in ('avatar', 'voice'):
         service = _service('hifly')
@@ -485,13 +513,19 @@ def _validate(owner, data, complete=False):
     if data.get('model_id') is not None and not isinstance(data['model_id'], str):raise StudioError('模型编号无效')
     chosen=(selection(tool, data.get('model_id')) or ark_video.DEFAULT_MODEL) if tool in media_registry.VIDEO_TOOLS else data.get('model_id') or ''
     if chosen is not None and not isinstance(chosen,str):raise StudioError('模型编号无效')
-    if chosen:
+    if chosen and TOOLS[tool][1] == 'hifly':
+        validate_binding(tool, chosen)
+    elif chosen:
         if chosen.startswith('media:'):
             media_registry.choice(tool,chosen[6:],active=complete)
         else:validate_binding(tool,chosen)
     allowed = set(TOOLS[tool][3])
     if tool in media_registry.VIDEO_TOOLS:allowed.update({'prompt', 'image_id'})
     required = list(TOOLS[tool][3])
+    if tool in ('text_avatar', 'audio_avatar'):
+        allowed.add('video_id')
+        if inputs.get('video_id'):
+            required = ['text', 'video_id'] if tool == 'text_avatar' else ['audio_id', 'video_id']
     if tool == 'audio_avatar' and chosen.startswith('media:'):
         model, _ = media_registry.choice(tool, chosen[6:], active=complete)
         if model['family'] == 'infinitetalk':
@@ -640,15 +674,17 @@ def _validate(owner, data, complete=False):
             raise StudioError('参考图生成模型至少需要一张参考图片')
         if any(not inputs.get(key) for key in required):
             raise StudioError('请填写当前工具全部必填输入')
+        if tool in ('text_avatar', 'audio_avatar') and bool(inputs.get('avatar_id')) == bool(inputs.get('video_id')):
+            raise StudioError('文字或音频驱动需要且只能选择一个飞影形象或一段人物视频')
         if tool == 'avatar_create' and bool(inputs.get('image_id')) == bool(inputs.get('video_id')):
             raise StudioError('创建形象需要且只能选择一张照片或一段视频')
-        if tool == 'avatar_create' and inputs.get('video_id') and options:
+        if tool == 'avatar_create' and inputs.get('video_id') and 'model' in options:
             raise StudioError('视频形象不接受图片形象模型选项')
         for key, asset in assets.items():
-            limit = 20 * 1024 * 1024 if tool == 'voice_create' else 100 * 1024 * 1024 if tool == 'audio_avatar' else MAX_FILE
+            limit = 20 * 1024 * 1024 if tool == 'voice_create' else 100 * 1024 * 1024 if tool == 'audio_avatar' and asset.get('asset_type') == 'audio' else MAX_FILE
             if asset.get('size', 0) > limit:
                 raise StudioError('所选素材超过当前供应商接口的大小限制')
-            if tool in ('voice_create', 'audio_avatar', 'avatar_create') and asset.get('asset_type') in ('audio', 'video'):
+            if tool in ('voice_create', 'audio_avatar', 'avatar_create', 'text_avatar') and asset.get('asset_type') in ('audio', 'video'):
                 if not asset.get('duration'):
                     raise StudioError('素材时长尚未验证，不能提交付费生成；请安装ffprobe后重新上传，本地文件已保留')
                 upper = 180 if tool == 'voice_create' else 1800
@@ -677,17 +713,36 @@ def save_draft(owner, data, id=None):
 
 def _hifly_file(owner, asset, service):
     scope = _scope('hifly', service)
-    old = s.get(owner, asset['id']).get('remote', {}).get(scope, {})
-    if old.get('file_id'):
-        return old['file_id']
-    path = _path(owner, asset['local_file'])
-    result = _api('hifly', 'POST', '/api/v2/hifly/tool/create_upload_url', {'file_extension': path.suffix[1:]}, service)
-    file_id = _text(result.get('file_id'), '飞影上传ID', 500)
-    with path.open('rb') as stream:
-        _request('PUT', result['upload_url'], headers={'Content-Type': result['content_type']}, content=stream)
-    current = s.get(owner, asset['id'])
-    s.put(owner, 'studio_asset', {**current, 'remote': {**current.get('remote', {}), scope: {'file_id': file_id}}, 'upload_status': 'uploaded'}, asset['id'])
-    return file_id
+    # Claim in SQLite, release the DB lock before touching the provider.
+    with s.conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT * FROM objects WHERE id=? AND owner=? AND kind='studio_asset'", (asset['id'], owner)).fetchone()
+        if not row:
+            raise s.Missing('素材不存在或无权访问')
+        current = s.unpack(row)
+        old = current.get('remote', {}).get(scope, {})
+        if old.get('file_id'):
+            return old['file_id']
+        if current.get('upload_until', 0) > time.time():
+            raise PendingUpload('素材正在上传，请等待上传完成')
+        current.update(upload_until=time.time() + 600, upload_status='uploading')
+        c.execute('UPDATE objects SET data=?,version=version+1 WHERE id=?', (json.dumps(current, ensure_ascii=False), asset['id']))
+    try:
+        path = _path(owner, current['local_file'])
+        result = _api('hifly', 'POST', '/api/v2/hifly/tool/create_upload_url', {'file_extension': path.suffix[1:]}, service)
+        file_id = _text(result.get('file_id'), '飞影上传ID', 500)
+        with path.open('rb') as stream:
+            _request('PUT', result['upload_url'], headers={'Content-Type': result['content_type']}, content=stream)
+        with s.LOCK:
+            current = s.get(owner, asset['id'])
+            s.put(owner, 'studio_asset', {**current, 'remote': {**current.get('remote', {}), scope: {'file_id': file_id}},
+                  'upload_status': 'uploaded', 'error': None}, asset['id'])
+        return file_id
+    finally:
+        with s.LOCK:
+            current = s.get(owner, asset['id'])
+            s.put(owner, 'studio_asset', {**current, 'upload_until': 0,
+                  'upload_status': 'failed' if current.get('upload_status') == 'uploading' else current.get('upload_status')}, asset['id'])
 
 
 def _image_data(owner, asset):
@@ -895,6 +950,8 @@ def _build(owner, draft, service):
             payload['image_file_id'] = _hifly_file(owner, assets['image_id'], service)
         if tool in ('audio_avatar', 'voice_create'):
             payload['file_id'] = _hifly_file(owner, assets['audio_id'], service)
+        if tool in ('text_avatar', 'audio_avatar') and 'video_id' in assets:
+            payload['video_file_id'] = _hifly_file(owner, assets['video_id'], service)
         if tool == 'voice_create':
             payload['voice_type'] = 8
         if tool == 'avatar_create':
@@ -1080,6 +1137,8 @@ def generate(owner, data, enqueue=None):
         draft = _object(owner, _text(data.get('draft_id'), 'draft_id', 128), 'studio_draft')
         if draft['version'] != data['version']:
             raise s.Conflict('草稿已更新，请刷新后确认当前版本')
+        if TOOLS[draft['tool']][1] == 'hifly' and draft.get('model_id') not in (None, '', 'service:hifly'):
+            raise StudioError('旧模型及参数已保留；当前功能使用飞影 API v2，请重新选择飞影并核对素材后确认生成')
         clean = {k: v for k, v in draft.items() if k in {'tool', 'title', 'input', 'options', 'model_id', 'brand_id', 'profile_id', 'source_ids'}}
         clean['model_id']=selection(draft['tool'],draft.get('model_id'))
         _validate(owner, clean, complete=True)
@@ -1157,6 +1216,21 @@ def _claim(owner, id):
     return True
 
 
+def _hifly_transition(owner, id, status):
+    """Cancellation and the paid submission boundary share an atomic DB gate."""
+    with s.conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT * FROM objects WHERE id=? AND owner=? AND kind='studio_run'", (id, owner)).fetchone()
+        if not row:
+            raise s.Missing('任务不存在或无权访问')
+        run = s.unpack(row)
+        if run['status'] not in ('queued', 'preparing') or run.get('task_id'):
+            return False
+        run.update(status=status, error=None)
+        c.execute('UPDATE objects SET data=?,version=version+1,updated=? WHERE id=?', (json.dumps(run, ensure_ascii=False), s.now(), id))
+    return True
+
+
 def _poll(run, service):
     task = quote(_text(run.get('task_id'), '供应商任务ID', 500), safe='')
     provider = run['provider']
@@ -1194,6 +1268,8 @@ def _poll(run, service):
             result = {'urls': [value.get('video_Url')], 'asset_type': TOOLS[run['tool']][2]}
         if value.get('duration'):
             result['duration'] = value['duration']
+        if status == 'failed':
+            result = {'error': '飞影任务失败；原任务和输入已保留，请检查素材及账号后手动确认新任务'}
         return status, result
     if provider == 'aliyun':
         value = _api(provider, 'GET', '/api/v1/tasks/' + task, service=service)['output']
@@ -1505,7 +1581,11 @@ def _work(owner, id, batch_refresh=False):
         if run['status'] in ('submitting', 'unknown'):
             _update(owner, id, status='unknown', error='上次提交结果未知且未取得任务ID，请联系供应商核查；不会自动重复扣费')
             return
-        _update(owner, id, status='preparing', error=None)
+        if run['provider'] == 'hifly':
+            if not _hifly_transition(owner, id, 'preparing'):
+                return
+        else:
+            _update(owner, id, status='preparing', error=None)
         _validate(owner, run['snapshot'], complete=True)
         if run['provider']=='ark':
             payload = _ark_payload(owner,run,model,service)
@@ -1514,7 +1594,11 @@ def _work(owner, id, batch_refresh=False):
             payload=_wavespeed_payload(owner,run,model,service)
             path='/api/v3/'+model['api_model_id']
         else:path, payload, asynchronous = _build(owner, run['snapshot'], service)
-        _update(owner, id, status='submitting')
+        if run['provider'] == 'hifly':
+            if not _hifly_transition(owner, id, 'submitting'):
+                return
+        else:
+            _update(owner, id, status='submitting')
         phase = 'submit'
         value = _ark_api(service,'POST',path,payload) if run['provider']=='ark' else _wavespeed_api(service,'POST',path,payload) if run['provider']=='wavespeed' else _api(run['provider'], 'POST', path, payload, service, asynchronous)
         if run['provider'] == 'aliyun' and run['tool'] in ('text_image', 'image_edit'):
@@ -1526,9 +1610,12 @@ def _work(owner, id, batch_refresh=False):
             task = value['id'] if run['provider'] in ('wavespeed','ark') else value['response']['id'] if run['provider'] == 'shotstack' else value['output']['task_id'] if run['provider'] == 'aliyun' else value['task_id']
             _update(owner, id, task_id=_text(task, '供应商任务ID', 500), status='running', submitted_at=s.now(), error=None)
     except PendingUpload as exc:
-        _update(owner, id, status='interrupted', error=str(exc) + '；生成尚未提交。核查不会提交，请确认重新生成以创建新任务编号')
+        if s.get(owner, id)['status'] != 'cancelled':
+            _update(owner, id, status='interrupted', error=str(exc) + '；生成尚未提交。核查不会提交，请确认重新生成以创建新任务编号')
     except Exception as exc:
         current = s.get(owner, id)
+        if current['status'] == 'cancelled':
+            return
         if isinstance(current.get('batch'), list):
             _batch_interrupt(owner, id, '批量任务处理被中断；已知任务可刷新，未知提交不会重提')
             return
@@ -1539,14 +1626,25 @@ def _work(owner, id, batch_refresh=False):
         _update(owner, id, busy_until=0, last_checked_at=s.now())
 
 
-def refresh(owner, id):
-    _object(owner, id, 'studio_run')
-    jobs.POOL.submit(_work, owner, id, True)
+def refresh(owner, id, enqueue=None):
+    run = _object(owner, id, 'studio_run')
+    if run['status'] in ('succeeded', 'failed', 'cancelled', 'expired') or run.get('busy_until', 0) > time.time():
+        return _public(run)
+    if enqueue is None:
+        jobs.POOL.submit(_work, owner, id, True)
+    else:
+        enqueue(owner, id)
     return _public(s.get(owner, id))
 
 
 def cancel(owner, id):
     run = _object(owner, id, 'studio_run')
+    if run.get('provider') == 'hifly':
+        if run['status'] in ('cancelled', 'failed', 'succeeded'):
+            return _public(run)
+        if not _hifly_transition(owner, id, 'cancelled'):
+            raise StudioError('飞影任务已提交或结果待核查，官方未提供任务取消接口；原任务将继续查询，取消不代表退款')
+        return _public(_update(owner, id, finished_at=s.now()))
     if run.get('provider') != 'ark':raise StudioError('仅支持取消官方方舟视频排队任务')
     if run['status'] in ('cancelled','expired','failed','succeeded'):return _public(run)
     if not _claim(owner, id):raise StudioError('后台正在处理此任务，请稍后再取消')
@@ -1565,16 +1663,22 @@ def cancel(owner, id):
 
 
 def tick():
-    """Follow existing Ark tasks and save expiring results without resubmitting."""
+    """Follow existing Ark/Hifly tasks and save results without resubmitting."""
     with s.conn() as c:
         rows = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_run'")]
     count = 0
     for owner, run in rows:
-        if run.get('provider') != 'ark' or run.get('status') in ('succeeded', 'failed', 'cancelled', 'expired'):
+        if run.get('provider') not in ('ark', 'hifly') or run.get('status') in ('succeeded', 'failed', 'cancelled', 'expired'):
             continue
         if not run.get('task_id') or run.get('busy_until', 0) > time.time():
             continue
-        if not run.get('result') and time.time() - datetime.fromisoformat(run.get('submitted_at') or run['created']).timestamp() > 7 * 86400:
+        elapsed = time.time() - datetime.fromisoformat(run.get('submitted_at') or run['created']).timestamp()
+        if run['provider'] == 'hifly' and not run.get('result') and elapsed > HIFLY_POLL_TIMEOUT:
+            if not run.get('polling_paused'):
+                _update(owner, run['id'], status='unknown', polling_paused=True,
+                        error='飞影任务超过本地24小时自动监控期限；任务ID已保留，可手动核查原任务，不会重新提交')
+            continue
+        if run['provider'] == 'ark' and not run.get('result') and elapsed > 7 * 86400:
             _update(owner, run['id'], status='expired', error='官方任务记录已超过7天有效期；原输入已保留，不会重新提交生成')
             continue
         jobs.POOL.submit(_work, owner, run['id'], True)
@@ -1586,7 +1690,7 @@ def recover():
     """Call once after store.init(), before accepting requests on app startup.
 
     Never enqueue paid work here. Pollable task IDs and archived result pointers
-    survive restarts; Ark's background watcher only follows existing task IDs.
+    survive restarts; the background watcher only follows existing task IDs.
     """
     with s.conn() as c:
         rows = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_run'")]
@@ -1610,7 +1714,7 @@ def recover():
             continue
         status = run.get('status')
         changes = {'busy_until': 0}
-        if run.get('result') and status != 'succeeded':
+        if run.get('result') and status not in ('succeeded', 'failed', 'cancelled', 'expired'):
             changes.update(status='archive_failed', error='服务已重启，原结果已保留；刷新仅继续下载归档')
         elif run.get('task_id') and status not in ('succeeded', 'failed', 'cancelled', 'expired'):
             changes.update(status='running', error='服务已重启，供应商任务ID已保留；刷新查询原任务')
@@ -1621,13 +1725,24 @@ def recover():
         if changes != {'busy_until': 0} or run.get('busy_until'):
             _update(owner, run['id'], **changes, recovered_at=s.now())
             count += 1
+    with s.conn() as c:
+        assets = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_asset'")]
+        libraries = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_library'")]
+    for owner, asset in assets:
+        if asset.get('upload_until') or asset.get('upload_status') in ('queued', 'uploading'):
+            s.put(owner, 'studio_asset', {**asset, 'upload_until': 0, 'upload_status': 'interrupted',
+                  'error': '服务重启，云端上传未确认；本地文件已保留，生成时可重新上传'}, asset['id'])
+    for owner, library in libraries:
+        if library.get('status') in ('queued', 'running'):
+            s.put(owner, 'studio_library', {**library, 'status': 'interrupted',
+                  'error': '服务重启，公共库刷新中断；已导入资源保留'}, library['id'])
     return count
 
 
-def public_resources(owner, asset_type):
+def public_resources(owner, asset_type, service=None):
     if asset_type not in ('avatar', 'voice'):
         raise StudioError('公共库只支持形象或声音')
-    service = _service('hifly')
+    service = service or _service('hifly')
     scope = _scope('hifly', service)
     # kind=2 is mandatory: never expose the platform account's private library.
     value = _api('hifly', 'GET', f'/api/v2/hifly/{asset_type}/list?kind=2&page=1&size=20', service=service)
@@ -1639,6 +1754,49 @@ def public_resources(owner, asset_type):
         s.put(owner, 'studio_asset', {'title': str(item.get('title') or '公共资源')[:200], 'asset_type': asset_type,
               'provider': 'hifly', 'provider_resource_id': resource, 'service_scope': scope, 'visibility': 'public',
               'status': 'ready', 'compat': COMPAT[asset_type]}, id)
+
+
+def _library_id(owner, asset_type, scope):
+    return s.digest('hifly-public-library:' + owner + ':' + asset_type + ':' + scope)
+
+
+def _queue_public_resources(owner, asset_type, enqueue=None):
+    if asset_type not in ('avatar', 'voice'):
+        raise StudioError('公共库只支持形象或声音')
+    scope = _scope('hifly', _service('hifly'))
+    id = _library_id(owner, asset_type, scope)
+    with s.LOCK:
+        try: previous = _object(owner, id, 'studio_library')
+        except s.Missing: previous = {}
+        if previous.get('status') in ('queued', 'running'):
+            return
+        s.put(owner, 'studio_library', {'asset_type': asset_type, 'service_scope': scope, 'status': 'queued'}, id)
+    if enqueue is None:
+        jobs.POOL.submit(_refresh_public_resources, owner, id)
+    else:
+        enqueue(owner, id)
+
+
+def _refresh_public_resources(owner, id):
+    library = _object(owner, id, 'studio_library')
+    try:
+        service = _service('hifly')
+        if _scope('hifly', service) != library['service_scope']:
+            raise StudioError('服务账号已变更，请重新刷新公共库')
+        s.put(owner, 'studio_library', {**library, 'status': 'running'}, id)
+        public_resources(owner, library['asset_type'], service)
+        s.put(owner, 'studio_library', {**library, 'status': 'ready', 'finished_at': s.now()}, id)
+    except Exception:
+        s.put(owner, 'studio_library', {**library, 'status': 'failed',
+              'error': '飞影公共库刷新失败；已保存的资源保留，请检查服务配置后重试'}, id)
+
+
+def _background_enqueue(background_tasks, fn):
+    # Real executors only start after the response is sent. Deterministic test
+    # pools may execute inline, but production provider work always uses POOL.
+    if isinstance(jobs.POOL, Executor):
+        return lambda owner, id: background_tasks.add_task(jobs.POOL.submit, fn, owner, id)
+    return None
 
 
 def register(app, user, admin, error):
@@ -1665,6 +1823,9 @@ def register(app, user, admin, error):
         tools=[];bindings=s.config('bindings',{})
         for id,(title,provider,kind,required) in TOOLS.items():
             binding=bindings.get(id,'service:'+provider);ready=bool(binding) and configured.get(provider, False);model=MODELS.get(id)
+            if provider == 'hifly':
+                binding = selection(id)
+                ready = bool(binding) and configured.get(provider, False)
             if id in media_registry.VIDEO_TOOLS:
                 binding=selection(id)
                 provider='media_registry'
@@ -1687,7 +1848,26 @@ def register(app, user, admin, error):
                 provider='images'
             try: options=tool_options(id)
             except (ValueError,KeyError):options={}
-            tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':['image_id'] if id=='text_image' and bound_image(id) else [],'model':model,'configured':ready,'binding':binding,'verification':'documented_not_live','requires_confirmation':True})
+            contract = {}
+            if provider == 'hifly':
+                contract = {'async': True, 'api_version': 'v2'}
+                if id == 'avatar_create':
+                    contract['input_alternatives'] = [['image_id'], ['video_id']]
+                    contract['require_any'] = ['image_id', 'video_id']
+                    contract['exclusive_inputs'] = True
+                    contract['creation_modes'] = [
+                        {'id': 'image', 'input': 'image_id', 'options': OPTIONS['avatar_create'], 'default_options': {'model': 2}},
+                        {'id': 'video', 'input': 'video_id', 'options': {}, 'formats': ['mp4', 'mov'],
+                         'video_codec': 'h264', 'max_bytes': MAX_FILE, 'duration': [5, 1800], 'min_dimension': 360, 'max_dimension': 4096}]
+                elif id in ('text_avatar', 'audio_avatar'):
+                    contract['input_alternatives'] = [required, ['text', 'video_id'] if id == 'text_avatar' else ['audio_id', 'video_id']]
+                    contract['require_any'] = ['avatar_id', 'video_id']
+                    contract['exclusive_inputs'] = True
+                elif id == 'photo_talk':
+                    contract['default_options'] = {'model': 5}
+                if bindings.get(id) and bindings[id] != 'service:hifly':
+                    contract.update(legacy_binding=bindings[id], migration_notice='此功能已改用飞影 API v2；旧模型配置和历史保留，请按飞影字段重新选择素材')
+            tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':['image_id','video_id'] if id=='avatar_create' else ['video_id'] if id in ('text_avatar','audio_avatar') else ['image_id'] if id=='text_image' and bound_image(id) else [],'model':model,'configured':ready,'binding':binding,'verification':'documented_not_live','requires_confirmation':True, **contract})
         return {'tools':tools,
                 'providers': providers, 'billing_notice': '生成和云端处理可能计费；确认后才提交，费用以供应商账号及模型为准。接口按公开文档接入，尚未完成本账号真实联调。'}
 
@@ -1734,24 +1914,31 @@ def register(app, user, admin, error):
         return invoke(save_draft, u['id'], data, id)
 
     @app.post('/api/studio/upload')
-    def upload_file(file: UploadFile = File(...), provider: str | None = None, confirmed: bool = False, u=Depends(user)):
+    def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...), provider: str | None = None, confirmed: bool = False, u=Depends(user)):
         try:
-            return invoke(upload, u['id'], file, provider, confirmed)
+            return invoke(upload, u['id'], file, provider, confirmed, _background_enqueue(background_tasks, _upload_hifly))
         finally:
             file.file.close()
 
     @app.get('/api/studio/assets')
-    def assets(asset_type: str | None = None, refresh: bool = False, u=Depends(user)):
+    def assets(background_tasks: BackgroundTasks, asset_type: str | None = None, refresh: bool = False, u=Depends(user)):
         if refresh:
-            invoke(public_resources, u['id'], asset_type)
+            invoke(_queue_public_resources, u['id'], asset_type, _background_enqueue(background_tasks, _refresh_public_resources))
+        library = {}
+        if asset_type in ('avatar', 'voice'):
+            service = s.config(CONFIG, {}).get('hifly', {})
+            if service.get('secret'):
+                try: library = _object(u['id'], _library_id(u['id'], asset_type, _scope('hifly', service)), 'studio_library')
+                except s.Missing: pass
         return {'items': [_public(x) for x in s.list_(u['id'], 'studio_asset') if not asset_type or x.get('asset_type') == asset_type],
-                'public_library_complete': False}
+                'public_library_complete': False, 'public_library_status': library.get('status', 'idle'),
+                'public_library_error': library.get('error')}
 
     @app.post('/api/studio/generate')
     def submit(data: dict, background_tasks: BackgroundTasks, u=Depends(user)):
         # An actual executor starts only after ASGI sends the run ID. Synchronous
         # fixture pools still execute inline for existing deterministic tests.
-        enqueue = (lambda owner, id: background_tasks.add_task(jobs.POOL.submit, _work, owner, id)) if isinstance(jobs.POOL, Executor) else None
+        enqueue = _background_enqueue(background_tasks, _work)
         return invoke(generate, u['id'], data, enqueue)
 
     @app.get('/api/studio/runs')
@@ -1767,8 +1954,8 @@ def register(app, user, admin, error):
         return {'items': [_public(s.unpack(row), models) for row in rows]}
 
     @app.post('/api/studio/runs/{id}/refresh')
-    def refresh_run(id: str, u=Depends(user)):
-        return invoke(refresh, u['id'], id)
+    def refresh_run(id: str, background_tasks: BackgroundTasks, u=Depends(user)):
+        return invoke(refresh, u['id'], id, _background_enqueue(background_tasks, lambda owner, run_id: _work(owner, run_id, True)))
 
     @app.post('/api/studio/runs/{id}/cancel')
     def cancel_run(id: str, u=Depends(user)):

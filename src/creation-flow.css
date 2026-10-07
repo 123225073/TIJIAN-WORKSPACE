@@ -193,3 +193,5 @@
  .cf-actions button{width:100%}
  .cf-bottom{flex-wrap:wrap;gap:8px}
 }
+.cf-platform-grid button strong{display:flex;align-items:center;justify-content:center;gap:12px}
+.cf-platform-grid button strong svg,.cf-platform-branches button svg{flex-shrink:0}

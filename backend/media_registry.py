@@ -108,6 +108,14 @@ def models():
                     saved[model['id']] = {**saved.get(model['id'], {}), 'published': False}
             s.set_config(MODEL_KEY, saved)
             s.set_config('ark_video_migrated', True)
+        # Reversible shelving: retain provider credentials, model rows and history.
+        if not s.config('hifly_digital_migrated', False):
+            saved = s.config(MODEL_KEY, {})
+            for model in _rows(MODEL_KEY, PRESET_MODELS):
+                if set(model.get('tools', [])) & DIGITAL_TOOLS:
+                    saved[model['id']] = {**saved.get(model['id'], {}), 'published': False}
+            s.set_config(MODEL_KEY, saved)
+            s.set_config('hifly_digital_migrated', True)
     return _rows(MODEL_KEY, PRESET_MODELS)
 
 
@@ -317,6 +325,8 @@ def choice(tool, id, *, active=True):
 
 
 def choices(tool):
+    if tool in DIGITAL_TOOLS:
+        return []  # Frontend digital-human creation uses the official Hifly v2 service.
     out = []
     # A catalogue request asks for several tools. Read each configuration once
     # per tool, rather than reloading the entire registry for every model row.

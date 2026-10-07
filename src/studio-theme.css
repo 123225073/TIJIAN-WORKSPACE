@@ -596,3 +596,128 @@
 .ts-theme .studio-v2 .st-asset-card button {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
 .ts-theme .studio-v2 .st-asset-card button:hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-accent)}
 .ts-theme :is(.knowledge-select,.folder-item,.sl-folder,.sl-row,.reference-modes button,.reference-modules button,.reference-actions button,.ie-source-list button,.st-work-record>summary):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
+
+/* Radar/admin colour repairs. Keep homepage, other front pages and paper isolated. */
+.ts-theme :is(.radar-page,.radar-source-manager) {color:var(--ts-text)}
+.ts-theme .radar-page :is(.work-block,.radar-welcome,.hotlist-board,.detail-drawer),
+.ts-theme .radar-source-manager :is(.source-card,.detail-drawer) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);box-shadow:0 10px 28px #0002}
+.ts-theme .radar-page :is(.work-page-title,.block-heading,.hotlist-board) :is(h1,h2,strong),
+.ts-theme .radar-source-manager .source-card h3 {color:var(--ts-text)}
+.ts-theme .radar-page :is(.work-page-title p,.block-heading>span,.radar-status-line,.radar-explanation,.industry-filter,.radar-welcome p,.inline-empty),
+.ts-theme .radar-source-manager :is(.source-manager-tools,.source-facts,.source-note,.source-url) {color:var(--ts-muted)}
+.ts-theme .radar-page .work-tabs {border-color:var(--ts-line)}
+.ts-theme .radar-page .work-tabs button {background:transparent;color:var(--ts-muted);border-color:transparent}
+.ts-theme .radar-page .work-tabs button.active {background:#263b59;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
+.ts-theme .radar-page .work-tabs button span {color:inherit}
+.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) {background:transparent;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) strong {color:var(--ts-text)}
+.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) small {color:var(--ts-muted)}
+.ts-theme .radar-page :is(.news-category,.platform-mark),
+.ts-theme .radar-source-manager :is(.source-card-icon,.source-status) {background:var(--ts-elevated);color:var(--ts-accent);border-color:var(--ts-line)}
+.ts-theme .radar-page .hotlist-board>header {background:var(--ts-elevated);border-color:var(--ts-line)}
+.ts-theme .radar-page .hotlist-board>header :is(small,span:last-child) {color:var(--ts-muted)}
+.ts-theme .radar-page .hotlist-rows>button>b {color:var(--ts-muted)}
+.ts-theme .radar-page .hotlist-rows>button>b.top-rank {color:var(--ts-gold)}
+.ts-theme .radar-page .radar-welcome>svg {color:var(--ts-accent)}
+.ts-theme .radar-page .scoped-progress {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .radar-page .scoped-progress span:not(.progress-symbol) {color:var(--ts-muted)}
+.ts-theme .radar-page .scoped-progress.has-error,
+.ts-theme .radar-source-manager .source-status.warning {background:#382c21;color:#f0cc9b;border-color:#806344}
+.ts-theme .radar-page .scoped-progress.has-error .progress-symbol,
+.ts-theme .radar-source-manager .source-note.warning {color:#f0cc9b}
+.ts-theme :is(.radar-page,.radar-source-manager) .filter-search {background:#111722;color:var(--ts-muted);border-radius:9px;box-shadow:inset 0 0 0 1px var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager) .filter-search:focus-within {box-shadow:inset 0 0 0 1px var(--ts-accent),0 0 0 3px #9abbff20}
+.ts-theme :is(.radar-page,.radar-source-manager) .reader-overlay {background:#080d18b8;backdrop-filter:none}
+.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer :is(h2,strong,label,summary) {color:var(--ts-text)}
+.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer :is(p,small,.section-number,.path) {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager) :is(.discovery-result,.discovery-browser-controls) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager) .discovery-result {border-left-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager) :is(.discovery-list,.discovery-entry,.browser-leads label,.drawer-actions) {border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager) .discovery-entry:has(input:checked) {background:#263b59}
+.ts-theme :is(.radar-page,.radar-source-manager) .discovery-entry small {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer .form-error {color:#ffb7a6}
+
+/* Shared controls are scoped to these pages; selected, pressed and disabled win hover. */
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input:not([type=checkbox]):not([type=radio]),textarea,select) {background:#111722;color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea)::placeholder {color:var(--ts-muted);opacity:1}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):hover:not(:disabled) {border-color:#6e819c}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):focus {border-color:var(--ts-accent);box-shadow:0 0 0 3px #9abbff20}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):disabled {background:#232b38;color:var(--ts-muted);border-color:var(--ts-line);opacity:1;-webkit-text-fill-color:var(--ts-muted);cursor:not-allowed}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input[type=checkbox],input[type=radio]) {accent-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option {background:var(--ts-panel);color:var(--ts-text)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option:checked {background:#263b59;color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option:disabled {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:not(:where(.primary,.text-button,.icon-button)) {color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) a.button {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,.button):hover:where(:not(:disabled):not(.primary)) {background:var(--ts-elevated);color:var(--ts-text);border-color:#6e819c}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,.button):active:where(:not(:disabled):not(.primary)) {background:#263b59;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager) .work-tabs button.active:hover {background:#2b4161;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(a:not(.button),.text-button) {color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) a:not(.button):hover {color:#d0e0ff}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) .record-delete button {color:#ffb7a6}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:disabled,
+.ts-theme .admin-shell :is(.model-category,.provider-directory,.system-library) button:disabled,
+.ts-theme .admin-shell .system-library :is(.sl-folder,.sl-row):disabled {background:#232b38!important;color:var(--ts-muted)!important;border-color:var(--ts-line)!important;opacity:1!important;box-shadow:none!important;cursor:not-allowed}
+.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:disabled :is(strong,small,span) {color:inherit}
+.ts-theme .radar-page .radar-toolbar .filter-search {background:#111722}
+
+/* Real administrative selectors: model directories, media rows and knowledge chrome. */
+.ts-theme .admin-shell :is(.capability-empty,.capability-editor,.capability-preview pre) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .admin-shell .capability-notice {background:#263b59;color:var(--ts-accent);border:1px solid #7895c3}
+.ts-theme .admin-shell :is(.capability-list button.active,.capability-tabs [aria-selected=true]) {background:#263b59;color:var(--ts-accent);border-color:#7895c3}
+.ts-theme .admin-shell :is(.capability-list button.active,.capability-tabs [aria-selected=true]):hover:not(:disabled) {background:#2b4161;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .admin-shell .capability-secondary {border-color:var(--ts-line)}
+.ts-theme .admin-shell .model-category {background:#111722;border:1px solid var(--ts-line)}
+.ts-theme .admin-shell :is(.model-category button,.provider-directory button,.sl-tabs button) {background:transparent;color:var(--ts-muted);border-color:transparent;box-shadow:none}
+.ts-theme .admin-shell :is(.model-category button,.provider-directory button,.sl-tabs button,.sl-folder).active:not(:disabled) {background:#263b59!important;color:var(--ts-accent);border-color:#7895c3;box-shadow:none}
+.ts-theme .admin-shell :is(.model-category button,.provider-directory button,.sl-tabs button,.sl-folder).active:hover:not(:disabled) {background:#2b4161!important;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .admin-shell .provider-directory button strong {color:var(--ts-text)}
+.ts-theme .admin-shell .provider-directory button small {color:var(--ts-muted)}
+.ts-theme .admin-shell :is(.provider-table,.provider-table thead,th) {background:var(--ts-panel);color:var(--ts-muted);border-color:var(--ts-line)}
+.ts-theme .admin-shell td {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .admin-shell tbody tr:is(:hover,:focus-within) td {background:var(--ts-elevated)}
+.ts-theme .admin-shell .mr-list article {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .admin-shell .mr-list article:is(:hover,:focus-within) {background:var(--ts-elevated);border-color:#6e819c}
+.ts-theme .admin-shell :is(.mr-list strong,.sl-stats strong,.sl-name,.sl-name strong,.sl-placeholder h3,.sl-create strong,.sl-detail .field,.mr-modal legend,.field,.switch-row) {color:var(--ts-text)}
+.ts-theme .admin-shell :is(.mr-list small,.sl-header p,.sl-stats span,.sl-pane-title small,.sl-pane-title span,.sl-tabs span,.sl-empty,.sl-create small,.sl-maintenance,.sl-meta,.sl-publish p,.sl-placeholder,.sl-placeholder p,.field small) {color:var(--ts-muted)}
+.ts-theme .admin-shell :is(.mr-callout,.admin-notice,.inline-job,.sl-progress) {background:var(--ts-elevated);color:var(--ts-muted);border-color:var(--ts-line)}
+.ts-theme .admin-shell :is(.inline-job.failed,.form-error) {color:#ffb7a6}
+.ts-theme .admin-shell :is(.model-status,.mr-badge,.sl-status) {background:var(--ts-elevated);color:var(--ts-muted)}
+.ts-theme .admin-shell :is(.model-status.on,.mr-badge.on,.sl-status.live) {background:#263b59;color:#c4d9ff}
+.ts-theme .admin-shell .sl-status.failed {background:#38251f;color:#ffb7a6}
+.ts-theme .admin-shell .system-library {color:var(--ts-text)}
+.ts-theme .admin-shell .sl-eyebrow {color:var(--ts-accent)!important}
+.ts-theme .admin-shell :is(.sl-stats,.sl-layout,.sl-tree,.sl-main,.sl-detail,.sl-toolbar,.sl-create,.sl-maintenance) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .admin-shell .sl-stats>div {border-color:var(--ts-line)}
+.ts-theme .admin-shell .sl-table-head {background:var(--ts-elevated);color:var(--ts-muted)}
+.ts-theme .admin-shell .sl-row :is(span:not(.sl-name):not(.sl-status),small) {color:var(--ts-muted)}
+.ts-theme .admin-shell .sl-publish {border-color:var(--ts-line)}
+.ts-theme .admin-shell .modal-backdrop {background:#080d18b8;backdrop-filter:none}
+.ts-theme .admin-shell .modal {background:var(--ts-panel);color:var(--ts-text);border:1px solid var(--ts-line);box-shadow:0 24px 80px #0008}
+.ts-theme .admin-shell :is(.mr-modal fieldset,.ark-storage-form) {background:#111722;border-color:var(--ts-line);color:var(--ts-text)}
+.ts-theme .admin-shell .mr-modal :is(legend,summary) {color:var(--ts-text)}
+.ts-theme .admin-shell button.primary:disabled {background:#232b38!important;color:var(--ts-muted)!important;border-color:var(--ts-line)!important;box-shadow:none!important;opacity:1!important}
+
+/* Hifly input guidance: only the newly introduced component chrome. */
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) {background:var(--ts-panel);color:var(--ts-text);border:1px solid var(--ts-line);border-radius:10px}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) :is(h3,strong,b) {color:var(--ts-text)}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) :is(p,small,span) {color:var(--ts-muted)}
+.ts-theme .studio-v2 .st-provider-guide>svg {color:var(--ts-accent)}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) a {color:var(--ts-accent)}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) a:hover {color:#d0e0ff}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) button {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) button:hover:not(:disabled) {background:#263b59;color:var(--ts-accent);border-color:#7895c3}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) button:active:not(:disabled) {background:#2b4161;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .studio-v2 .st-input-choice {color:var(--ts-text)}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button) {background:#111722;color:var(--ts-muted);border:1px solid var(--ts-line);box-shadow:none}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button) :is(strong,span,small) {color:inherit}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button):hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:#6e819c}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button):is(.selected,.active,[aria-pressed=true],[aria-checked=true]) {background:#263b59;color:var(--ts-accent);border-color:#7895c3}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button):is(.selected,.active,[aria-pressed=true],[aria-checked=true]):hover:not(:disabled) {background:#2b4161;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .studio-v2 :is(button.st-input-choice,.st-input-choice button):active:not(:disabled) {background:#2b4161;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-input-choice,.st-resource-empty) :is(a,button,input):focus-visible,
+.ts-theme .studio-v2 button.st-input-choice:focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-input-choice,.st-resource-empty) button:disabled,
+.ts-theme .studio-v2 button.st-input-choice:disabled {background:#232b38!important;color:var(--ts-muted)!important;border-color:var(--ts-line)!important;opacity:1!important;box-shadow:none!important;cursor:not-allowed}
+.ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) a[aria-disabled=true] {color:var(--ts-muted);cursor:not-allowed}
