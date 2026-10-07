@@ -1,0 +1,64 @@
+/* Digital human forms: quiet dark surfaces, explicit material groups. */
+.ts-theme .studio-v2 .st-provider-guide {
+  padding: 18px 20px;
+  margin: 0 0 24px;
+  background: var(--ts-panel);
+  border: 1px solid var(--ts-line);
+  border-radius: 12px;
+}
+.ts-theme .studio-v2 .st-provider-guide > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ts-theme .studio-v2 .st-provider-guide > header strong {font-size: 15px; color: var(--ts-text)}
+.ts-theme .studio-v2 .st-human-service-status {
+  font-size: 11px;
+  color: var(--ts-gold);
+  padding: 3px 8px;
+  border: 1px solid var(--ts-line);
+  border-radius: 5px;
+}
+.ts-theme .studio-v2 .st-provider-guide .st-human-requirements {font-size: 13px; line-height: 1.8; color: var(--ts-text)}
+.ts-theme .studio-v2 .st-provider-guide .st-human-async-note {display: block; margin-top: 10px; line-height: 1.75; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-human-source-section {margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--ts-line)}
+.ts-theme .studio-v2 .st-human-source-label {display: block; margin-bottom: 10px; font-size: 12px; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-provider-guide .st-input-choice {display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px}
+.ts-theme .studio-v2 .st-provider-guide .st-input-choice button {min-height: 46px; padding: 10px 12px; white-space: normal}
+.ts-theme .studio-v2 .st-human-workspace .st-context {margin-bottom: 24px; padding-bottom: 20px; border-color: var(--ts-line)}
+.ts-theme .studio-v2 .st-human-workspace .st-fields {gap: 20px}
+.ts-theme .studio-v2 .st-avatar-create .st-fields {grid-template-columns: minmax(0,1fr)}
+.ts-theme .studio-v2 .st-human-name {margin-bottom: 24px}
+.ts-theme .studio-v2 .st-human-name h3,
+.ts-theme .studio-v2 .st-human-material-heading {font-size: 14px; color: var(--ts-text); margin: 0 0 14px}
+.ts-theme .studio-v2 .st-human-workspace .st-field {gap: 10px}
+.ts-theme .studio-v2 .st-human-workspace .st-field > small {font-size: 12px; line-height: 1.75; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-human-workspace .st-inline-tip {margin: 18px 0 0; background: var(--ts-elevated); color: var(--ts-muted); border: 1px solid var(--ts-line); padding: 12px 14px; line-height: 1.75}
+.ts-theme .studio-v2 .st-human-workspace .st-source-detail {border-color: var(--ts-line); margin-top: 24px; padding-top: 20px}
+.ts-theme .studio-v2 .st-human-workspace .st-source-detail[open] {max-height: none; overflow: visible}
+.ts-theme .studio-v2 .st-human-media-preview {width: 100%; min-width: 0; border: 1px solid var(--ts-line); border-radius: 10px; overflow: hidden; background: var(--ts-bg)}
+.ts-theme .studio-v2 .st-human-preview-head {display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; background: var(--ts-elevated); border-bottom: 1px solid var(--ts-line)}
+.ts-theme .studio-v2 .st-human-preview-head > span {min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-human-preview-head > button {flex-shrink: 0; font-size: 12px; min-height: 30px; padding: 5px 8px; background: var(--ts-panel); color: var(--ts-accent)}
+.ts-theme .studio-v2 .st-human-preview-head > button:hover:not(:disabled) {background: #263b59; color: var(--ts-text); border-color: var(--ts-accent)}
+.ts-theme .studio-v2 .st-human-preview-inline {padding: 12px; display: grid; place-items: center}
+.ts-theme .studio-v2 .st-human-preview-inline :is(img,video) {display: block; width: 100%; height: 210px; object-fit: contain; border-radius: 6px; background: var(--ts-bg)}
+.ts-theme .studio-modal:has(.st-human-preview-stage) {width: min(1080px,94vw); max-width: 94vw; max-height: 92vh; background: var(--ts-panel); color: var(--ts-text); border-color: var(--ts-line)}
+.ts-theme .studio-modal:has(.st-human-preview-stage) > header {background: var(--ts-elevated); color: var(--ts-text); border-color: var(--ts-line); gap: 16px; padding: 16px 20px}
+.ts-theme .studio-modal:has(.st-human-preview-stage) > header h2 {color: var(--ts-text); font-size: 18px; overflow-wrap: anywhere}
+.ts-theme .studio-modal:has(.st-human-preview-stage) > header button {flex-shrink: 0; background: var(--ts-panel); color: var(--ts-text); border-color: var(--ts-line)}
+.ts-theme .studio-modal:has(.st-human-preview-stage) > header button:hover {background: #263b59; border-color: var(--ts-accent)}
+.ts-theme .studio-modal:has(.st-human-preview-stage) :focus-visible {outline: 2px solid var(--ts-accent); outline-offset: 3px}
+.ts-theme .st-human-preview-stage {display: grid; place-items: center; padding: 18px; min-height: 220px; background: var(--ts-bg)}
+.ts-theme .st-human-preview-stage :is(img,video) {display: block; width: 100%; height: min(64vh,720px); object-fit: contain; background: var(--ts-bg)}
+.ts-theme .st-human-preview-help {margin: 0; padding: 12px 20px; color: var(--ts-muted); font-size: 12px; line-height: 1.7}
+@media (max-width: 600px) {
+  .ts-theme .studio-v2 .st-provider-guide {padding: 16px}
+  .ts-theme .studio-v2 .st-provider-guide .st-input-choice {grid-template-columns: minmax(0,1fr)}
+  .ts-theme .studio-v2 .st-human-preview-inline :is(img,video) {height: 180px}
+  .ts-theme .studio-modal:has(.st-human-preview-stage) > header {padding: 12px 14px}
+  .ts-theme .st-human-preview-stage {padding: 10px}
+}

@@ -721,3 +721,22 @@
 .ts-theme .studio-v2 :is(.st-provider-guide,.st-input-choice,.st-resource-empty) button:disabled,
 .ts-theme .studio-v2 button.st-input-choice:disabled {background:#232b38!important;color:var(--ts-muted)!important;border-color:var(--ts-line)!important;opacity:1!important;box-shadow:none!important;cursor:not-allowed}
 .ts-theme .studio-v2 :is(.st-provider-guide,.st-resource-empty) a[aria-disabled=true] {color:var(--ts-muted);cursor:not-allowed}
+
+/* Drawer footer is interface chrome, never a white article canvas. */
+.ts-theme .detail-drawer .drawer-actions {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);padding:16px 0;gap:8px}
+.ts-theme .detail-drawer .drawer-actions :is(button,.button) {min-height:36px;font-size:12px;padding:8px 12px}
+.ts-theme .knowledge-page .knowledge-layout {background:var(--ts-panel);color:var(--ts-text)}
+.ts-theme .knowledge-page .knowledge-tabs {background:transparent}
+.ts-theme .knowledge-page .knowledge-tabs button:hover {background:var(--ts-elevated);color:var(--ts-text)}
+.ts-theme .knowledge-page .knowledge-tabs button.active:is(:hover,:focus-visible) {background:#263b59;color:var(--ts-accent)}
+.ts-theme .knowledge-page .knowledge-tabs button span {color:inherit}
+.ts-theme .knowledge-page .knowledge-list-toolbar>input {background:#111722;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .knowledge-page .knowledge-list-toolbar>input::placeholder {color:var(--ts-muted);opacity:1}
+.ts-theme .knowledge-page .knowledge-latest {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .knowledge-page .knowledge-latest small {color:var(--ts-muted)}
+.ts-theme .knowledge-page .knowledge-body :is(h1,h2,h3,h4) {color:var(--ts-text)}
+.ts-theme .knowledge-page .library-list-actions button:focus-visible {outline:2px solid var(--ts-accent);outline-offset:2px}
+.ts-theme .knowledge-page .wiki-history {background:var(--ts-elevated);color:var(--ts-text);border:1px solid var(--ts-line);border-radius:8px}
+.ts-theme .knowledge-page .wiki-history>div {border-color:var(--ts-line)}
+.ts-theme .knowledge-page .wiki-history :is(h1,h2,h3,strong,summary) {color:var(--ts-text)}
+.ts-theme .knowledge-page .wiki-history p {color:var(--ts-muted)}
