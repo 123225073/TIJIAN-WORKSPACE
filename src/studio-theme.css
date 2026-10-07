@@ -28,7 +28,7 @@
 .ts-theme :where(h1,h2,h3,h4) {font-family:'Bahnschrift','Microsoft YaHei UI',sans-serif;letter-spacing:.01em;line-height:1.4}
 .ts-theme :where(button,input,textarea,select) {font-family:inherit}
 .ts-theme :where(button,.button) {font-size:13px;min-height:38px;border-radius:9px;border-color:var(--ts-line);background:var(--ts-elevated);color:var(--ts-text)}
-.ts-theme :where(button:hover,.button:hover) {background:var(--ts-elevated);border-color:var(--ts-line)}
+.ts-theme :is(button:hover,.button:hover):not(:where(.tw-home *,.wa-rich-editor *,.wa-preview *,.md-rendered *,.st-paper *,.document-editor *,.article-preview *,.ae-document *)) {background:var(--ts-elevated);border-color:var(--ts-line)}
 .ts-theme :where(a) {color:var(--ts-accent)}
 .ts-theme :where(button,a,input,select,textarea,[tabindex]):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
 .ts-theme :where(input,select,textarea) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);font-size:14px;border-radius:9px;line-height:1.65}
@@ -551,3 +551,48 @@
 .ts-theme .page-area .studio-v2 .st-work-record {background:var(--ts-panel);border-color:var(--ts-line)}
 .ts-theme .page-area .studio-v2 .st-work-record-main strong {color:var(--ts-text)}
 .ts-theme .page-area .studio-v2 .st-work-record-main small {color:var(--ts-muted)}
+
+/* Library interaction feedback belongs to the row, never a pale nested button. */
+.ts-theme .knowledge-page .knowledge-entry .knowledge-select,
+.ts-theme .knowledge-page .knowledge-entry .knowledge-select:is(:hover,:active,:focus-visible) {background:transparent;color:var(--ts-text);box-shadow:none}
+.ts-theme .knowledge-page .knowledge-entry {border-bottom-color:var(--ts-line);transition:background-color .12s ease}
+.ts-theme .knowledge-page .knowledge-entry:is(:hover,:focus-within) {background:var(--ts-elevated)}
+.ts-theme .knowledge-page .knowledge-entry.selected:is(:hover,:focus-within) {background:#2b4161!important}
+.ts-theme .knowledge-page .knowledge-select strong {color:var(--ts-text)}
+.ts-theme .knowledge-page .knowledge-select :is(small,time) {color:var(--ts-muted)}
+.ts-theme .knowledge-page .knowledge-select:focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px;border-radius:5px}
+.ts-theme .knowledge-page :is(.folder-item,.knowledge-more-tabs button):hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .knowledge-page :is(.folder-item.active,.knowledge-more-tabs button.active):hover {background:#2b4161;color:var(--ts-accent)}
+.ts-theme .knowledge-page .knowledge-more-tabs>div {background:var(--ts-panel);border-color:var(--ts-line)}
+.ts-theme .knowledge-page .knowledge-more-tabs button {background:transparent;color:var(--ts-muted)}
+.ts-theme .knowledge-page .knowledge-more-tabs button.active {background:#263b59;color:var(--ts-accent)}
+.ts-theme .knowledge-page .acquisition-meta .origin-label {background:var(--ts-elevated);color:var(--ts-muted);border:1px solid var(--ts-line)}
+.ts-theme .knowledge-page .library-list-actions button:hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.reference-modes,.reference-actions) button {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.reference-modes,.reference-actions) button:hover:not(:disabled),
+.ts-theme .reference-modules button:hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .reference-modes button.active {background:#263b59;color:var(--ts-accent)}
+.ts-theme .reference-modes button.active:hover {background:#2b4161;color:var(--ts-accent)}
+.ts-theme .system-library .sl-folder {background:transparent!important;color:var(--ts-text)}
+.ts-theme .system-library .sl-folder:hover {background:var(--ts-elevated)!important;color:var(--ts-text)}
+.ts-theme .system-library .sl-folder.active {background:#263b59!important;color:var(--ts-accent)}
+.ts-theme .system-library .sl-folder.active:hover {background:#2b4161!important}
+.ts-theme .system-library .sl-row {background:var(--ts-panel)!important;color:var(--ts-muted);border-bottom-color:var(--ts-line)!important}
+.ts-theme .system-library .sl-row:hover {background:var(--ts-elevated)!important}
+.ts-theme .system-library .sl-row.active {background:#263b59!important}
+.ts-theme .system-library .sl-row.active:hover {background:#2b4161!important}
+.ts-theme .system-library .sl-row .sl-status {background:var(--ts-elevated);color:var(--ts-muted)}
+.ts-theme .system-library .sl-row .sl-status.live {background:#1b342c;color:#9fdbbb}
+.ts-theme .system-library .sl-row .sl-status.failed {background:#38251f;color:#ffb7a6}
+.ts-theme .ie-workspace .ie-source-list article>div button {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .ie-workspace .ie-source-list article>div button:hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-accent)}
+.ts-theme .ie-workspace .ie-source-list article>div button[aria-pressed=true] {background:#263b59;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .ie-workspace .ie-source-list article>div button[aria-pressed=true]:hover {background:#2b4161}
+.ts-theme .studio-modal .ap-grid article {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-modal .ap-grid article.selected {background:#263b59;border-color:var(--ts-accent)}
+.ts-theme .studio-modal .ap-grid small {color:var(--ts-muted)}
+.ts-theme .studio-modal .ap-grid button {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-modal .ap-grid button:hover:not(:disabled) {background:#263b59;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme .studio-v2 .st-asset-card button {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-v2 .st-asset-card button:hover:not(:disabled) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-accent)}
+.ts-theme :is(.knowledge-select,.folder-item,.sl-folder,.sl-row,.reference-modes button,.reference-modules button,.reference-actions button,.ie-source-list button,.st-work-record>summary):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
