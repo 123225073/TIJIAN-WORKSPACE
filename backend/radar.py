@@ -11,6 +11,30 @@ LOCK = threading.RLock()
 TENDER_HOST = 'xcc.bidizhaobiao.com'
 TENDER_API = 'https://api.xqzhaobiao.com/webchat/api/searchListWeb'
 
+def article_reference(item):
+    """Resolve navigation only; never fetch restricted text or rewrite stored leads.
+
+    The source's public search bundle routes docId/type=bid/pattern=10 to
+    xqAdmin's tender/index. The source still enforces its own login/permissions.
+    """
+    url = str(item.get('url') or '')
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return {'article_url':'', 'article_requires_login':False}
+    valid = parsed.scheme in ('https', 'http') and parsed.hostname and not parsed.username and not parsed.password
+    tender_source = valid and parsed.hostname in ('xcc.bidizhaobiao.com', 'www.bidizhaobiao.com', 'bidizhaobiao.com')
+    ident = str(item.get('external_id') or '')
+    if item.get('link_scope') == 'source_search':
+        if tender_source and re.fullmatch(r'[0-9]{1,20}', ident):
+            return {'article_url':f'https://www.xqzhaobiao.com/xqAdmin/#/tender/index?id={ident}&type=bid&pattern=10', 'article_requires_login':True}
+        return {'article_url':'', 'article_requires_login':False}
+    requires_login = bool(valid and parsed.hostname == 'www.xqzhaobiao.com' and parsed.path.startswith('/xqAdmin'))
+    return {'article_url':url if valid else '', 'article_requires_login':requires_login}
+
+def public_news(item):
+    return {**item, **article_reference(item)}
+
 def input_url(value):
     match = re.search(r'https?://[^\s<>]+', str(value).strip())
     if not match: raise ValueError('请粘贴完整网址或包含网址的分享文字')
@@ -64,7 +88,9 @@ def tender(url, keywords):
             detail = next((row.get(key) for key in ('detailUrl','detail_url','articleUrl','article_url','link','url') if isinstance(row.get(key),str) and row.get(key).strip()), '')
             detail = urljoin(url,detail) if detail else ''
             host = urlparse(detail).hostname or ''
-            if host not in ('xcc.bidizhaobiao.com','www.bidizhaobiao.com','bidizhaobiao.com') or detail.rstrip('/') == url.rstrip('/'):
+            if (urlparse(detail).scheme not in ('http','https') or urlparse(detail).username or urlparse(detail).password
+                    or host not in ('xcc.bidizhaobiao.com','www.bidizhaobiao.com','bidizhaobiao.com','www.xqzhaobiao.com')
+                    or detail.rstrip('/') == url.rstrip('/')):
                 detail = ''
             items[id] = {'external_id':id,'title':title,'url':detail or url,'body':body,'published':published,'date_label':label,'region':region,'category':category,'link_scope':'article' if detail else 'source_search'}
     return {'title':'喜鹊招标 · 公开项目线索','url':url,'type':'tender','items':list(items.values()),'status':'ready' if items else 'no_match','note':'按关键词分别搜索首屏，每词最多15条；仅公开线索，不代表全部公告。完整公告需在来源网站登录查看。','query_counts':counts}

@@ -72,3 +72,38 @@ def test_disabled_and_nonfeed_cannot_refresh(client):
     assert client.post('/api/radar/'+f['id']+'/refresh',json={}).status_code==400
     obj=client.post('/api/import/text',json={'title':'普通资料','body':'内容'}).json()
     assert client.post('/api/radar/'+obj['id']+'/refresh',json={}).status_code==400
+
+
+def test_legacy_tender_article_link_is_read_only(client):
+    owner=account(client)['user']['id']
+    n=s.put(owner,'news',{'title':'旧电梯公告','url':'https://xcc.bidizhaobiao.com/search',
+        'external_id':'828738551','link_scope':'source_search','body':'公开摘要','status':'summary'})
+    expected='https://www.xqzhaobiao.com/xqAdmin/#/tender/index?id=828738551&type=bid&pattern=10'
+    for response in (client.get('/api/state'),client.get('/api/state/updates',params={'ids':n['id']})):
+        assert response.status_code==200
+        value=next(x for x in response.json().get('objects',response.json().get('items',[])) if x['id']==n['id'])
+        assert value['article_url']==expected and value['article_requires_login'] is True
+        assert value['body']=='公开摘要' and value['status']=='summary'
+    assert s.get(owner,n['id'])==n
+    source=client.post('/api/news/'+n['id']+'/save',json={}).json()
+    assert source['url']==expected and source['status']=='summary'
+
+
+@pytest.mark.parametrize('url,ident',[
+    ('https://example.com/search','123'),('https://xcc.bidizhaobiao.com.evil.test/search','123'),
+    ('https://user:pass@xcc.bidizhaobiao.com/search','123'),('javascript:alert(1)','123'),
+    ('https://xcc.bidizhaobiao.com/search','123&token=secret'),('https://xcc.bidizhaobiao.com/search','１２３')])
+def test_summary_link_never_guesses_other_sources(url,ident):
+    assert radar.article_reference({'url':url,'external_id':ident,'link_scope':'source_search'})['article_url']==''
+
+
+def test_tender_explicit_detail_and_generic_article(monkeypatch):
+    detail='https://www.xqzhaobiao.com/xqAdmin/#/tender/index?id=123&type=bid&pattern=10'
+    monkeypatch.setattr(radar,'tender_request',lambda _: [{'docId':'123','title':'电梯公告','detailUrl':detail}])
+    item=radar.tender('https://xcc.bidizhaobiao.com/search','电梯')['items'][0]
+    assert item['url']==detail and item['link_scope']=='article'
+    assert radar.article_reference(item)['article_url']==detail
+    assert radar.article_reference(item)['article_requires_login'] is True
+    assert radar.article_reference({'url':'https://example.com/article/1'})['article_url']=='https://example.com/article/1'
+    assert radar.article_reference({'url':'https://[invalid'})['article_url']==''
+    assert radar.article_reference({'url':'javascript:alert(1)'})['article_url']==''

@@ -20,7 +20,7 @@ app.whenReady().then(async()=>{let win;try{
  await js(`(()=>{const el=document.querySelector('[aria-label=筛选信源]');el.value=${JSON.stringify(feed.id)};el.dispatchEvent(new Event('change',{bubbles:true}))})()`);
  await click('获取该信源资讯');await wait("document.querySelector('.scoped-progress')?.innerText.includes('新增 0 条')");
  const state=await api('/state');assert.equal(state.objects.filter(x=>x.kind==='news').length,2);assert.equal(state.objects.find(x=>x.id===dy.id).last_result.status,'needs_browser');
- await js("document.querySelector('.news-row').click()");await wait("document.querySelector('[role=dialog]')");assert.ok(await js("document.querySelector('[role=dialog]').innerText.includes('公开搜索线索')"));await shot('02-public-lead');await js("document.querySelector('[aria-label=关闭阅读]').click()");
+ await js("document.querySelector('.news-actions button').click()");await wait("document.querySelector('[role=dialog]')");assert.ok(await js("document.querySelector('[role=dialog]').innerText.includes('公开搜索线索')"));await shot('02-public-lead');await js("document.querySelector('[aria-label=关闭阅读]').click()");
  await js("location.hash='settings/radar'");await wait("document.querySelectorAll('.source-card').length===3");await shot('03-source-settings');
  await click('添加信源');await wait("document.querySelector('[aria-label=自动识别信源]')");
  await js("(()=>{const el=document.querySelector('.discovery-panel input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'5- 分享 https://v.douyin.com/abc/ $1');el.dispatchEvent(new Event('input',{bubbles:true}))})()");

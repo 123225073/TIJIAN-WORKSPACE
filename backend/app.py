@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.23.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.23.1','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -163,6 +163,7 @@ def state_config(c,u):
             'skills':upstream.catalogue(),'bindings':values.get('bindings',{})},values.get('models',[])
 
 def public_state_object(x,models):
+    if x['kind']=='news':return radar_service.public_news(x)
     if x['kind']=='illustration':return {k:v for k,v in x.items() if k!='data_uri'}
     if x['kind'] not in {'studio_asset','studio_run'}:return x
     # _public looks up model titles once per run. Supply the identical generation
@@ -395,7 +396,7 @@ def radar(u=Depends(user)):
 def save_news(id:str,u=Depends(user)):
     n=s.get(u['id'],id)
     existing=next((x for x in s.list_(u['id'],'source') if x.get('news_id')==id),None)
-    return existing or s.export_object(u['id'],s.put(u['id'],'source',{'title':n['title'],'body':n.get('body',''),'url':n['url'],'source_type':n.get('source_type',''),'news_id':id,'status':'summary'}))
+    return existing or s.export_object(u['id'],s.put(u['id'],'source',{'title':n['title'],'body':n.get('body',''),'url':radar_service.article_reference(n)['article_url'] or n['url'],'source_type':n.get('source_type',''),'news_id':id,'status':'summary'}))
 
 @app.post('/api/benchmark/{id}/collect')
 def collect(id:str,data:dict,u=Depends(user)):
