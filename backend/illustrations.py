@@ -1,5 +1,5 @@
 """Private article illustrations; generation and insertion are separate actions."""
-import base64, io, re
+import base64, io, re, json, math
 from urllib.parse import urljoin
 import httpx
 from PIL import Image
@@ -41,7 +41,7 @@ def sizes(model):
     if any(x in m['model'] for x in ['gpt-image-2.5','gpt-image-2']):values+=['1536x864','864x1536','2048x2048','2560x1440','1440x2560']
     return values
 
-def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=None):
+def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=None,on_size_adjustment=None,_retry_size=False):
     m,p=g.model_record(model)
     if m['capability']!='image' or (not probe and not (m.get('published') and p.get('published',True))):raise ValueError('请选择已上架的生图模型及平台')
     if size not in sizes(model):raise ValueError('图片尺寸无效')
@@ -64,12 +64,34 @@ def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=No
     else:request={'json':payload}
     with httpx.Client(timeout=httpx.Timeout(300,connect=20),trust_env=False) as client:
         with client.stream('POST',target,headers=request_headers,extensions=extensions,**request) as response:
-            if response.status_code!=200:raise ValueError(f'生图失败 HTTP {response.status_code}，请检查该服务是否支持 Images 接口及所选尺寸')
+            if response.status_code!=200:
+                # Retry once only after a definite size rejection, never a timeout,
+                # authentication/balance error, task ID, or uncertain submission.
+                raw_error=bytearray()
+                for chunk in response.iter_bytes():
+                    raw_error.extend(chunk)
+                    if len(raw_error)>65536:break
+                try:failure=json.loads(raw_error)
+                except (ValueError,TypeError):failure={}
+                error=failure.get('error',{}) if isinstance(failure,dict) else {}
+                message=str(error.get('message','')).lower() if isinstance(error,dict) else ''
+                rejected=isinstance(error,dict) and (error.get('code') in ('invalid_size','unsupported_size') or error.get('param')=='size' and any(word in message for word in ('unsupported','not supported','invalid size','不支持')))
+                known=not any(key in failure for key in ('id','task_id','data','output','outputs')) if isinstance(failure,dict) else False
+                if _retry_size and response.status_code in (400,422) and rejected and known:
+                    offered=set(re.findall(r'\b\d{3,4}x\d{3,4}\b',message))-{size}
+                    supported=[value for value in sizes(model) if value!=size and value in (offered or {'1024x1024','1536x1024','1024x1536'})]
+                    if supported:
+                        width,height=map(int,size.split('x'));wanted=width/height
+                        closest=min(supported,key=lambda value:(round(abs(math.log((int(value.split('x')[0])/int(value.split('x')[1]))/wanted)),5),abs(math.log(max(map(int,value.split('x')))/max(width,height)))))
+                        response.close()
+                        result=generate(model,prompt,closest,probe,reference,quality,on_size_adjustment,False)
+                        if on_size_adjustment:on_size_adjustment(size,closest)
+                        return result
+                raise ValueError(f'生图失败 HTTP {response.status_code}，请检查该服务是否支持 Images 接口及所选尺寸')
             raw=bytearray()
             for chunk in response.iter_bytes():
                 raw.extend(chunk)
                 if len(raw)>RESPONSE_LIMIT:raise ValueError('生图响应超过上限')
-    import json
     try:entry=json.loads(raw).get('data',[])[0]
     except (ValueError,IndexError,TypeError):raise ValueError('服务没有返回图片')
     if entry.get('b64_json'):

@@ -1,0 +1,12 @@
+import {useEffect,useState} from 'react';
+import {imagePlan,readRatio} from './image-parameters';
+export {imagePlan} from './image-parameters';
+export default function ImageParameters({choices,options,onChange,disabled=false}:{choices:any;options:any;onChange:(options:any)=>void;disabled?:boolean}){
+ const presets=['1:1','2:3','3:2','3:4','4:3','9:16','16:9','2.35:1'];
+ const [custom,setCustom]=useState(options.requested_ratio||''),[editing,setEditing]=useState(false),[error,setError]=useState('');
+ useEffect(()=>{setCustom(options.requested_ratio||'');setError('')},[options.requested_ratio]);
+ const plan=imagePlan(choices,options),requested=options.requested_ratio;
+ const apply=(key:string,value:string)=>{const next={...options};if(value)next[key]=value;else {delete next[key];delete next.size;delete next[key==='requested_ratio'?'aspect_ratio':'resolution']}onChange(imagePlan(choices,next).options)};
+ const commit=()=>{const value=custom.trim();if(!Number.isFinite(readRatio(value))){setError('请输入有效比例，例如 2.32:1；当前仍保留上次有效设置。');return}setError('');apply('requested_ratio',value)};
+ return <div className="image-parameters"><div className="image-parameter-grid"><label>画面比例<select aria-label="画面比例" disabled={disabled} value={editing||requested&&!presets.includes(requested)?'custom':requested||''} onChange={e=>{const v=e.target.value;setEditing(v==='custom');setError('');if(v!=='custom')apply('requested_ratio',v)}}><option value="">默认{plan.actual?' · '+plan.actual:''}</option>{presets.map(r=><option key={r}>{r}</option>)}<option value="custom">自定义比例</option></select></label><label>分辨率<select aria-label="图片分辨率" disabled={disabled} value={options.requested_resolution||''} onChange={e=>apply('requested_resolution',e.target.value)}><option value="">默认{plan.actualResolution?' · '+plan.actualResolution:''}</option>{['1K','2K','4K'].map(r=><option key={r}>{r}</option>)}</select></label></div>{(editing||requested&&!presets.includes(requested))&&<label>自定义宽高比<input aria-label="自定义宽高比" placeholder="例如 2.32:1" maxLength={25} disabled={disabled} value={custom} onChange={e=>setCustom(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();commit()}}}/></label>}{error&&<p role="alert">{error}</p>}<p className="image-parameter-note">提交 {plan.actual||'模型默认比例'} · {plan.actualResolution||'模型默认分辨率'}{plan.options.size?' · '+plan.options.size.replace(/[x*]/,' × '):''}。分辨率按尺寸档位展示，原图实际像素以生成结果为准。</p>{plan.notice&&<p className="parameter-adjustment" role="status">{plan.notice}</p>}</div>;
+}

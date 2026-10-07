@@ -114,6 +114,28 @@ def test_reader_facing_layout_and_builtin_methods(client):
     assert '不编造第一人称' in skills['skill:wechat-editor']['body']
     assert 'Humanizer' in capabilities.snapshot('writing')['text']
 
+def test_wechat_generation_receives_narrative_title_and_cover_rules(client,monkeypatch):
+    owner,task,captured,_=setup(client,monkeypatch)
+    send(client,owner,task,'帮我写一篇600字公众号文章：电梯结构',skip_profile=True)
+    writers=[messages for messages in captured if '只返回JSON对象' in messages[0]['content']]
+    assert len(writers)==1
+    system=writers[0][0]['content']
+    assert '公众号真人叙事编辑' in system and '2.35:1' in system
+    assert '不编造第一人称客户经历' in system
+    assert '默认 2 个账号' not in system and 'pip install' not in system
+    skills={x['id']:x for x in capabilities.list_()}
+    assert skills['skill:wechat-narrative']['status']=='published'
+    assert skills['skill:wechat-title-cover']['status']=='published'
+
+def test_disabled_wechat_methods_are_not_reinserted(client,monkeypatch):
+    owner,task,captured,_=setup(client,monkeypatch)
+    for id in ('skill:wechat-narrative','skill:wechat-title-cover'):
+        old=next(x for x in capabilities.list_() if x['id']==id)
+        capabilities.save({**old,'status':'disabled'},owner)
+    send(client,owner,task,'帮我写一篇公众号文章：电梯结构',skip_profile=True)
+    system=next(messages[0]['content'] for messages in captured if '只返回JSON对象' in messages[0]['content'])
+    assert '公众号真人叙事编辑' not in system and '公众号标题与封面编辑' not in system
+
 def test_export_embeds_owned_local_images_for_offline_reading(client,monkeypatch):
     import io
     from PIL import Image

@@ -1,10 +1,11 @@
 import React from 'react';
 import {createRoot} from 'react-dom/client';
 import AdminApp from './AdminApp';
+import LiquidTabs from './LiquidTabs';
 import {installFormKeys} from './inputKeys';
 installFormKeys();
 import './style.css';
 import './capabilities.css';
 import './admin.css';
 import './studio-theme.css';
-createRoot(document.getElementById('root')!).render(<React.StrictMode><AdminApp/></React.StrictMode>);
+createRoot(document.getElementById('root')!).render(<React.StrictMode><AdminApp/><LiquidTabs/></React.StrictMode>);

@@ -15,8 +15,36 @@ ARTICLE_METHOD = '''公众号创作方法（电梯行业适配）：
 本方法改善可读性和传播动机，不保证阅读量、搜索排名或爆款。
 '''
 
+NARRATIVE_METHOD = '''公众号真人叙事编辑（仅用于公众号文章；用户明确要求清单、说明书或其他平台时按其要求）：
+先在心里完成读者画像、核心矛盾、标题候选、开头、情绪走向与结尾，再输出最终稿。写作规划不混进发布正文。
+默认选择叙事解释或有判断的行业随笔，不把一篇文章写成零部件目录、六个编号小标题或每段一样长的知识卡片。
+开头用读者能认出来的具体动作、疑问或有依据的反差进入。例如把“每天都坐电梯，却很难说清门后是什么”变成一个想看下去的问题。
+有真实经历资料时沿着事件经过、当时的犹豫、关键变化、后来理解了什么推进；没有真实案例时用“想象一下”“比如”明确标识的日常场景，绝不能冒充作者经历。
+不编造第一人称客户经历、人名、对话原话、时间、价格、事故、统计或成功故事。允许自然的态度、好奇、意外和共情；禁止无依据煽动恐惧。
+正文围绕一条阅读主线，把知识融入场景和解释，用自然过渡连接。短文默认以连续段落为主，通常0至2个有信息量的小标题；篇幅需要时增加，但不要机械逐项编号。
+在事实不变的前提下保留作者的判断、迟疑、反问与口语节奏；少用“其实”“本质上”“值得注意”，不强塞流行口头禅。
+情绪来自具体处境和取舍，不能靠叹号、煽动句、连续排比和强行升华。每段给读者一条新信息或推进一个认识。
+结尾回扣开头的疑问，给出可用的判断或留下与本文有关的下一层问题；可自然邀请读者谈经历，不写套路“点赞收藏关注”，不许诺尚未安排的下一期。
+交稿前像真人编辑一样通读：删除教科书目录感、格式化转折、虚构场景和万能总结；保留用户人工修改、全部必要事实及图片链接。用户指定字数优先，不能靠多加故事把篇幅写长。
+以上是传播写作方法，不承诺成为爆款。
+'''
+
+TITLE_COVER_METHOD = '''公众号标题与封面编辑（仅用于公众号成品）：
+在内部比较至少3种标题方向：读者自己的问题、具体收益、由事实支撑的认知反差。选择一条既有悬念又能被正文兑现的标题，输出时不附分析。
+标题用读者日常会说的词，通常12至26字；不堆“震惊、必看、颠覆、没人告诉你”，不用虚构数字、排名和恐吓。不要为了吸引点击扩大正文结论。
+开头在前60至100字建立与读者的关系和未解决的问题；摘要单独说明收获，不机械复制开头。
+封面建议必须承接本文唯一核心问题，描述主体、一个视觉隐喻或对照、画面层次、色调与光线、留白、安全区和短标题。封面不是正文所有知识点的密集拼贴。
+公众号宽封面优先2.35:1构图，主体与关键文字放在中央安全区，兼顾列表裁切；如用户指定其他比例按用户要求。封面字通常4至12字，留出排版空间，不强行要求模型绘制很多小字。
+示意图与真实项目照片区分，不冒充真实建筑、事故现场或品牌授权。既不生成伪徽章也不许诺已生成图片。
+'''
+
+def platform_rules(platform):
+    return NARRATIVE_METHOD+'\n'+TITLE_COVER_METHOD if platform=='wechat' else ''
+
 def builtin_skills():
-    return [dict(id='skill:wechat-editor', kind='skill', purpose='writing', title='公众号读者与传播写作',
+    return [dict(id='skill:wechat-narrative',kind='skill',purpose='writing',title='公众号场景叙事与情绪节奏',body=NARRATIVE_METHOD,status='published',version=1,history=[],origin='项目审阅适配 · Humanizer / 公众号写作方法研究'),
+            dict(id='skill:wechat-title-cover',kind='skill',purpose='writing',title='公众号标题与封面构图',body=TITLE_COVER_METHOD,status='published',version=1,history=[],origin='项目原创适配 · MarketingSkills / baoyu-cover-image方法研究'),
+            dict(id='skill:wechat-editor', kind='skill', purpose='writing', title='公众号读者与传播写作',
                  body=ARTICLE_METHOD, status='published', version=1, history=[],
                  origin='yaoleifly/wechat-writing-style (MIT) · 电梯行业审阅适配'),
             dict(id='skill:humanizer', kind='skill', purpose='writing', title='Humanizer 中文去 AI 味',

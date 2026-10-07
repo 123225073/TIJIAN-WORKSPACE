@@ -394,6 +394,9 @@ def _public(obj, models=None):
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
         out['generation']={k:snap.get(k) for k in ('input','options','model_id','brand_id','profile_id')}
         out['generation']['model_title']=title
+        if snap.get('tool') in media_registry.IMAGE_TOOLS:
+            from .image_parameters import notice
+            out['parameter_adjustment']='；'.join(filter(None,[notice(snap.get('options',{})),obj.get('parameter_adjustment','')]))
         if obj.get('prompt_original') is not None:
             out['generation']['prompt_original']=obj['prompt_original']
     if isinstance(obj.get('batch'), list):
@@ -556,6 +559,10 @@ def _validate(owner, data, complete=False):
         allowed = {'image_id', 'video_id'}
     _strict(inputs, allowed)
     choices=tool_options(tool,chosen,active=complete)
+    from . import image_parameters
+    if tool in media_registry.IMAGE_TOOLS:
+        try:options=image_parameters.normalize(choices,options)
+        except ValueError as exc:raise StudioError(str(exc)) from None
     if tool in media_registry.VIDEO_TOOLS and model.get('provider_id') == 'ark':
         try:ark_video.validate(model, inputs, options, lambda id, kind: _asset(owner, id, kind, tool), complete=complete)
         except ark_video.ArkError as exc:raise StudioError(str(exc)) from None
@@ -565,8 +572,9 @@ def _validate(owner, data, complete=False):
                 raise StudioError('请选择当前模型在本账号已成功生成的样片')
             if time.time() - datetime.fromisoformat(sample.get('submitted_at') or sample['created']).timestamp() > 7*86400:raise StudioError('样片任务已超过官方7天有效期，请重新制作样片')
     else:
-        _strict(options, choices)
+        _strict(options, set(choices) | (image_parameters.META if tool in media_registry.IMAGE_TOOLS else set()))
         for key, value in options.items():
+            if tool in media_registry.IMAGE_TOOLS and key in image_parameters.META:continue
             if not any(type(value) is type(choice) and value == choice for choice in choices[key]):
                 raise StudioError('当前模型不支持此生成选项：' + key)
     references = {}
@@ -930,7 +938,7 @@ def _shotstack_source(owner, asset, service):
 
 
 def _build(owner, draft, service):
-    tool, inputs, options = draft['tool'], draft['input'], draft['options']
+    tool, inputs, options = draft['tool'], draft['input'], {k:v for k,v in draft['options'].items() if k not in {'requested_ratio','requested_resolution'}}
     if tool in media_registry.VIDEO_TOOLS:
         raise StudioError('此旧视频接口不支持新任务；请选择已上架的视频模型')
     provider = TOOLS[tool][1]
@@ -1097,7 +1105,7 @@ def _wavespeed_upload_bytes(raw, filename, mime, service):
 def _wavespeed_payload(owner, run, model, service):
     snapshot=run['snapshot'];tool=snapshot['tool'];inputs=snapshot['input'];opts=snapshot['options']
     marks=(inputs.get('edit_marks') or []) if tool=='image_edit' else []
-    payload={'prompt':_guided_prompt(inputs['prompt']) if marks else inputs['prompt'],**{key:value for key,value in opts.items() if key!='n'}}
+    payload={'prompt':_guided_prompt(inputs['prompt']) if marks else inputs['prompt'],**{key:value for key,value in opts.items() if key not in {'n','requested_ratio','requested_resolution'}}}
     if tool in media_registry.VIDEO_TOOLS:
         for kind in ('image','video','audio'):
             ids=list(inputs.get(kind+'_ids') or [])
@@ -1329,7 +1337,7 @@ def _archive(owner, run):
         ext='.png' if uri.startswith('data:image/png;') else '.jpg' if uri.startswith('data:image/jpeg;') else '.webp'
         path=_path(owner,aid+ext);path.write_bytes(binary)
         metadata=_metadata(path,ext)
-        metadata['requested_size']=run['snapshot']['options'].get('size','1024x1024')
+        metadata['requested_size']=run.get('actual_request_size') or run['snapshot']['options'].get('size','1024x1024')
         metadata['generation_model']=run['model_id']
         s.put(owner,'studio_asset',{**metadata,'title':run['title'],'local_file':path.name,'provider':'images','status':'ready','compat':COMPAT['image'],'run_id':run['id']},aid)
         return _update(owner,run['id'],status='succeeded',asset_ids=[aid],finished_at=s.now(),error=None)
@@ -1556,6 +1564,10 @@ def _work(owner, id, batch_refresh=False):
                 guide,_=_annotation_guide(owner,inputs['image_id'],marks,layered[0] if layered else None)
                 references.append(guide)
             kwargs={}
+            def adjusted_size(requested,actual):
+                _update(owner,id,actual_request_size=actual,parameter_adjustment=f'服务明确拒绝尺寸 {requested}，已切换为最接近的可用尺寸 {actual}；原图已保留。')
+            kwargs['on_size_adjustment']=adjusted_size
+            kwargs['_retry_size']=True  # Only this confirmed media-run boundary opts in.
             if references:kwargs['reference']=references if len(references)>1 else references[0]
             if run['snapshot']['options'].get('quality'):kwargs['quality']=run['snapshot']['options']['quality']
             uri=illustrations.generate(run['model_id'],_guided_prompt(inputs['prompt']) if marks else inputs['prompt'],run['snapshot']['options'].get('size','1024x1024'),**kwargs)

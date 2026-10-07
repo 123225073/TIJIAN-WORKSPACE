@@ -1,0 +1,14 @@
+/* One flowing highlight across horizontal tab groups; no full-screen filters. */
+.ts-theme .liquid-tabs {position:relative;isolation:isolate;display:flex;align-items:center;gap:4px;padding:5px!important;min-height:46px;border:1px solid #344153!important;border-radius:24px!important;background:#111722!important;box-shadow:inset 0 1px 0 #ffffff09;overflow:auto;scrollbar-width:none}
+.ts-theme .liquid-tabs::before {content:"";pointer-events:none;position:absolute;z-index:-1;left:0;top:0;transform:translate(var(--liquid-x,5px),var(--liquid-y,5px));width:var(--liquid-w,0px);height:var(--liquid-h,36px);opacity:var(--liquid-visible,0);border-radius:20px 23px 19px 22px;background:linear-gradient(135deg,#3b5c88,#243951 75%);box-shadow:inset 0 1px 0 #b5d6ff66,inset 0 -1px 0 #7da2d32b,0 3px 12px #0005;transition:transform .38s cubic-bezier(.22,.8,.25,1),width .38s cubic-bezier(.22,.8,.25,1),height .25s,opacity .18s}
+.ts-theme .liquid-tabs> :is(button,a) {position:relative;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;margin:0!important;padding:7px 17px!important;border:0!important;border-radius:20px!important;background:transparent!important;box-shadow:none!important;color:#b5c2d5!important;font-size:13px;text-decoration:none;white-space:nowrap;transition:color .18s}
+.ts-theme .liquid-tabs> :is(button,a):is(.active,.selected,[aria-current=page],[aria-selected=true],[aria-pressed=true]) {color:#f6f9ff!important}
+.ts-theme .liquid-tabs> :is(button,a):hover:not(:disabled) {color:#fff!important;background:#ffffff08!important}
+.ts-theme .liquid-tabs> :is(button,a):focus-visible {outline:2px solid #9abbff;outline-offset:-2px}
+.ts-theme .liquid-tabs> :is(button,a)>span {color:inherit!important;background:transparent!important}
+.ts-theme .liquid-tabs> :is(button,a):disabled {opacity:.5}
+.ts-theme .liquid-tabs> :is(button,a)::after {display:none!important}
+.ts-theme .liquid-tabs {width:max-content;max-width:100%;flex:none}
+.ts-theme .liquid-tabs[data-liquid-moving=true]::before {animation:liquid-flow .38s ease-out}
+@keyframes liquid-flow {0%{border-radius:42% 25% 38% 30% / 50% 44% 56% 45%}50%{border-radius:24% 42% 26% 38% / 48% 56% 44% 52%;filter:brightness(1.16)}100%{border-radius:20px 23px 19px 22px}}
+@media(prefers-reduced-motion:reduce){.ts-theme .liquid-tabs::before{transition:none;animation:none!important}.ts-theme .liquid-tabs> :is(button,a){transition:none}}

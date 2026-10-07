@@ -23,6 +23,9 @@ SKILLS={
 }
 
 def skill_text(key):
+    if key=='writing':
+        from .writing_methods import ARTICLE_METHOD
+        return ARTICLE_METHOD
     name=SKILLS.get(key,SKILLS['writing'])[1]
     p=VENDOR/'skills'/'openclaw'/name/'SKILL.md'
     if not p.exists():return ''
