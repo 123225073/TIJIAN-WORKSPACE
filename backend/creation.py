@@ -5,6 +5,7 @@ import re
 from collections import Counter
 from fastapi import Depends
 from . import store as s, gateway as g, jobs, capabilities
+from .writing_methods import writing_request, word_requirement
 
 BRAND_FIELDS={'title','industry','products','audience','facts','style','contact','restrictions','body'}
 PROFILE_FIELDS={'title','position','audience','style','views','channels','agency_brands','brand_id'}
@@ -79,6 +80,7 @@ def context(owner,data):
     ids=data.get('source_ids') or []
     if not isinstance(ids,list) or len(ids)>20:raise ValueError('最多选择20份参考资料')
     sources=[owned(owner,x,['source','content']) for x in dict.fromkeys(ids)]
+    if any(x.get('exclude_ai') for x in sources):raise ValueError('所选资料已设置为不用于 AI，请调整资料范围')
     snapshots={'brand':{k:brand.get(k) for k in BRAND_FIELDS|{'id','version'}} if brand else None,
                'profile':{k:profile.get(k) for k in PROFILE_FIELDS|{'id','version'}} if profile else None,
                'sources':[{'id':x['id'],'version':x['version'],'title':x.get('title'),'body':x.get('body',''),'url':x.get('url','')} for x in sources]}
@@ -206,14 +208,17 @@ def register(app,user,admin,error):
         content_format=str(data.get('format') or (draft or {}).get('input',{}).get('format') or '通用文案')[:100]
         target_words=data.get('target_words') if not proposal else None
         if not proposal and target_words in (None,''):
-            target_words=(draft or {}).get('input',{}).get('target_words') or (1200 if content_format=='公众号文章' else None)
+            target_words=(draft or {}).get('input',{}).get('target_words') or word_requirement(brief,1200 if content_format=='公众号文章' else None)[0]
         if target_words not in (None,'') and (type(target_words) is not int or not 100 <= target_words <= 10000):
             raise ValueError('目标字数请填写100到10000之间的整数')
         purpose='profile' if proposal else 'writing';snapshot=context(owner,data)
-        model_id=model(owner,purpose,data);method=capabilities.snapshot(purpose)
+        model_id=model(owner,purpose,data);method=capabilities.snapshot(purpose,owner)
         old=owned(owner,data['content_id'],'content') if data.get('content_id') and not proposal else None
         if old and data.get('version')!=old['version']:raise s.Conflict('稿件已更新，请刷新后再生成')
         request=str(data.get('request_id',''))[:100]
+        instructions=('返回 JSON 对象，仅包含 title、position、audience、style、views、channels 六个字符串字段，供用户编辑确认。不要捏造个人经历、产品资质或业绩。' if proposal else '返回可直接编辑的完整文案。缺失的产品事实标记待补充，不得捏造数据、资质、承诺。若有目标字数，以中文正文字符数大致接近该值，优先保证内容完整与事实准确，不用重复句子凑字数。')
+        prepared=writing_request(method,policy=jobs.POLICY,brief=brief,format_name=content_format,
+                    target_words=target_words or None,context=snapshot,original=old.get('body','') if old else '',output_rules=instructions)
         fingerprint=s.digest(json.dumps({'data':data,'snapshot':snapshot,'method':method['metadata']},ensure_ascii=False,sort_keys=True))
         with s.LOCK:
             if request:
@@ -224,11 +229,9 @@ def register(app,user,admin,error):
                     return existing
             def work(progress,event):
                 progress('正在生成 IP 定位方案' if proposal else '正在生成文案')
-                instructions=('返回 JSON 对象，仅包含 title、position、audience、style、views、channels 六个字符串字段，供用户编辑确认。不要捏造个人经历、产品资质或业绩。' if proposal else '返回可直接编辑的完整文案。缺失的产品事实标记待补充，不得捏造数据、资质、承诺。若有目标字数，以中文正文字符数大致接近该值，优先保证内容完整与事实准确，不用重复句子凑字数。')
-                prompt=json.dumps({'要求':brief,'内容形式':content_format,'目标字数':target_words or None,'已选上下文':snapshot,'原稿':old.get('body','') if old else ''},ensure_ascii=False)
-                text=g.generate(model_id,[{'role':'system','content':jobs.POLICY+'\n'+method['text']+'\n'+instructions},{'role':'user','content':prompt}])
+                text=g.generate(model_id,prepared['messages'])
                 if event.is_set():raise InterruptedError('任务已取消')
-                common={'brief':brief,'context_snapshot':snapshot,'source_ids':[x['id'] for x in snapshot['sources']],'brand_id':data.get('brand_id',''),'profile_id':data.get('profile_id',''),'capabilities':method['metadata'],'model_id':model_id}
+                common={'brief':brief,'context_snapshot':snapshot,'source_ids':[x['id'] for x in snapshot['sources']],'brand_id':data.get('brand_id',''),'profile_id':data.get('profile_id',''),'capabilities':method['metadata'],'request_snapshot':prepared['snapshot'],'model_id':model_id}
                 if proposal:
                     fields=bounded(g.json_result(text),PROFILE_FIELDS-{'brand_id'})
                     if not fields.get('title') or not fields.get('position'):raise ValueError('定位方案缺少名称或定位，请重试')
@@ -239,7 +242,7 @@ def register(app,user,admin,error):
                 item=s.put(owner,'content',{**(old or {}),**common,'title':old['title'] if old else brief[:60],'body':text,'status':'draft','format':content_format,'target_words':target_words or None,'outcome_type':'writing'},old['id'] if old else None,expected=old['version'] if old else None)
                 s.export_object(owner,item)
                 return {'content_id':item['id'],'version':item['version']}
-            return jobs.start(owner,'生成 IP 定位方案' if proposal else '生成创作文案',work,{'action':'studio_profile' if proposal else 'studio_text','draft_id':draft['id'] if draft else None,'draft_version':draft['version'] if draft else None,'creation_request':request,'request_data':s.digest(json.dumps(data,sort_keys=True)),'snapshot_hash':fingerprint})
+            return jobs.start(owner,'生成 IP 定位方案' if proposal else '生成创作文案',work,{'action':'studio_profile' if proposal else 'studio_text','draft_id':draft['id'] if draft else None,'draft_version':draft['version'] if draft else None,'creation_request':request,'request_data':s.digest(json.dumps(data,sort_keys=True)),'snapshot_hash':fingerprint,'configuration':method['metadata'],'request_snapshot':prepared['snapshot']})
 
     @app.post('/api/studio/text/generate')
     def text_generate(data:dict,u=Depends(user)):return generate(data,u)

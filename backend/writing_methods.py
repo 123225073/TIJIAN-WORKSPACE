@@ -1,6 +1,43 @@
 """Reviewed, local text-only writing methods. No upstream tools are executed."""
+import json
 import re
 from . import store as s
+
+WRITING_CONTRACT = '''本次平台、内容形式、创作要求、目标字数、已选 IP 与资料由请求数据决定。用户明确要求优先于方法里的默认篇幅和结构；不要让某一平台的方法污染其他平台。
+文风、叙事、标题和封面方法以管理员维护的任务方法、启用 Skills 与用户明确要求为依据，程序不重新插入已停用或删除的 Skill。
+字数以中文正文字符数为参考，不把标题、摘要、封面说明和 Markdown 标记凑进正文。约定字数应尽量接近；“以内”“不超过”是上限，不能靠多加故事或重复句子超出。保留用户人工修改和必要图片链接，不用硬截断破坏句子。
+写作方法改善内容质量，不能保证爆款、播放量或转化率。最终稿不含系统方法全文、内部资料 ID、机器编号、写作分析和自检报告；来源信息保留在参考记录中。'''
+
+FORM_PLATFORMS = {'公众号文章':'wechat','小红书文案':'xiaohongshu','口播脚本':'channels','视频脚本':'channels','朋友圈文案':'moments'}
+
+def word_requirement(brief, fallback=None):
+    """Only explicit writing length is a number; keep free-form intent in the brief."""
+    pattern=r'(?P<before>不超过|最多|少于)?\s*(?P<count>\d{3,5})\s*(?:个)?字(?P<after>以内|以下|左右)?'
+    # In "把500字压到300字", 500 describes the old draft, 300 is the target.
+    revised=re.search(r'(?:改成|缩短到|缩至|压到|压缩到|控制在|扩写到|写成)\s*'+pattern,brief)
+    match=revised or re.search(pattern,brief)
+    if match and 100<=int(match['count'])<=10000:
+        return int(match['count']), 'maximum' if match['before'] or match['after'] in ('以内','以下') else 'approximate'
+    return fallback, 'approximate' if fallback is not None else 'unspecified'
+
+def writing_request(method, *, policy, brief, format_name, target_words=None, context=None,
+                    original=None, output_rules='', payload=None, platform=None):
+    """Shared transport and trace for conversation and form writing; no model calls."""
+    inferred,mode=word_requirement(brief,target_words)
+    # A structured form control is authoritative over a number elsewhere in its brief.
+    if target_words is not None and target_words!=inferred:mode='approximate'
+    words=target_words if target_words is not None else inferred
+    data=dict(payload or {})
+    data.update({'要求':brief,'内容形式':format_name,'目标字数':words,'字数约束':mode,
+                 '已选上下文':context,'原稿':original})
+    system=policy+'\n'+method['text']+('\n'+output_rules if output_rules else '')
+    user=json.dumps(data,ensure_ascii=False)
+    trace={'configuration':method['metadata'],'format':format_name,
+           'platform':platform or FORM_PLATFORMS.get(format_name,'general'),
+           'target_words':words,'word_constraint':mode,'contract_version':1,
+           'system_hash':s.digest(system),'input_hash':s.digest(user),'at':s.now()}
+    return {'messages':[{'role':'system','content':system},{'role':'user','content':user}],
+            'snapshot':trace,'payload':data}
 
 ARTICLE_METHOD = '''公众号创作方法（电梯行业适配）：
 先确定读者、他正在遇到的具体问题和本文能提供的收获，再从选题或灵感中选择一个切入角度。
@@ -37,9 +74,6 @@ TITLE_COVER_METHOD = '''公众号标题与封面编辑（仅用于公众号成�
 公众号宽封面优先2.35:1构图，主体与关键文字放在中央安全区，兼顾列表裁切；如用户指定其他比例按用户要求。封面字通常4至12字，留出排版空间，不强行要求模型绘制很多小字。
 示意图与真实项目照片区分，不冒充真实建筑、事故现场或品牌授权。既不生成伪徽章也不许诺已生成图片。
 '''
-
-def platform_rules(platform):
-    return NARRATIVE_METHOD+'\n'+TITLE_COVER_METHOD if platform=='wechat' else ''
 
 def builtin_skills():
     return [dict(id='skill:wechat-narrative',kind='skill',purpose='writing',title='公众号场景叙事与情绪节奏',body=NARRATIVE_METHOD,status='published',version=1,history=[],origin='项目审阅适配 · Humanizer / 公众号写作方法研究'),

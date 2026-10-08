@@ -34,11 +34,11 @@ from pathlib import Path
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
-from fastapi import BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from . import gateway as g, jobs, network, store as s, media_registry, ark_video
+from . import gateway as g, jobs, network, store as s, media_registry, ark_video, hifly_resource_preview
 
 MAX_FILE = 500 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024
@@ -315,7 +315,7 @@ def _api(provider, method, path, payload=None, service=None, asynchronous=False)
 
 def _object(owner, id, kind):
     obj = s.get(owner, id)
-    if obj['kind'] != kind or obj.get('archived'):
+    if obj['kind'] != kind or obj.get('archived') or obj.get('deleted'):
         raise s.Missing('对象不存在或无权访问')
     return obj
 
@@ -437,9 +437,22 @@ def _creation_preview(owner, obj, run=None):
         return None
 
 
+def _provider_preview(asset, *, cover=False):
+    """Reauthorize against the current service scope without decrypting its key."""
+    if (asset.get('provider') != 'hifly' or asset.get('status') != 'ready' or
+            asset.get('archived') or asset.get('deleted') or asset.get('asset_type') not in ('avatar', 'voice')):
+        return None
+    try:
+        if asset.get('service_scope') != _scope('hifly', _service('hifly')):
+            return None
+    except StudioError:
+        return None
+    return hifly_resource_preview.pointer(asset, cover)
+
+
 def _public(obj, models=None, owner=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
-    out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'provider_preview', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
@@ -485,6 +498,21 @@ def _public(obj, models=None, owner=None):
             if obj.get('original_file'):
                 out['original_file_url'] = '/api/studio/assets/' + obj['id'] + '/original'
     if owner and obj.get('asset_type') in ('avatar', 'voice'):
+        out['resource_selectable'] = False
+        try:
+            current_scope = _scope('hifly', _service('hifly'))
+            resource_id, compatible_tools = obj.get('provider_resource_id'), obj.get('compat')
+            out['resource_selectable'] = bool(obj.get('provider') == 'hifly' and
+                obj.get('status') == 'ready' and not obj.get('archived') and not obj.get('deleted') and
+                obj.get('service_scope') == current_scope and isinstance(resource_id, str) and
+                resource_id.strip() and len(resource_id) <= 500 and isinstance(compatible_tools, list) and
+                any(tool in compatible_tools for tool in COMPAT[obj['asset_type']]))
+            if obj.get('service_scope') != current_scope:
+                out['resource_unavailable_reason'] = '该资产属于另一飞影账号，当前账号不能引用'
+        except StudioError:
+            out['resource_unavailable_reason'] = '当前飞影服务尚未就绪'
+        if not out['resource_selectable'] and not out.get('resource_unavailable_reason'):
+            out['resource_unavailable_reason'] = '该资源已归档或尚未就绪'
         run = _creation_run(owner, obj)
         if run:
             out['clone_status'] = 'succeeded'
@@ -492,6 +520,17 @@ def _public(obj, models=None, owner=None):
         if source:
             out.update(preview_url='/api/studio/assets/' + obj['id'] + '/preview',
                        preview_asset_type=source['asset_type'], preview_origin='creation_source')
+        else:
+            media, cover = _provider_preview(obj), _provider_preview(obj, cover=True)
+            if cover:
+                out['preview_cover_url'] = '/api/studio/assets/' + obj['id'] + '/preview-cover'
+            if media or (cover and obj['asset_type'] == 'avatar'):
+                out.update(preview_url='/api/studio/assets/' + obj['id'] + ('/preview' if media else '/preview-cover'),
+                           preview_asset_type=media['asset_type'] if media else 'image', preview_origin='provider_preview')
+            if obj.get('provider') == 'hifly' and obj.get('visibility') == 'public':
+                out['provider_view_url'] = hifly_resource_preview.OFFICIAL_VIEWS[obj['asset_type']]
+                if not media:
+                    out['preview_unavailable_reason'] = '飞影 API 未提供' + ('视频' if obj['asset_type'] == 'avatar' else '试听') + '地址；可在飞影官方资源库查看，不会自动生成付费测试作品。'
     return out
 
 
@@ -1835,9 +1874,59 @@ def public_resources(owner, asset_type, service=None):
         if (asset_type == 'avatar' and item.get('kind') != 2) or (asset_type == 'voice' and item.get('type') != 10):
             continue
         id = s.digest(owner + ':' + scope + ':' + asset_type + ':' + resource)
+        try: previous = s.get(owner, id)
+        except s.Missing: previous = {}
         s.put(owner, 'studio_asset', {'title': str(item.get('title') or '公共资源')[:200], 'asset_type': asset_type,
               'provider': 'hifly', 'provider_resource_id': resource, 'service_scope': scope, 'visibility': 'public',
-              'status': 'ready', 'compat': COMPAT[asset_type]}, id)
+              'status': 'ready', 'compat': COMPAT[asset_type], 'archived': bool(previous.get('archived')),
+              'provider_preview': hifly_resource_preview.metadata(item, asset_type)}, id)
+
+
+def _resource_defaults_id(owner, scope):
+    return s.digest('hifly-resource-defaults:' + owner + ':' + scope)
+
+
+def _default_resource(owner, id, kind, scope):
+    if not isinstance(id, str) or not id or len(id) > 128:
+        return None
+    try:
+        asset = _object(owner, id, 'studio_asset')
+    except s.Missing:
+        return None
+    compatible = asset.get('compat', [])
+    resource_id = asset.get('provider_resource_id')
+    if (asset.get('asset_type') != kind or asset.get('provider') != 'hifly' or
+            asset.get('status') != 'ready' or asset.get('service_scope') != scope or
+            not isinstance(resource_id, str) or not resource_id.strip() or len(resource_id) > 500 or
+            not isinstance(compatible, list) or not any(tool in compatible for tool in COMPAT[kind])):
+        return None
+    return asset['id']
+
+
+def resource_defaults(owner, data=None):
+    """Flat nullable keys; empty/null clears. Reads never repair/migrate user data."""
+    empty = {'avatar_id': None, 'voice_id': None}
+    if data is not None:
+        _strict(data, empty)
+    with s.LOCK:
+        try:
+            scope = _scope('hifly', _service('hifly'))
+        except StudioError:
+            if data is None:
+                return empty
+            raise
+        id = _resource_defaults_id(owner, scope)
+        try: saved = _object(owner, id, 'studio_resource_defaults')
+        except s.Missing: saved = {}
+        if data is not None:
+            choices = {key: saved.get(key) for key in empty}
+            # Validate every new value before persisting either one.
+            for key, value in data.items():
+                if value is not None and value != '' and not _default_resource(owner, value, key[:-3], scope):
+                    raise StudioError('默认形象或声音不存在、尚未就绪或不兼容当前飞影账号')
+                choices[key] = value or None
+            saved = s.put(owner, 'studio_resource_defaults', {**choices, 'service_scope': scope}, id)
+        return {key: _default_resource(owner, saved.get(key), key[:-3], scope) for key in empty}
 
 
 def _library_id(owner, asset_type, scope):
@@ -1893,6 +1982,8 @@ def register(app, user, admin, error):
         except s.Conflict as exc:
             return error(409, str(exc))
         except StudioError as exc:
+            return error(400, str(exc))
+        except hifly_resource_preview.PreviewError as exc:
             return error(400, str(exc))
         except media_registry.RegistryError as exc:
             return error(400, str(exc))
@@ -2007,6 +2098,15 @@ def register(app, user, admin, error):
         finally:
             file.file.close()
 
+    @app.get('/api/studio/resource-defaults')
+    def get_resource_defaults(u=Depends(user)):
+        return invoke(resource_defaults, u['id'])
+
+    @app.patch('/api/studio/resource-defaults')
+    @app.post('/api/studio/resource-defaults')
+    def set_resource_defaults(data: dict, u=Depends(user)):
+        return invoke(resource_defaults, u['id'], data)
+
     @app.get('/api/studio/assets')
     def assets(background_tasks: BackgroundTasks, asset_type: str | None = None, refresh: bool = False, u=Depends(user)):
         if refresh:
@@ -2049,16 +2149,29 @@ def register(app, user, admin, error):
         return invoke(cancel, u['id'], id)
 
     @app.get('/api/studio/assets/{id}/preview')
-    def asset_creation_preview(id: str, u=Depends(user)):
+    def asset_creation_preview(id: str, request: Request, u=Depends(user)):
         def get_preview():
             asset = _object(u['id'], id, 'studio_asset')
             source = _creation_preview(u['id'], asset)
             if not source:
-                raise s.Missing('创建素材预览不可用')
+                pointer = _provider_preview(asset)
+                if not pointer:
+                    raise s.Missing('资源预览不可用')
+                return hifly_resource_preview.fetch(pointer['url'], pointer['asset_type'], request.headers.get('range'))
             path = _path(u['id'], source['local_file'], create=False)
             return FileResponse(path, media_type=source['mime_type'], filename=path.name,
                                 headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
         return invoke(get_preview)
+
+    @app.get('/api/studio/assets/{id}/preview-cover')
+    def asset_provider_cover(id: str, request: Request, u=Depends(user)):
+        def get_cover():
+            asset = _object(u['id'], id, 'studio_asset')
+            pointer = _provider_preview(asset, cover=True)
+            if not pointer:
+                raise s.Missing('资源封面不可用')
+            return hifly_resource_preview.fetch(pointer['url'], 'image', request.headers.get('range'))
+        return invoke(get_cover)
 
     @app.get('/api/studio/assets/{id}/thumbnail')
     def asset_thumbnail(id: str, u=Depends(user)):

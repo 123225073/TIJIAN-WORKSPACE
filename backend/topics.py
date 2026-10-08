@@ -7,6 +7,7 @@ from fastapi import Depends
 
 from . import capabilities, gateway as g, jobs, store as s, wechat_layout
 from .creation import model
+from .writing_methods import writing_request
 
 TOPIC_FIELDS = {'title', 'angle', 'rationale', 'audience', 'source_ids', 'profile_id', 'origin', 'origin_ref', 'status', 'next_action'}
 DELIVERY_FIELDS = {
@@ -271,7 +272,7 @@ def register(app, user, error):
         sources = _sources(u['id'], data.get('source_ids', []))
         profile = _owned(u['id'], data['profile_id'], 'profile') if data.get('profile_id') else None
         model_id = model(u['id'], 'topics', {})
-        method = capabilities.snapshot('topics')
+        method = capabilities.snapshot('topics', u['id'])
         request_id = str(data.get('request_id', ''))[:100]
         owner = u['id']
         def work(progress, event):
@@ -392,7 +393,7 @@ def register(app, user, error):
         sources = _sources(u['id'], topic.get('source_ids', []))
         profile = _owned(u['id'], topic['profile_id'], 'profile') if topic.get('profile_id') else None
         model_id = model(u['id'], 'writing', {})
-        method = capabilities.snapshot('writing')
+        method = capabilities.snapshot('writing', u['id'])
         original = {key: delivery.get(key, '') for key in DELIVERY_FIELDS['wechat']}
         masked_body, image_markers = _protected_body(original['body'])
         owner = u['id']
@@ -418,10 +419,14 @@ def register(app, user, error):
                 '资料': [{'id': item['id'], 'title': item.get('title'), 'body': item.get('body', '')[:8000], 'url': item.get('url')} for item in sources],
                 '当前发布稿': current_fields,
             }
-            text = g.generate(model_id, [
-                {'role': 'system', 'content': jobs.POLICY + '\n' + method['text'] + '\n' + guide},
-                {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)},
-            ])
+            request = writing_request(method, policy=jobs.POLICY, brief=instruction,
+                format_name='公众号文章', platform='wechat', original=current_fields,
+                context={'topic_id': topic['id'], 'topic_version': topic['version'],
+                         'profile_id': profile['id'] if profile else None,
+                         'profile_version': profile['version'] if profile else None,
+                         'sources': [{'id': x['id'], 'version': x['version']} for x in sources]},
+                output_rules=guide, payload=payload)
+            text = g.generate(model_id, request['messages'])
             progress('模型已返回，正在检查完整性与正文图片位置')
             candidate = text.strip()
             if candidate.startswith('```'):
@@ -460,7 +465,7 @@ def register(app, user, error):
                 'instruction': instruction, 'changed_fields': list(fields),
                 'original': original, 'proposal': proposal,
                 'image_handling': '原稿正文图片标记逐一保留、顺序不变；请在应用前核对与段落的对应关系。',
-                'model_id': model_id,
+                'model_id': model_id, 'capabilities': method['metadata'], 'request_snapshot': request['snapshot'],
             }
 
         with s.LOCK:
@@ -474,6 +479,7 @@ def register(app, user, error):
                 'action': 'studio_delivery_optimize', 'delivery_id': id,
                 'delivery_version': delivery['version'], 'scope': scope,
                 'instruction': instruction, 'request_id': request_id, 'fingerprint': fingerprint,
+                'configuration': method['metadata'],
             })
 
     @app.get('/api/studio/deliveries/{id}/optimizations/by-request/{request_id}')
@@ -521,6 +527,7 @@ def register(app, user, error):
                 **current, **values, 'status': 'draft', 'model_id': result.get('model_id', ''),
                 'topic_version': _owned(u['id'], current['topic_id'], 'studio_topic')['version'],
                 'generated_at': s.now(), 'optimization_job_id': job_id,
+                'capabilities': result.get('capabilities'), 'request_snapshot': result.get('request_snapshot'),
             }, id, expected=data['version'])
         s.audit(u['id'], 'apply_delivery_optimization', id)
         return saved
@@ -535,7 +542,7 @@ def register(app, user, error):
             raise s.Conflict('交付稿已更新，请刷新后重试')
         target_words = _target_words(data.get('target_words', delivery.get('target_words', 1200))) if delivery['platform'] == 'wechat' else None
         model_id = model(u['id'], 'writing', {})
-        method = capabilities.snapshot('writing')
+        method = capabilities.snapshot('writing', u['id'])
         sources = _sources(u['id'], topic.get('source_ids', []))
         profile = _owned(u['id'], topic['profile_id'], 'profile') if topic.get('profile_id') else None
         owner = u['id']
@@ -551,7 +558,16 @@ def register(app, user, error):
                        '已有交付稿': {k: delivery.get(k, '') for k in fields}}
             if target_words is not None:
                 payload['目标字数'] = target_words
-            text = g.generate(model_id, [{'role': 'system', 'content': jobs.POLICY + '\n' + method['text'] + '\n' + instructions}, {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}])
+            request = writing_request(method, policy=jobs.POLICY,
+                brief='；'.join(str(topic.get(k) or '') for k in ('title', 'angle')),
+                format_name=PLATFORM_NAMES[delivery['platform']], platform=delivery['platform'],
+                target_words=target_words, original=payload['已有交付稿'],
+                context={'topic_id': topic['id'], 'topic_version': topic['version'],
+                         'profile_id': profile['id'] if profile else None,
+                         'profile_version': profile['version'] if profile else None,
+                         'sources': [{'id': x['id'], 'version': x['version']} for x in sources]},
+                output_rules=instructions, payload=payload)
+            text = g.generate(model_id, request['messages'])
             progress('模型已返回，正在校验字段并保留正文图片')
             result = g.json_result(text)
             values = _delivery_payload(delivery['platform'], {k: result.get(k, '') for k in fields})
@@ -571,7 +587,7 @@ def register(app, user, error):
             if current['version'] != delivery['version']:
                 raise s.Conflict('生成期间交付稿已被编辑，未覆盖用户修改')
             progress('校验通过，正在写入新的可编辑草稿版本')
-            saved = s.put(owner, 'studio_delivery', {**current, **values, **({'target_words': target_words} if target_words is not None else {}), 'status': 'draft', 'model_id': model_id, 'topic_version': topic['version'], 'source_ids': [x['id'] for x in sources], 'generated_at': s.now()}, id, expected=delivery['version'])
+            saved = s.put(owner, 'studio_delivery', {**current, **values, **({'target_words': target_words} if target_words is not None else {}), 'status': 'draft', 'model_id': model_id, 'topic_version': topic['version'], 'source_ids': [x['id'] for x in sources], 'generated_at': s.now(), 'capabilities': method['metadata'], 'request_snapshot': request['snapshot']}, id, expected=delivery['version'])
             return {'delivery_id': saved['id'], 'version': saved['version']}
         with s.LOCK:
             previous = next((j for j in s.list_(owner, 'job') if j.get('input', {}).get('action') == 'studio_delivery' and j['input'].get('delivery_id') == id and j['input'].get('delivery_version') == delivery['version'] and j.get('status') in ('queued', 'running', 'done')), None)
@@ -579,4 +595,4 @@ def register(app, user, error):
                 if previous['input'].get('target_words') != target_words:
                     raise s.Conflict('该版本已有不同目标字数的生成任务，请等待完成后刷新')
                 return previous
-            return jobs.start(owner, '生成平台交付稿', work, {'action': 'studio_delivery', 'delivery_id': id, 'delivery_version': delivery['version'], 'target_words': target_words})
+            return jobs.start(owner, '生成平台交付稿', work, {'action': 'studio_delivery', 'delivery_id': id, 'delivery_version': delivery['version'], 'target_words': target_words, 'configuration': method['metadata']})

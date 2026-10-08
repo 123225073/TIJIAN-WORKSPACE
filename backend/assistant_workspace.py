@@ -3,7 +3,7 @@ import json
 import re
 from fastapi import Depends
 from . import store as s, jobs, gateway as g, capabilities, library, retrieval, product_guide, agent
-from .writing_methods import publish_body
+from .writing_methods import publish_body, writing_request, word_requirement
 
 PLATFORMS = {'wechat':'公众号', 'moments':'朋友圈', 'xiaohongshu':'小红书', 'channels':'视频号', 'douyin':'抖音'}
 ROUTER = '''你是梯世界需求识别器，只返回JSON，不执行工具。
@@ -24,18 +24,19 @@ TEXT_RULES = '''只返回JSON对象：{"title":"","body":"Markdown正文","summa
 不捏造个人经历、客户、报价、政策、事故与传播成绩。只给最终可编辑成品，封面建议不等于图片已生成。
 '''
 
-def _json(model, system, payload):
+def _json(model, system, payload, request=None):
     try:
-        value = g.json_result(g.generate(model, [{'role':'system','content':jobs.POLICY+'\n'+system},
+        value = g.json_result(g.generate(model, request or [{'role':'system','content':jobs.POLICY+'\n'+system},
                                                  {'role':'user','content':json.dumps(payload,ensure_ascii=False)}]))
     except (json.JSONDecodeError, TypeError):
         raise ValueError('模型没有返回可用结果，输入已保留，请重试') from None
     if not isinstance(value, dict):raise ValueError('模型返回格式无效，请重试')
     return value
 
-def identify(model, task, text):
+def identify(model, task, text, method=None):
     pending = task.get('pending_creation')
-    value = _json(model, ROUTER, {'最新用户请求':text, '历史对话':task.get('messages',[])[-12:],
+    method=method or capabilities.snapshot('agent')
+    value = _json(model, method['text']+'\n'+ROUTER, {'最新用户请求':text, '历史对话':task.get('messages',[])[-12:],
                   '等待定位的创作请求':pending, '已有平台成果':list(task.get('platform_outcomes',{})),
                   '已有媒体方案':list(task.get('media_outcomes',{}))})
     if value.get('action') not in {'chat','profile','text','image','video'}:raise ValueError('识别到不支持的操作，未执行')
@@ -75,6 +76,8 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
     if profile_id and s.get(owner,profile_id).get('archived'):raise ValueError('身份已归档，请重新选择')
     scope=library.normalize_scope(owner,reference_scope if reference_scope is not None else task.get('reference_scope'),source_ids)
     model=g.select(owner,'qa',model_id)
+    # Freeze before enqueueing, including the classifier and every permitted branch.
+    methods={purpose:capabilities.snapshot(purpose,owner) for purpose in ('agent','qa','daily','profile','writing')}
     short_skip=bool(task.get('pending_creation') and re.fullmatch(r'(?:不需要|不用|暂时不需要)[，。！!\s]*',text))
     skipped=skip_profile is True or _skip_requested(text) or short_skip or task.get('identity_skipped',False)
     task=s.put(owner,'task',{**task,'mode':'auto','agent_proposal':None,'profile_id':profile_id,'source_ids':source_ids,
@@ -82,7 +85,7 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
     s.export_object(owner,task)
     def work(progress,event):
         progress('正在理解本次需求')
-        route=identify(model,task,text)
+        route=identify(model,task,text,methods['agent'])
         if event.is_set():raise InterruptedError('已取消')
         pending=task.get('pending_creation')
         if pending and (skip_profile is True or _skip_requested(text) or short_skip or (profile_id and re.search(r'继续|开始|就按|使用这个',text))):route=pending
@@ -99,25 +102,25 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
         if profile_id:ctx+='\n用户已确认的身份：'+json.dumps(s.get(owner,profile_id),ensure_ascii=False)
         if task.get('upstream_body'):ctx+='\n前序成果：'+task['upstream_body'][:15000]
         if route['action']=='profile':
-            reply,proposal=agent.plan(owner,task,model,context=ctx,profile_only=True,rules=jobs.POLICY+'\n'+capabilities.snapshot('profile',owner)['text'])
+            reply,proposal=agent.plan(owner,task,model,context=ctx,profile_only=True,rules=jobs.POLICY+'\n'+methods['profile']['text'])
             if event.is_set():raise InterruptedError('已取消')
             current=_append(owner,task_id,reply or '请告诉我你服务哪些客户、希望通过内容实现什么目标。',retrieval=retrieved)
             agent.attach(owner,current,proposal)
             return {'task_id':task_id}
         if route['action']=='chat':
             if re.search(r'^(?:请|帮我)?记住|保存我的.{0,8}偏好',text):
-                reply,proposal=agent.plan(owner,task,model,context=ctx,rules=jobs.POLICY+'\n'+capabilities.snapshot('daily',owner)['text'])
+                reply,proposal=agent.plan(owner,task,model,context=ctx,rules=jobs.POLICY+'\n'+methods['daily']['text'])
                 if event.is_set():raise InterruptedError('已取消')
                 current=_append(owner,task_id,reply or '已整理偏好，请核对后保存。',retrieval=retrieved,last_model=model)
                 agent.attach(owner,current,proposal)
                 return {'task_id':task_id}
-            method=capabilities.snapshot('qa',owner)
+            method=methods['qa']
             messages=[{'role':'system','content':jobs.POLICY+'\n'+method['text']+'\n'+product_guide.TEXT},
                       {'role':'user','content':'可用资料：\n'+ctx}]
             messages += [{'role':m['role'],'content':m['text'][:12000]} for m in task['messages'][-12:] if m['role'] in {'user','assistant'}]
             reply=g.generate(model,messages)
             if event.is_set():raise InterruptedError('已取消')
-            _append(owner,task_id,reply,retrieval=retrieved,last_model=model)
+            _append(owner,task_id,reply,retrieval=retrieved,last_model=model,last_configuration=method['metadata'])
             return {'task_id':task_id}
         if route['action'] in {'image','video'}:
             from . import media_studio
@@ -133,15 +136,21 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
             _append(owner,task_id,'已整理'+('图片' if tool=='text_image' else '视频')+'生成方案，请在右侧检查画面要求和服务选项后生成。',media_outcomes=media,
                     active_outcome=route['action'],pending_creation=None,identity_required=False,retrieval=retrieved)
             return {'task_id':task_id,'draft_id':draft['id']}
-        method=capabilities.snapshot('writing',owner)
+        method=methods['writing']
         writer=g.select(owner,'writing',model_id)
         initial=s.get(owner,task_id);mapping=dict(initial.get('platform_outcomes',{}))
         originals={p:s.get(owner,mapping[p]) for p in route['platforms'] if mapping.get(p)}
-        prepared={}
+        prepared={};traces={}
         for platform in route['platforms']:
             progress('正在创作'+PLATFORMS[platform]+' · 复核事实与表达')
-            raw=_json(writer,method['text']+'\n'+TEXT_RULES,{'平台':PLATFORMS[platform],'创作要求':query,
-                 '资料与身份':ctx,'对话':task.get('messages',[])[-12:], '当前权威底稿':originals.get(platform,{})})
+            old=originals.get(platform,{})
+            words,_=word_requirement(query,old.get('target_words'))
+            request=writing_request(method,policy=jobs.POLICY,brief=query,format_name=PLATFORMS[platform],
+                 platform=platform,target_words=words,context={'资料与身份':ctx,'资料版本':[{'id':x['id'],'version':x.get('version')} for x in retrieved['excerpts']]},
+                 original=old,output_rules=TEXT_RULES,payload={'平台':PLATFORMS[platform],'创作要求':query,
+                 '资料与身份':ctx,'对话':task.get('messages',[])[-12:], '当前权威底稿':old})
+            traces[platform]=request['snapshot']
+            raw=_json(writer,'',{},request=request['messages'])
             fields={k:raw.get(k,'') for k in ('title','body','summary','cover_brief','caption','script','shotlist','tags')}
             if any(not isinstance(v,str) or len(v)>30000 for v in fields.values()):raise ValueError('生成栏目格式无效，未覆盖原稿')
             if not fields['title'].strip() or not (fields['body'].strip() or fields['script'].strip()):raise ValueError('模型未返回完整创作内容，未覆盖原稿')
@@ -163,14 +172,17 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
                 old=originals.get(p,{})
                 content=s.put(owner,'content',{**old,**fields,'task_id':task_id,'platform':p,'format':PLATFORMS[p],
                     'outcome_type':'writing','status':'draft','check':None,'profile_id':profile_id,'source_ids':list(dict.fromkeys(old.get('source_ids',[])+refs)),
-                    'model_id':writer,'capabilities':method['metadata']},old.get('id'),old.get('version'))
+                    'model_id':writer,'capabilities':method['metadata'],'brief':query,'target_words':traces[p]['target_words'],
+                    'request_snapshot':traces[p]},old.get('id'),old.get('version'))
                 mapping[p]=content['id'];exports.append(content)
             active=route['platforms'][0]
             _append(owner,task_id,'已生成'+ '、'.join(PLATFORMS[p] for p in prepared)+'稿件并保存到右侧工作成果。可以继续修改，或改写为其他平台。',
-                    platform_outcomes=mapping,active_outcome=active,content_id=mapping[active],pending_creation=None,identity_required=False,retrieval=retrieved,last_model=writer)
+                    platform_outcomes=mapping,active_outcome=active,content_id=mapping[active],pending_creation=None,identity_required=False,retrieval=retrieved,last_model=writer,
+                    last_configuration=method['metadata'],last_request_snapshots=traces)
             for content in exports:s.export_object(owner,content)
         return {'task_id':task_id,'content_id':mapping[active],'platforms':list(prepared)}
-    return jobs.start(owner,text[:40],work,{'action':'assistant','task_id':task_id,'text':text,'model_id':model})
+    return jobs.start(owner,text[:40],work,{'action':'assistant','task_id':task_id,'text':text,'model_id':model,
+                    'configurations':{p:m['metadata'] for p,m in methods.items()}})
 
 def register(app,user):
     @app.patch('/api/tasks/{id}/outcomes/{content_id}')

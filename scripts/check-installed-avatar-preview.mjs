@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {chromium} from 'playwright-core';
 const version=JSON.parse(fs.readFileSync('package.json','utf8')).version;
 const exe=path.join(process.env.LOCALAPPDATA,'Programs','elevator-workbench','梯世界工作台.exe');
@@ -26,6 +27,12 @@ try {
  await page.waitForLoadState('domcontentloaded');
  await page.waitForFunction(()=>Boolean(sessionStorage.getItem('tijian-session')),{},{timeout:30000});
  const health=await page.evaluate(()=>fetch('/api/health').then(r=>r.json()));assert.equal(health.version,version);
+ const servedIndex=await page.evaluate(()=>fetch('/').then(r=>r.text()));
+ assert.equal(servedIndex,fs.readFileSync('dist/index.html','utf8'),'Installed frontend must match this final build');
+ const installedBundle=path.join(path.dirname(exe),'resources','backend','tijian-service','_internal','desktop-frontend.zip');
+ const fileHash=file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+ assert.equal(fileHash(installedBundle),fileHash('.runtime/desktop-frontend.zip'));
+ assert.equal(fileHash(path.join(path.dirname(exe),'resources','backend','tijian-service','tijian-service.exe')),fileHash('.runtime/backend-dist/tijian-service/tijian-service.exe'));
  const clone=await page.evaluate(async()=>{
   const r=await fetch('/api/studio/assets?asset_type=avatar',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!r.ok)throw Error('Existing asset list unavailable');
   const data=await r.json();const asset=data.items.find(a=>a.clone_status==='succeeded'&&a.preview_asset_type==='video'&&a.preview_origin==='creation_source');
@@ -55,8 +62,20 @@ try {
   assert.equal(await page.locator('.st-clone-output').getByRole('button',{name:'下载',exact:true}).count(),0);
   await page.screenshot({path:path.join(directory,'actual-avatar-result.png'),fullPage:true});
  }
+ await page.evaluate(()=>location.hash='studio/brand');
+ const personalCard=page.locator('.ip-resource-card').filter({hasText:clone.title});await personalCard.waitFor();
+ await personalCard.scrollIntoViewIfNeeded();await personalCard.locator('video').waitFor();
+ await page.waitForFunction(()=>[...document.querySelectorAll('.ip-resource-card video')].some(v=>v.readyState>=2&&v.videoWidth>0));
+ await personalCard.locator('video').evaluate(v=>{v.muted=true;return v.play()});
+ await page.waitForFunction(()=>[...document.querySelectorAll('.ip-resource-card video')].some(v=>v.currentTime>.2));
+ await personalCard.getByRole('button',{name:/放大预览/}).click();await dialog.waitFor();
+ await page.waitForFunction(()=>document.querySelector('.studio-modal[open] video')?.readyState>=2);
+ await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});
+ await page.screenshot({path:path.join(directory,'actual-personal-ip.png'),fullPage:true});
+ const defaults=await page.evaluate(async()=>{const r=await fetch('/api/studio/resource-defaults',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!r.ok)throw Error('Default resource preferences unavailable');return r.json()});
+ assert('avatar_id' in defaults&&'voice_id' in defaults);
  assert.deepEqual(forbidden,[]);
- const report={passed:true,version,actual_installed_app:true,actual_existing_clone:true,first_frame:true,playback:true,enlargement:true,creation_result:!!clone.draft_id,media,paid_generation:false};
+ const report={passed:true,version,actual_installed_app:true,final_build_matches:true,actual_existing_clone:true,first_frame:true,playback:true,enlargement:true,creation_result:!!clone.draft_id,personal_ip_preview:true,resource_defaults_read:true,media,paid_generation:false};
  fs.writeFileSync(path.join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({...report,directory}));
 }catch(error){
  if(diagnosticPage){console.log('LOCAL PAGE',new URL(diagnosticPage.url()).origin);console.log('LOCAL PAGE TEXT',(await diagnosticPage.locator('body').textContent({timeout:5000}).catch(()=>''))?.slice(0,1000));await diagnosticPage.screenshot({path:path.join(directory,'failure.png'),timeout:5000}).catch(()=>{})}
