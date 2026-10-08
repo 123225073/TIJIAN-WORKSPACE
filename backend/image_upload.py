@@ -11,7 +11,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 MAX_PIXELS = 100_000_000
 MAX_EDGE = 4096
 MAX_BYTES = 10 * 1024 * 1024
-FORMATS = {'JPEG': '.jpg', 'PNG': '.png', 'WEBP': '.webp', 'BMP': '.bmp', 'TIFF': '.tiff', 'GIF': '.gif'}
+FORMATS = {'JPEG': '.jpg', 'MPO': '.jpg', 'PNG': '.png', 'WEBP': '.webp', 'BMP': '.bmp', 'TIFF': '.tiff', 'GIF': '.gif'}
 DECODE_SLOT = BoundedSemaphore(1)
 
 
@@ -40,14 +40,14 @@ def _prepare(path: Path):
                 fmt = source.format
                 orientation = source.getexif().get(274, 1)
                 animated = getattr(source, 'n_frames', 1) > 1
-                if fmt == 'JPEG' and max(width, height) > MAX_EDGE:
+                if fmt in ('JPEG', 'MPO') and max(width, height) > MAX_EDGE:
                     scale = MAX_EDGE / max(width, height)
                     source.draft('RGB', tuple(max(1, round(v * scale)) for v in (width, height)))
                 source.load()  # Reject truncated files before accepting or converting.
                 needs_conversion = (max(width, height) > MAX_EDGE or path.stat().st_size > MAX_BYTES
                                     or orientation != 1 or fmt not in ('JPEG', 'PNG', 'WEBP'))
                 extension = FORMATS[fmt]
-                mismatch = path.suffix.lower() not in ({'.jpg', '.jpeg'} if fmt == 'JPEG' else
+                mismatch = path.suffix.lower() not in ({'.jpg', '.jpeg'} if fmt in ('JPEG', 'MPO') else
                            {'.tif', '.tiff'} if fmt == 'TIFF' else {extension})
                 if not needs_conversion and not mismatch:
                     return path, None, None
@@ -95,7 +95,9 @@ def _prepare(path: Path):
             reasons.append(f'已自动适配为 {actual_size[0]} × {actual_size[1]}')
         if orientation != 1:
             reasons.append('已校正照片方向')
-        if fmt not in ('JPEG', 'PNG', 'WEBP'):
+        if fmt == 'MPO':
+            reasons.append('已将多图层 JPG（MPO）的主照片转换为标准 JPEG')
+        elif fmt not in ('JPEG', 'PNG', 'WEBP'):
             reasons.append('已转换为通用图片格式' + ('（使用首帧）' if animated else ''))
         return target, {'original_width': width, 'original_height': height, 'original_bytes': original_size,
                         'message': '；'.join(reasons) + '。原文件已保留，创作使用适配图片。'}, original.name

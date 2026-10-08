@@ -106,3 +106,20 @@ def test_backup_retains_original_and_rebuilds_urls(studio):
     assert ids[asset['id']] in public['original_file_url']
     assert studio.get(public['original_file_url'],headers={'authorization':'Bearer bob'}).content==raw
     assert studio.get(public['original_file_url']).status_code==404
+
+
+def test_mpo_with_jpg_extension_uses_primary_photo_and_retains_original(studio):
+    main=Image.new('RGB',(96,144),'red')
+    auxiliary=Image.new('RGB',(48,72),'blue')
+    raw=io.BytesIO();main.save(raw,format='MPO',save_all=True,append_images=[auxiliary])
+    with Image.open(io.BytesIO(raw.getvalue())) as im:
+        assert im.format=='MPO' and im.n_frames==2
+    response=studio.post('/api/studio/upload',files={'file':('phone-photo.jpg',raw.getvalue(),'image/jpeg')})
+    assert response.status_code==200,response.text
+    asset=response.json()
+    assert asset['mime_type']=='image/jpeg' and (asset['width'],asset['height'])==(96,144)
+    assert 'MPO' in asset['image_adjustment']['message']
+    assert studio.get(asset['original_file_url']).content==raw.getvalue()
+    with Image.open(io.BytesIO(studio.get(asset['file_url']).content)) as image:
+        assert image.format=='JPEG' and getattr(image,'n_frames',1)==1
+        assert image.getpixel((40,40))[0]>240 and image.getpixel((40,40))[2]<10
