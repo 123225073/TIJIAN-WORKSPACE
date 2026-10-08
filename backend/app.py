@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.23.5','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.23.6','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -724,11 +724,18 @@ discovery.register(app,user,error)
 refresh_hotlists=hotlists.register(app,user,error)
 
 DIST=s.ROOT/'dist'
-if (DIST/'assets').exists():app.mount('/assets',StaticFiles(directory=DIST/'assets'),name='assets')
-if (DIST/'visuals').exists():app.mount('/visuals',StaticFiles(directory=DIST/'visuals'),name='visuals')
+FRONTEND_BUNDLE=s.ROOT/'desktop-frontend.zip'
+if not FRONTEND_BUNDLE.exists():
+    if (DIST/'assets').exists():app.mount('/assets',StaticFiles(directory=DIST/'assets'),name='assets')
+    if (DIST/'visuals').exists():app.mount('/visuals',StaticFiles(directory=DIST/'visuals'),name='visuals')
 @app.get('/{path:path}')
 def frontend(path:str):
     if path.startswith('api/'):error(404,'接口不存在')
+    if getattr(__import__('sys'),'frozen',False) and not FRONTEND_BUNDLE.is_file():error(503,'界面资源缺失，请重新安装最新版')
+    if FRONTEND_BUNDLE.exists():
+        from .frontend_bundle import response
+        name=path if path.startswith(('assets/','visuals/')) else 'admin.html' if path in {'admin','admin/','admin.html'} else 'index.html'
+        return response(FRONTEND_BUNDLE,name)
     if path in {'admin','admin/','admin.html'} and (DIST/'admin.html').exists():return FileResponse(DIST/'admin.html')
     if (DIST/'index.html').exists():return FileResponse(DIST/'index.html')
     return HTMLResponse('<h1>梯见服务已运行</h1><p>请先构建前端。</p>')

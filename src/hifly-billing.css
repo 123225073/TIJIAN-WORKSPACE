@@ -1,0 +1,9 @@
+.hifly-billing{margin:16px 0 0;border-top:1px solid var(--ts-line,#354156);padding-top:13px;color:var(--ts-muted,#b1bed1);font-size:12px;line-height:1.7}
+.hifly-billing>summary{cursor:pointer;color:var(--ts-accent,#9abbff);font-weight:600;list-style:none}
+.hifly-billing>summary::after{content:' ＋';font-weight:400}.hifly-billing[open]>summary::after{content:' −'}
+.hifly-billing>summary:focus-visible{outline:2px solid var(--ts-accent,#9abbff);outline-offset:4px;border-radius:3px}
+.hifly-billing dl{margin:12px 0;display:grid;gap:10px}.hifly-billing dl>div{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px}
+.hifly-billing dt{color:var(--ts-text,#edf2fb);font-weight:600}.hifly-billing dd{margin:0;overflow-wrap:anywhere}
+.studio-v2 .hifly-billing .hifly-billing-current{padding:10px 12px;border-radius:8px;background:var(--ts-elevated,#222b3a);color:var(--ts-text,#edf2fb);margin:12px 0}
+.studio-v2 .hifly-billing .hifly-billing-source{margin-bottom:0;font-size:11px}.hifly-billing a{color:var(--ts-accent,#9abbff)}
+@media(max-width:550px){.hifly-billing dl>div{grid-template-columns:1fr;gap:3px}}

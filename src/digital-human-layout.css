@@ -55,6 +55,36 @@
 .ts-theme .st-human-preview-stage {display: grid; place-items: center; padding: 18px; min-height: 220px; background: var(--ts-bg)}
 .ts-theme .st-human-preview-stage :is(img,video) {display: block; width: 100%; height: min(64vh,720px); object-fit: contain; background: var(--ts-bg)}
 .ts-theme .st-human-preview-help {margin: 0; padding: 12px 20px; color: var(--ts-muted); font-size: 12px; line-height: 1.7}
+/* Clone assets show provider confirmation separately from their source media. */
+.ts-theme .studio-v2 .st-clone-preview {display: grid; gap: 12px; min-width: 0; background: var(--ts-panel); color: var(--ts-text)}
+.ts-theme .studio-v2 .st-clone-confirmation {display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #335548; border-radius: 8px; background: #1b332c; color: #b4e1c9}
+.ts-theme .studio-v2 .st-clone-confirmation strong {font-size: 13px; font-weight: 600; color: inherit}
+.ts-theme .studio-v2 .st-clone-confirmation svg {flex-shrink: 0}
+.ts-theme .studio-v2 .st-clone-source-label {color: var(--ts-muted); font-size: 12px; line-height: 1.6}
+.ts-theme .studio-v2 .st-clone-preview-note {font-size: 12px; line-height: 1.75; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-clone-no-preview {display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 140px; padding: 24px 16px; text-align: center; background: var(--ts-bg); color: var(--ts-muted); border: 1px dashed var(--ts-line); border-radius: 9px; font-size: 12px; line-height: 1.75}
+.ts-theme .studio-v2 .st-clone-preview > audio {width: 100%; max-width: 100%; color-scheme: dark}
+.ts-theme .studio-v2 .st-clone-output {padding: 20px; background: var(--ts-panel); border-color: var(--ts-line)}
+.ts-theme .studio-v2 .st-clone-output .st-output-footer {padding: 16px 0 12px; flex-wrap: wrap; gap: 12px; background: var(--ts-panel); border-color: var(--ts-line)}
+.ts-theme .studio-v2 .st-clone-actions {display: flex; flex-wrap: wrap; gap: 8px}
+.ts-theme .page-area .studio-v2 :is(.st-clone-actions,.st-resource-library-head > .st-inline) > button,
+.ts-theme .page-area .studio-v2 .st-clone-workspace .st-empty > button,
+.ts-theme .page-area .studio-v2 .st-resource-card > button {background: var(--ts-elevated); color: var(--ts-text); border-color: var(--ts-line)}
+.ts-theme .page-area .studio-v2 :is(.st-clone-actions,.st-resource-library-head > .st-inline) > button:hover:not(:disabled),
+.ts-theme .page-area .studio-v2 .st-clone-workspace .st-empty > button:hover:not(:disabled),
+.ts-theme .page-area .studio-v2 .st-resource-card > button:hover:not(:disabled) {background: #263b59; color: var(--ts-text); border-color: var(--ts-accent)}
+.ts-theme .page-area .studio-v2 .st-resource-library-head > .st-inline > button:disabled {opacity: 1; background: var(--ts-panel); color: var(--ts-muted); border-color: var(--ts-line)}
+.ts-theme .studio-v2 .st-resource-card {display: flex; flex-direction: column; gap: 12px; background: var(--ts-panel); border-color: var(--ts-line)}
+.ts-theme .studio-v2 .st-resource-card > :is(h3,p) {margin: 0}
+.ts-theme .studio-v2 .st-resource-card > h3 {font-size: 16px; line-height: 1.5; overflow-wrap: anywhere}
+.ts-theme .studio-v2 .st-resource-card > p {display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--ts-muted)}
+.ts-theme .studio-v2 .st-resource-card .st-clone-confirmation {padding: 8px 10px}
+.ts-theme .studio-v2 .st-resource-card .st-human-preview-inline {padding: 8px}
+.ts-theme .studio-v2 .st-resource-card .st-human-preview-inline :is(img,video) {height: 200px}
+.ts-theme .studio-v2 .st-resource-card .st-clone-actions {margin-top: auto}
+.ts-theme .studio-v2 .st-resource-card .st-clone-actions > button {font-size: 12px; padding: 7px 10px; min-height: 34px}
+.ts-theme .page-area .studio-v2 .st-clone-workspace .st-return {background: var(--ts-elevated); color: var(--ts-accent); border-color: var(--ts-line)}
+.ts-theme .studio-v2 :is(.st-clone-actions,.st-resource-library-head,.st-resource-card,.st-clone-workspace .st-empty) button:focus-visible {outline: 2px solid var(--ts-accent); outline-offset: 3px}
 @media (max-width: 600px) {
   .ts-theme .studio-v2 .st-provider-guide {padding: 16px}
   .ts-theme .studio-v2 .st-provider-guide .st-input-choice {grid-template-columns: minmax(0,1fr)}

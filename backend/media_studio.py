@@ -297,7 +297,15 @@ def _api(provider, method, path, payload=None, service=None, asynchronous=False)
         headers['X-DashScope-Async'] = 'enable'
     value = _request(method, base + path, headers=headers, payload=payload)
     if provider == 'hifly' and value.get('code', 0) != 0 and not (method == 'GET' and '/task?' in path and value.get('status') == 4):
-        raise Rejected('飞影拒绝请求，请核对套餐、余额和素材；未采用供应商原始错误文本')
+        # Only the documented numeric code is exposed; provider text may contain
+        # credentials or signed URLs and must never become UI instructions.
+        code = value.get('code')
+        hints = {11: '参数不正确', 1002: '飞影积分不足', 1005: '飞影要求开通会员',
+                 1006: '飞影会员等级不足', 1013: '声音克隆数量达到上限',
+                 2011: '文件过大', 2012: '文件类型不支持', 2015: '数字人克隆失败'}
+        numeric = isinstance(code, int) and not isinstance(code, bool)
+        label = f'（错误码 {code}）' if numeric else ''
+        raise Rejected('飞影拒绝请求' + label + '：' + (hints.get(code, '请核对飞影账户权限与素材要求') if numeric else '请核对飞影账户权限与素材要求'))
     if provider == 'shotstack' and value.get('success') is False:
         raise Rejected('Shotstack 拒绝请求，请核对素材及配置')
     if provider == 'aliyun' and value.get('code'):
@@ -312,7 +320,7 @@ def _object(owner, id, kind):
     return obj
 
 
-def _root(owner):
+def _root(owner, create=True):
     directory = s.DATA / 'media_studio' / s.digest(owner)
     if directory.is_symlink() or directory.parent.is_symlink():
         raise StudioError('媒体目录不能使用符号链接')
@@ -320,14 +328,15 @@ def _root(owner):
     base = s.DATA.resolve()
     if not root.is_relative_to(base):
         raise StudioError('媒体目录越界')
-    root.mkdir(parents=True, exist_ok=True)
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-def _path(owner, filename):
+def _path(owner, filename, *, create=True):
     if not re.fullmatch(r'[a-f0-9]{32,64}\.[a-z0-9]+', filename or ''):
         raise StudioError('无效的媒体文件路径')
-    root = _root(owner)
+    root = _root(owner, create=create)
     path = (root / filename).resolve()
     if not path.is_relative_to(root) or path.is_symlink():
         raise StudioError('媒体文件路径越界')
@@ -386,7 +395,49 @@ def _metadata(path, ext):
     return result
 
 
-def _public(obj, models=None):
+def _creation_run(owner, obj):
+    if obj.get('asset_type') not in ('avatar', 'voice') or obj.get('status') != 'ready' or not obj.get('run_id') or not obj.get('provider_resource_id'):
+        return None
+    try:
+        run = _object(owner, obj['run_id'], 'studio_run')
+        expected = 'avatar_create' if obj['asset_type'] == 'avatar' else 'voice_create'
+        if run.get('provider') == obj.get('provider') == 'hifly' and run.get('tool') == expected and run.get('status') == 'succeeded' and obj['id'] in run.get('asset_ids', []):
+            return run
+    except s.Missing:
+        pass
+    return None
+
+
+def _creation_preview(owner, obj, run=None):
+    """Resolve the original creation material, never invent a generated preview.
+
+    Resolving from the immutable run also restores previews for older assets
+    without modifying their records or contacting the provider.
+    """
+    run = run or _creation_run(owner, obj)
+    if not run:
+        return None
+    try:
+        inputs = run.get('snapshot', {}).get('input', {})
+        keys = ('video_id', 'image_id') if obj['asset_type'] == 'avatar' else ('audio_id',)
+        chosen = [(key, inputs[key]) for key in keys if inputs.get(key)]
+        if len(chosen) != 1:
+            return None
+        key, source_id = chosen[0]
+        source = _object(owner, source_id, 'studio_asset')
+        if source.get('status') != 'ready' or source.get('asset_type') != key[:-3]:
+            return None
+        path = _path(owner, source.get('local_file'), create=False)
+        if not path.is_file():
+            return None
+        with path.open('rb'):
+            pass
+        return source
+    except (s.Missing, StudioError, OSError):
+        return None
+
+
+def _public(obj, models=None, owner=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
     out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
@@ -433,6 +484,14 @@ def _public(obj, models=None):
             out['thumbnail_url'] = '/api/studio/assets/' + obj['id'] + '/thumbnail'
             if obj.get('original_file'):
                 out['original_file_url'] = '/api/studio/assets/' + obj['id'] + '/original'
+    if owner and obj.get('asset_type') in ('avatar', 'voice'):
+        run = _creation_run(owner, obj)
+        if run:
+            out['clone_status'] = 'succeeded'
+        source = _creation_preview(owner, obj, run) if run else None
+        if source:
+            out.update(preview_url='/api/studio/assets/' + obj['id'] + '/preview',
+                       preview_asset_type=source['asset_type'], preview_origin='creation_source')
     return out
 
 
@@ -1876,6 +1935,9 @@ def register(app, user, admin, error):
             contract = {}
             if provider == 'hifly':
                 contract = {'async': True, 'api_version': 'v2'}
+                contract['cost_hint'] = ('照片创建形象明确消耗积分；视频创建形象费用未在 API 文档中明确。后续视频生成会消耗积分，具体单价以飞影账户规则为准。' if id == 'avatar_create' else
+                    '声音克隆费用未在 API 文档中明确，不能承诺免费；后续文本配音与视频生成会消耗积分。' if id == 'voice_create' else
+                    '本次生成会消耗飞影积分；公开 API 文档未公布精确单价，以当前 API 账户规则与账单为准。')
                 if id == 'avatar_create':
                     contract['input_alternatives'] = [['image_id'], ['video_id']]
                     contract['require_any'] = ['image_id', 'video_id']
@@ -1955,7 +2017,7 @@ def register(app, user, admin, error):
             if service.get('secret'):
                 try: library = _object(u['id'], _library_id(u['id'], asset_type, _scope('hifly', service)), 'studio_library')
                 except s.Missing: pass
-        return {'items': [_public(x) for x in s.list_(u['id'], 'studio_asset') if not asset_type or x.get('asset_type') == asset_type],
+        return {'items': [_public(x, owner=u['id']) for x in s.list_(u['id'], 'studio_asset') if not asset_type or x.get('asset_type') == asset_type],
                 'public_library_complete': False, 'public_library_status': library.get('status', 'idle'),
                 'public_library_error': library.get('error')}
 
@@ -1985,6 +2047,18 @@ def register(app, user, admin, error):
     @app.post('/api/studio/runs/{id}/cancel')
     def cancel_run(id: str, u=Depends(user)):
         return invoke(cancel, u['id'], id)
+
+    @app.get('/api/studio/assets/{id}/preview')
+    def asset_creation_preview(id: str, u=Depends(user)):
+        def get_preview():
+            asset = _object(u['id'], id, 'studio_asset')
+            source = _creation_preview(u['id'], asset)
+            if not source:
+                raise s.Missing('创建素材预览不可用')
+            path = _path(u['id'], source['local_file'], create=False)
+            return FileResponse(path, media_type=source['mime_type'], filename=path.name,
+                                headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+        return invoke(get_preview)
 
     @app.get('/api/studio/assets/{id}/thumbnail')
     def asset_thumbnail(id: str, u=Depends(user)):
