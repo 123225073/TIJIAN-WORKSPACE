@@ -12,7 +12,7 @@ import {startIsolatedUI} from './test-studio-color-states.mjs';
 const fixture=await startIsolatedUI('resource-selection-adversarial');
 const checks=[],external=[],forbidden=[],pageErrors=[];
 let browser,page;
-const sources=['src/Studio.tsx','src/ResourceLibrary.tsx','src/ResourcePreview.tsx','backend/media_studio.py'];
+const sources=['src/Studio.tsx','src/ResourceLibrary.tsx','src/ResourcePreview.tsx','src/HumanResourcePicker.tsx','src/DigitalHumanGuide.tsx','src/digitalHumanFields.ts','src/digital-human-layout.css','backend/media_studio.py'];
 const hash=file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const sourceHashes=Object.fromEntries(sources.map(file=>[file,hash(file)]));
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
@@ -29,6 +29,7 @@ s.set_config(m.CONFIG,{'hifly':{'base_url':m.PROVIDERS['hifly']['base_url'],'ena
 scope=m._scope('hifly',m._service('hifly'));ids={}
 for name,extra in [('usable',{}),('public',{'visibility':'public'}),('archived',{'archived':True}),('deleted',{'deleted':True}),('wrong-service',{'service_scope':'foreign-service'})]:
  a=s.put(owner,'studio_asset',{'title':'review-'+name,'asset_type':'avatar','status':'ready','provider':'hifly','provider_resource_id':'fixture-'+name,'service_scope':scope,'compat':m.COMPAT['avatar'],**extra});ids[name]=a['id']
+a=s.put(owner,'studio_asset',{'title':'review-public-voice','asset_type':'voice','status':'ready','provider':'hifly','provider_resource_id':'fixture-public-voice','service_scope':scope,'visibility':'public','compat':m.COMPAT['voice']});ids['public-voice']=a['id']
 print(json.dumps(ids))
 `],{env:fixture.env,windowsHide:true,stdio:['pipe','pipe','pipe']});
  let output='',error='';child.stdout.on('data',c=>output+=c);child.stderr.on('data',c=>error+=c);child.stdin.end(JSON.stringify({owner:fixture.auth.user.id}));
@@ -41,7 +42,7 @@ try{
  const profileB=await fixture.call('/objects/profile',{title:'Concurrent IP',position:'Isolated second-window profile'});
  await fixture.call('/workspace',{});
  const distTime=fs.statSync('dist/index.html').mtimeMs;
- assert(sources.filter(file=>file.endsWith('.tsx')).every(file=>fs.statSync(file).mtimeMs<=distTime),'Main thread must rebuild dist after the frontend fixes');
+ assert(sources.filter(file=>file.startsWith('src/')).every(file=>fs.statSync(file).mtimeMs<=distTime),'Main thread must rebuild dist after the frontend fixes');
  const base=fixture.base;
  browser=await chromium.launch({headless:true,executablePath:process.env.RESOURCE_REVIEW_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe'});
  page=await browser.newPage({viewport:{width:1500,height:1000}});page.setDefaultTimeout(12000);
@@ -52,10 +53,20 @@ try{
   return route.continue();
  });
  page.on('pageerror',e=>pageErrors.push(e.message));
- const editor=()=>page.locator('.st-human-workspace:visible .st-field textarea').first();
+ const workspace=()=>page.locator('.st-human-workspace:visible');
+ const editor=()=>workspace().getByLabel('口播文稿',{exact:true});
+ const avatarField=()=>workspace().locator('[data-field="avatar_id"]');
  const card=()=>page.locator('.st-resource-card').filter({hasText:'review-usable'});
  const open=async route=>{await page.goto(base+'/#'+route,{waitUntil:'domcontentloaded'})};
- const ready=async text=>{await page.waitForFunction(text=>[...document.querySelectorAll('.st-human-workspace .st-field textarea')].some(e=>e.offsetParent&&e.value===text)&&[...document.querySelectorAll('button')].some(b=>b.textContent==='选择已有飞影形象'&&!b.disabled),text)};
+ const ready=async text=>{await page.waitForFunction(text=>[...document.querySelectorAll('.st-human-workspace .st-field textarea')].some(e=>e.offsetParent&&e.value===text)&&[...document.querySelectorAll('.st-human-workspace [data-field="avatar_id"] button')].some(b=>b.textContent==='选择与预览'&&!b.disabled),text)};
+ const openAvatarPicker=async()=>{
+  const originalRoute=page.url();
+  await avatarField().getByRole('button',{name:'选择与预览',exact:true}).click();
+  const picker=page.locator('.studio-modal[open]').filter({has:page.getByRole('heading',{name:'选择形象',exact:true})});
+  await picker.waitFor();assert.equal(page.url(),originalRoute,'Opening the picker must not route away from the draft');
+  return picker;
+ };
+ const manageAvatar=async()=>{const picker=await openAvatarPicker();await picker.getByRole('button',{name:'管理形象',exact:true}).click()};
  const draft=async id=>(await fixture.call('/studio/drafts')).items.find(d=>d.id===id);
  const makeDraft=async(title,text)=>fixture.call('/studio/drafts',{tool:'text_avatar',title,model_id:'service:hifly',profile_id:profileA.id,input:{text},options:{}});
  const cache=async id=>page.evaluate(id=>Object.entries(localStorage).filter(([key,value])=>{try{return !key.endsWith(':unsynced')&&key.includes(':avatar/text:text_avatar:')&&JSON.parse(value)?.server_id===id}catch{return false}}).map(([key,value])=>({key,...JSON.parse(value)})),id);
@@ -65,7 +76,7 @@ try{
  await run('concurrent-server-update-keeps-IP-and-local-copy',async()=>{
   const original=await makeDraft('Concurrent cache restore','original text');
   await open('studio/avatar/text?draft='+original.id+'&mode=text_avatar');await ready('original text');
-  await page.getByRole('button',{name:'选择已有飞影形象',exact:true}).click();await card().waitFor();
+  await manageAvatar();await card().waitFor();
   await card().getByRole('button',{name:'使用并返回原稿',exact:true}).click();await ready('original text');await page.waitForTimeout(1000);
   const saved=await draft(original.id),cached=await cache(original.id);assert(cached.length);
   assert(cached.every(c=>c.server_version===saved.version),'Normal persist must keep cache versions current');
@@ -86,7 +97,8 @@ try{
   const handler=async route=>{if(route.request().method()==='PATCH'&&once){once=false;held.resolve(route.request().postDataJSON());await gate.promise}return route.continue()};
   await page.route(endpoint,handler);
   try{
-   const clicking=page.getByRole('button',{name:'选择已有飞影形象',exact:true}).click();const snapshot=await within(held.promise);
+   const picker=await openAvatarPicker();
+   const clicking=picker.getByRole('button',{name:'管理形象',exact:true}).click();const snapshot=await within(held.promise);
    assert.equal(snapshot.input.text,'before save');assert(await editor().isEditable());await editor().fill('added while save was pending');await page.locator('.st-human-workspace:visible .st-context select').selectOption(profileB.id);
    await page.waitForFunction(id=>Object.entries(localStorage).some(([key,value])=>{try{const d=JSON.parse(value);return !key.endsWith(':unsynced')&&d?.server_id===id&&d.inputs?.text==='added while save was pending'}catch{return false}}),original.id);
    gate.resolve();await clicking;await card().waitFor();await card().getByRole('button',{name:'使用并返回原稿',exact:true}).click();await ready('added while save was pending');
@@ -121,10 +133,18 @@ try{
   assert.equal(await page.locator('.st-resource-card').filter({hasText:'review-archived'}).count(),0);assert.equal(await page.locator('.st-resource-card').filter({hasText:'review-deleted'}).count(),0);
   const wrong=page.locator('.st-resource-card').filter({hasText:'review-wrong-service'});assert.match(await wrong.innerText(),/当前不可用/);assert(await wrong.getByRole('button',{name:'设为默认',exact:true}).isDisabled());assert(await wrong.getByRole('button',{name:'使用并返回原稿',exact:true}).isDisabled());
   const apiAssets=(await fixture.call('/studio/assets')).items;assert.equal(apiAssets.find(a=>a.id===ids['wrong-service']).resource_selectable,false);assert.equal(apiAssets.find(a=>a.id===ids.deleted).resource_selectable,false);
+  assert.equal(await page.locator('.st-resource-card').filter({hasText:'review-public'}).count(),0);assert.equal(await page.locator('.st-resource-folders').getByRole('button',{name:/公共形象/}).count(),0);
+  assert.equal(apiAssets.some(a=>a.id===ids.public),false);assert.equal(apiAssets.find(a=>a.id===ids['public-voice']).resource_selectable,true);
+  assert.equal((await raw('/studio/resource-defaults',{avatar_id:ids.public})).status,400);
   assert.equal((await raw('/studio/resource-defaults',{avatar_id:ids['wrong-service']})).status,400);assert.equal((await raw('/studio/resource-defaults',{avatar_id:ids.archived})).status,400);
   await card().getByRole('button',{name:'使用并返回原稿',exact:true}).click();await ready('added while save was pending');
   assert.equal(await page.locator('.st-human-workspace:visible option[value="'+ids['wrong-service']+'"]').count(),0);assert.equal(await page.locator('.st-human-workspace:visible option[value="'+ids.archived+'"]').count(),0);
-  return {archivedHidden:true,deletedHidden:true,wrongServiceDisabled:true,invalidDefaultsRejected:true};
+  assert.equal(await avatarField().locator('option[value="'+ids.public+'"]').count(),0);
+  const picker=await openAvatarPicker();
+  assert.equal(await picker.locator('article').filter({hasText:'review-public'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-wrong-service'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-archived'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-deleted'}).count(),0);
+  await picker.getByRole('button',{name:'关闭弹窗',exact:true}).click();await picker.waitFor({state:'detached'});
+  assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('optgroup[label="公共声音"] option[value="'+ids['public-voice']+'"]').count(),1);
+  return {archivedHidden:true,deletedHidden:true,wrongServiceDisabled:true,invalidDefaultsRejected:true,publicAvatarsHiddenAndRejected:true,publicVoicesRetained:true,pickerExcludesUnavailableResources:true};
  });
 
  await run('deleted-default-API-agrees-with-resource-selectable',async()=>{

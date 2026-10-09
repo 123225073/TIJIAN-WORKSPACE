@@ -4,7 +4,9 @@ Wire contract: list endpoints return {items: [...]}; mutations return the object
 Draft: {tool,title,input,options,brand_id?,profile_id?,source_ids?}; PATCH needs version.
 Generate: {draft_id,version,confirmed:true,request_id}. Retry the SAME request_id.
 Upload: multipart file; local by default, ?provider=hifly&confirmed=true uploads too.
-Asset library: ?asset_type=voice|avatar&refresh=true imports PUBLIC Hifly resources only.
+Asset library: ?asset_type=voice&refresh=true imports PUBLIC Hifly voices only.
+Voice parameters: authenticated GET/POST /assets/{id}/voice-parameters edits an OWN voice,
+not a per-generation speed override. POST needs version and confirmed=true.
 Run statuses: queued/preparing/submitting/running/succeeded/failed/unknown/archive_failed/interrupted.
 Unknown submission is never automatically retried. Refresh polls existing task IDs.
 
@@ -30,6 +32,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -77,6 +80,9 @@ OPTIONS = {
     'image_edit': {'size': ['1024*1024', '2048*2048'], 'watermark': [True, False], 'n': list(range(1, 7))},
     'compose': {'resolution': ['sd', 'hd', '1080'], 'aspectRatio': ['16:9', '9:16', '1:1']},
 }
+# Checked against voice/edit on 2026-10-09. None of the documented creation
+# endpoints accepts rate. Editing a voice changes that asset for future uses.
+VOICE_PARAMETER_LIMITS = {'rate': (0.5, 2.0), 'volume': (0.1, 2.0), 'pitch': (0.1, 2.0)}
 MODELS = {'text_image': 'qwen-image-2.0-pro', 'image_edit': 'qwen-image-2.0-pro'}
 
 
@@ -452,7 +458,7 @@ def _provider_preview(asset, *, cover=False):
 
 def _public(obj, models=None, owner=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
-    out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'provider_preview', 'service_scope', 'upload_scope', 'upload_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'provider_preview', 'service_scope', 'upload_scope', 'upload_until', 'voice_edit_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
@@ -504,15 +510,23 @@ def _public(obj, models=None, owner=None):
             resource_id, compatible_tools = obj.get('provider_resource_id'), obj.get('compat')
             out['resource_selectable'] = bool(obj.get('provider') == 'hifly' and
                 obj.get('status') == 'ready' and not obj.get('archived') and not obj.get('deleted') and
+                not (obj['asset_type'] == 'avatar' and obj.get('visibility') == 'public') and
+                not obj.get('voice_edit_until', 0) > time.time() and
                 obj.get('service_scope') == current_scope and isinstance(resource_id, str) and
                 resource_id.strip() and len(resource_id) <= 500 and isinstance(compatible_tools, list) and
                 any(tool in compatible_tools for tool in COMPAT[obj['asset_type']]))
             if obj.get('service_scope') != current_scope:
                 out['resource_unavailable_reason'] = '该资产属于另一飞影账号，当前账号不能引用'
+            elif obj['asset_type'] == 'avatar' and obj.get('visibility') == 'public':
+                out['resource_unavailable_reason'] = '仅支持使用自己创建的数字人形象；历史公共形象保留'
+            elif obj.get('voice_edit_until', 0) > time.time():
+                out['resource_unavailable_reason'] = '声音参数正在保存，请稍后使用'
         except StudioError:
             out['resource_unavailable_reason'] = '当前飞影服务尚未就绪'
         if not out['resource_selectable'] and not out.get('resource_unavailable_reason'):
             out['resource_unavailable_reason'] = '该资源已归档或尚未就绪'
+        if obj['asset_type'] == 'voice':
+            out['voice_parameter_editable'] = out['resource_selectable'] and obj.get('visibility') != 'public'
         run = _creation_run(owner, obj)
         if run:
             out['clone_status'] = 'succeeded'
@@ -606,12 +620,18 @@ def _upload_hifly(owner, id):
 
 def _asset(owner, id, asset_type, tool):
     asset = _object(owner, id, 'studio_asset')
+    if asset_type == 'avatar' and asset.get('visibility') == 'public':
+        raise StudioError('请选择自己创建的数字人形象，公共形象已停止提供')
     if asset.get('asset_type') != asset_type or asset.get('status') != 'ready' or tool not in (COMPAT[asset_type] if asset_type in ('image', 'video') else asset.get('compat', [])):
         raise StudioError('所选素材类型、状态或兼容用途不符合当前工具')
     if asset_type in ('avatar', 'voice'):
         service = _service('hifly')
-        if asset.get('provider') != 'hifly' or asset.get('service_scope') != _scope('hifly', service):
+        resource_id = asset.get('provider_resource_id')
+        if (asset.get('provider') != 'hifly' or asset.get('service_scope') != _scope('hifly', service) or
+                not isinstance(resource_id, str) or not resource_id.strip() or len(resource_id) > 500):
             raise StudioError('形象或声音属于其他服务账号，请重新选择兼容资源')
+        if asset.get('voice_edit_until', 0) > time.time():
+            raise StudioError('声音参数正在保存，请稍后使用')
     elif not _path(owner, asset.get('local_file')).is_file():
         raise StudioError('本地素材文件不存在')
     return asset
@@ -670,6 +690,8 @@ def _validate(owner, data, complete=False):
         allowed = {'image_id', 'video_id'}
     _strict(inputs, allowed)
     choices=tool_options(tool,chosen,active=complete)
+    if TOOLS[tool][1] == 'hifly' and isinstance(options, dict) and ('rate' in options or 'speech_rate' in options):
+        raise StudioError('飞影生成接口不支持单次语速参数；请在自有声音参数中设置，音频或源视频模式保留原语速')
     from . import image_parameters
     if tool in media_registry.IMAGE_TOOLS:
         try:options=image_parameters.normalize(choices,options)
@@ -1852,6 +1874,9 @@ def recover():
         assets = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_asset'")]
         libraries = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_library'")]
     for owner, asset in assets:
+        if asset.get('voice_edit_until'):
+            asset = s.put(owner, 'studio_asset', {**asset, 'voice_edit_until': 0,
+                          'voice_parameters_status': 'unverified'}, asset['id'])
         if asset.get('upload_until') or asset.get('upload_status') in ('queued', 'uploading'):
             s.put(owner, 'studio_asset', {**asset, 'upload_until': 0, 'upload_status': 'interrupted',
                   'error': '服务重启，云端上传未确认；本地文件已保留，生成时可重新上传'}, asset['id'])
@@ -1863,8 +1888,8 @@ def recover():
 
 
 def public_resources(owner, asset_type, service=None):
-    if asset_type not in ('avatar', 'voice'):
-        raise StudioError('公共库只支持形象或声音')
+    if asset_type != 'voice':
+        raise StudioError('仅保留自有数字人形象，公共库只支持声音')
     service = service or _service('hifly')
     scope = _scope('hifly', service)
     # kind=2 is mandatory: never expose the platform account's private library.
@@ -1882,6 +1907,103 @@ def public_resources(owner, asset_type, service=None):
               'provider_preview': hifly_resource_preview.metadata(item, asset_type)}, id)
 
 
+def _voice_parameter(key, value):
+    """JSON numbers or decimal strings only; bool/NaN/exponents are not rates."""
+    low, high = VOICE_PARAMETER_LIMITS[key]
+    if (type(value) not in (int, float, str) or
+            (isinstance(value, str) and (len(value) > 16 or not re.fullmatch(r'(?:0|[1-9]\d*)(?:\.\d+)?', value)))):
+        raise StudioError('声音参数无效：' + key)
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite() or not Decimal(str(low)) <= number <= Decimal(str(high)):
+            raise InvalidOperation()
+    except InvalidOperation:
+        raise StudioError(f'声音参数 {key} 必须在 {low} 至 {high} 之间') from None
+    return format(number.normalize(), 'f')
+
+
+def _read_voice_parameters(asset, service):
+    # Look up this owned resource only. Never import the service account's
+    # private library or expose other users' provider IDs to the caller.
+    for page in range(1, 4):
+        value = _api('hifly', 'GET', f'/api/v2/hifly/voice/list?kind=1&page={page}&size=300', service=service)
+        rows = value.get('data')
+        if not isinstance(rows, list):
+            raise StudioError('飞影未返回有效声音参数')
+        for row in rows:
+            if isinstance(row, dict) and row.get('voice') == asset['provider_resource_id'] and row.get('type') in (8, 20, 22):
+                return {key: _voice_parameter(key, row.get(key)) for key in VOICE_PARAMETER_LIMITS}
+        if len(rows) < 300:
+            break
+    raise StudioError('未找到当前自有声音的参数；请在飞影核对该声音，不会自动修改或生成作品')
+
+
+def voice_parameters(owner, id, data=None):
+    """An explicit asset edit, never an implicit side effect of generation."""
+    if data is not None:
+        _strict(data, {'version', 'confirmed', *VOICE_PARAMETER_LIMITS})
+        if data.get('confirmed') is not True or not _integer(data.get('version')):
+            raise StudioError('修改声音参数需要确认并提供当前 version')
+        changes = {key: _voice_parameter(key, value) for key, value in data.items() if key in VOICE_PARAMETER_LIMITS}
+        if not changes:
+            raise StudioError('请提供需要修改的声音参数')
+    with s.LOCK:
+        asset = _asset(owner, id, 'voice', 'tts')
+        if asset.get('visibility') == 'public':
+            raise StudioError('公共声音仅供使用；只有自己的克隆声音可以修改语速')
+        service = _service('hifly')
+        if data is not None:
+            if asset['version'] != data['version']:
+                raise s.Conflict('声音资产已更新，请重新读取参数后确认')
+            active = ('queued', 'preparing', 'submitting', 'running', 'unknown')
+            if any(run.get('status') in active and run.get('snapshot', {}).get('input', {}).get('voice_id') == id
+                   for run in s.list_(owner, 'studio_run')):
+                raise StudioError('该声音仍有未完成或待核查的生成任务，请完成后再修改语速')
+            asset = s.put(owner, 'studio_asset', {**asset, 'voice_edit_until': time.time() + 1800}, id, expected=asset['version'])
+    try:
+        parameters = _read_voice_parameters(asset, service) if data is None or len(changes) < 3 else changes
+        if data is not None:
+            parameters = {**parameters, **changes}
+            # Recheck a settings switch before attaching the original account key.
+            if _scope('hifly', _service('hifly')) != asset['service_scope']:
+                raise StudioError('飞影账号已变更，请恢复原账号后重新核对声音参数')
+            response = _api('hifly', 'POST', '/api/v2/hifly/voice/edit',
+                            {'voice': asset['provider_resource_id'], **parameters}, service=service)
+            if type(response.get('code')) is not int or response['code'] != 0:
+                raise StudioError('飞影未确认声音参数保存，请重新读取参数核对')
+            with s.LOCK:
+                current = s.get(owner, id)
+                asset = s.put(owner, 'studio_asset', {**current, 'voice_parameters': {k: float(v) for k, v in parameters.items()},
+                              'voice_parameters_status': 'confirmed', 'voice_edit_until': 0}, id)
+        return {'asset_id': id, 'version': asset['version'], 'parameters': {key: float(value) for key, value in parameters.items()},
+                'scope': 'voice_asset', 'affects_future_generations': True}
+    finally:
+        if data is not None:
+            with s.LOCK:
+                current = s.get(owner, id)
+                if current.get('voice_edit_until'):
+                    s.put(owner, 'studio_asset', {**current, 'voice_edit_until': 0, 'voice_parameters_status': 'unverified'}, id)
+
+
+def _speech_speed_contract(tool):
+    result = {'per_generation': False, 'docs_url': PROVIDERS['hifly']['docs_url']}
+    if tool in ('text_avatar', 'photo_talk', 'tts', 'voice_create'):
+        result.update(mode='voice_asset', voice_input='voice_id',
+                      reason='语速是声音资产参数，会影响后续使用该声音的创作；生成接口没有单次语速覆盖参数。',
+                      voice_edit={'endpoint': '/api/studio/assets/{id}/voice-parameters', 'methods': ['GET', 'POST'],
+                                  'own_only': True, 'requires_confirmation': True, 'requires_version': True,
+                                  'parameters': {key: {'min': low, 'max': high, 'default': 1.0, 'wire_type': 'string'}
+                                                 for key, (low, high) in VOICE_PARAMETER_LIMITS.items()}})
+        if tool == 'text_avatar':
+            result['source_video'] = {'supported': False, 'reason': '人物视频可替代形象和声音，官方接口未提供源视频模式语速参数。'}
+        if tool == 'voice_create':
+            result['available_after_creation'] = True
+    else:
+        result.update(mode='original_audio' if tool == 'audio_avatar' else 'not_applicable',
+                      reason='使用原录音的语速，官方接口未提供语速调整参数。' if tool == 'audio_avatar' else '创建形象不生成口播音频。')
+    return result
+
+
 def _resource_defaults_id(owner, scope):
     return s.digest('hifly-resource-defaults:' + owner + ':' + scope)
 
@@ -1896,6 +2018,7 @@ def _default_resource(owner, id, kind, scope):
     compatible = asset.get('compat', [])
     resource_id = asset.get('provider_resource_id')
     if (asset.get('asset_type') != kind or asset.get('provider') != 'hifly' or
+            (kind == 'avatar' and asset.get('visibility') == 'public') or
             asset.get('status') != 'ready' or asset.get('service_scope') != scope or
             not isinstance(resource_id, str) or not resource_id.strip() or len(resource_id) > 500 or
             not isinstance(compatible, list) or not any(tool in compatible for tool in COMPAT[kind])):
@@ -1934,8 +2057,8 @@ def _library_id(owner, asset_type, scope):
 
 
 def _queue_public_resources(owner, asset_type, enqueue=None):
-    if asset_type not in ('avatar', 'voice'):
-        raise StudioError('公共库只支持形象或声音')
+    if asset_type != 'voice':
+        raise StudioError('仅保留自有数字人形象，公共库只支持声音')
     scope = _scope('hifly', _service('hifly'))
     id = _library_id(owner, asset_type, scope)
     with s.LOCK:
@@ -2026,6 +2149,9 @@ def register(app, user, admin, error):
             contract = {}
             if provider == 'hifly':
                 contract = {'async': True, 'api_version': 'v2'}
+                contract['speech_speed'] = _speech_speed_contract(id)
+                contract['resource_libraries'] = {'avatar': {'public_enabled': False, 'own_only': True},
+                                                  'voice': {'public_enabled': True, 'own_only': False}}
                 contract['cost_hint'] = ('照片创建形象明确消耗积分；视频创建形象费用未在 API 文档中明确。后续视频生成会消耗积分，具体单价以飞影账户规则为准。' if id == 'avatar_create' else
                     '声音克隆费用未在 API 文档中明确，不能承诺免费；后续文本配音与视频生成会消耗积分。' if id == 'voice_create' else
                     '本次生成会消耗飞影积分；公开 API 文档未公布精确单价，以当前 API 账户规则与账单为准。')
@@ -2112,14 +2238,25 @@ def register(app, user, admin, error):
         if refresh:
             invoke(_queue_public_resources, u['id'], asset_type, _background_enqueue(background_tasks, _refresh_public_resources))
         library = {}
-        if asset_type in ('avatar', 'voice'):
+        if asset_type == 'voice':
             service = s.config(CONFIG, {}).get('hifly', {})
             if service.get('secret'):
                 try: library = _object(u['id'], _library_id(u['id'], asset_type, _scope('hifly', service)), 'studio_library')
                 except s.Missing: pass
-        return {'items': [_public(x, owner=u['id']) for x in s.list_(u['id'], 'studio_asset') if not asset_type or x.get('asset_type') == asset_type],
-                'public_library_complete': False, 'public_library_status': library.get('status', 'idle'),
+        return {'items': [_public(x, owner=u['id']) for x in s.list_(u['id'], 'studio_asset')
+                         if (not asset_type or x.get('asset_type') == asset_type) and
+                         not (x.get('asset_type') == 'avatar' and x.get('visibility') == 'public')],
+                'public_library_enabled': asset_type == 'voice',
+                'public_library_complete': False, 'public_library_status': 'disabled' if asset_type == 'avatar' else library.get('status', 'idle'),
                 'public_library_error': library.get('error')}
+
+    @app.get('/api/studio/assets/{id}/voice-parameters')
+    def get_voice_parameters(id: str, u=Depends(user)):
+        return invoke(voice_parameters, u['id'], id)
+
+    @app.post('/api/studio/assets/{id}/voice-parameters')
+    def set_voice_parameters(id: str, data: dict, u=Depends(user)):
+        return invoke(voice_parameters, u['id'], id, data)
 
     @app.post('/api/studio/generate')
     def submit(data: dict, background_tasks: BackgroundTasks, u=Depends(user)):

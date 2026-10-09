@@ -47,6 +47,12 @@ export function CloneAssetPreview({asset,compact=false}:{asset:Asset;compact?:bo
   {officialView&&asset.preview_unavailable_reason&&<div className="st-official-preview"><small>{asset.preview_unavailable_reason}</small><a href={officialView} target="_blank" rel="noopener noreferrer">在飞影官方资源库查看 <ArrowUpRight size={13}/></a></div>}
  </section>;
 }
+export function SelectedResourcePreview({asset,actions}:{asset:Asset;actions?:React.ReactNode}){
+ const [expanded,setExpanded]=useState(false),trigger=useRef<HTMLButtonElement>(null);
+ const kind=mediaKind(asset),label=kind==='voice'||kind==='audio'?'声音':kind==='image'?'照片':kind==='video'?'视频':'形象';
+ const close=()=>{setExpanded(false);trigger.current?.focus()};
+ return <div className="st-selected-resource"><small>{cloneConfirmed(asset)?'克隆完成':asset.resource_selectable===false?'当前不可用':'已选择'}</small>{actions}<button type="button" ref={trigger} onClick={()=>setExpanded(true)} aria-label={'预览'+label+'：'+(asset.title||asset.name||'素材')}>{label==='声音'?'试听':'预览'}{label}<ArrowUpRight size={13}/></button>{expanded&&<StudioModal title={asset.title||asset.name||label+'预览'} onClose={close}><div className="st-selected-preview-stage">{isCloneAsset(asset)?<CloneAssetPreview asset={asset}/>:<Media asset={asset}/>}</div></StudioModal>}</div>;
+}
 export function HumanMediaPreview({asset}:{asset:Asset}){
  const [expanded,setExpanded]=useState(false),preview=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),stage=useRef<HTMLDivElement>(null);
  const playback=useRef<PlaybackState>({time:0,volume:1,muted:false,rate:1,playing:false});

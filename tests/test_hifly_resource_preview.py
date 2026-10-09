@@ -25,6 +25,14 @@ def import_resource(studio, monkeypatch, kind='avatar', **fields):
         assert provider == 'hifly' and method == 'GET' and '/list?kind=2&' in path
         return {'code': 0, 'data': [row]}
     monkeypatch.setattr(m, '_api', api)
+    if kind == 'avatar':
+        # Public-avatar synchronization is disabled. Seed a historical record
+        # explicitly to retain authorization/proxy tests for existing previews.
+        saved = s.put('alice', 'studio_asset', {'title': row['title'], 'asset_type': kind,
+            'provider': 'hifly', 'provider_resource_id': row[kind], 'status': 'ready',
+            'service_scope': m._scope('hifly', m._service('hifly')), 'visibility': 'public',
+            'compat': m.COMPAT[kind], 'provider_preview': p.metadata(row, kind)})
+        return m._public(saved, owner='alice'), calls
     result = studio.get('/api/studio/assets?asset_type=' + kind + '&refresh=true')
     assert result.status_code == 200 and result.json()['public_library_status'] == 'ready'
     return result.json()['items'][0], calls
@@ -56,12 +64,12 @@ def remote(monkeypatch):
 @pytest.mark.parametrize('kind', ['avatar', 'voice'])
 def test_actual_v2_minimal_row_has_honest_official_fallback(studio, monkeypatch, kind):
     item, calls = import_resource(studio, monkeypatch, kind)
-    assert len(calls) == 1
+    assert len(calls) == (1 if kind == 'voice' else 0)
     assert 'preview_url' not in item and 'clone_status' not in item
     assert '未提供' in item['preview_unavailable_reason']
     assert item['provider_view_url'] == p.OFFICIAL_VIEWS[kind]
     assert studio.get('/api/studio/assets/' + item['id'] + '/preview').status_code == 404
-    assert len(calls) == 1  # Preview never creates TTS, clones or test videos.
+    assert len(calls) == (1 if kind == 'voice' else 0)  # Preview never creates paid work.
     assert 'provider_resource_id' not in item
 
 
@@ -86,7 +94,7 @@ def test_avatar_video_and_cover_preserved_privately_and_locally_proxied(studio, 
     ranged = studio.get(item['preview_url'], headers={'Range': 'bytes=0-9'})
     assert ranged.status_code == 206 and len(ranged.content) == 10
     assert ranged.headers['content-range'] == 'bytes 0-9/52'
-    assert s.get('alice', item['id']) == before and len(api_calls) == 1
+    assert s.get('alice', item['id']) == before and len(api_calls) == 0
 
 
 def test_voice_demo_can_be_played_without_tts_or_key_forwarding(studio, monkeypatch, remote):

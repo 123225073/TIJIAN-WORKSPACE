@@ -238,7 +238,7 @@ def test_all_hifly_provider_actions_return_before_slow_http(studio, provider_htt
             if operation == 'upload':
                 return studio.post('/api/studio/upload?provider=hifly&confirmed=true', files={'file': ('async.png', png(), 'image/png')})
             if operation == 'library':
-                return studio.get('/api/studio/assets?asset_type=avatar&refresh=true')
+                return studio.get('/api/studio/assets?asset_type=voice&refresh=true')
             return studio.post('/api/studio/runs/' + existing['id'] + '/refresh')
 
         try:
@@ -255,11 +255,11 @@ def test_all_hifly_provider_actions_return_before_slow_http(studio, provider_htt
                 assert studio.get(response.json()['file_url']).content == png()
             elif operation == 'library':
                 assert response.json()['public_library_status'] == 'queued'
-                assert studio.get('/api/studio/assets?asset_type=avatar').json()['public_library_status'] == 'running'
+                assert studio.get('/api/studio/assets?asset_type=voice').json()['public_library_status'] == 'running'
         finally:
             release.set()
     if operation == 'library':
-        library = studio.get('/api/studio/assets?asset_type=avatar').json()
+        library = studio.get('/api/studio/assets?asset_type=voice').json()
         assert library['public_library_status'] == 'ready'
         assert len(library['items']) == 1 and library['items'][0]['title'] == '公版资源'
         assert 'private-account-resource' not in json.dumps(library)

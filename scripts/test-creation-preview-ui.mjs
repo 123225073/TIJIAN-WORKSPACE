@@ -29,6 +29,7 @@ for kind in ('video','image'):
     clone=s.put(owner,'studio_asset',{'title':'隔离'+kind+'形象','asset_type':'avatar','provider':'hifly','provider_resource_id':'fixture-'+kind,'service_scope':scope,'status':'ready','compat':m.COMPAT['avatar'],'run_id':run['id']})
     s.put(owner,'studio_run',{**run,'asset_ids':[clone['id']]},run['id']);ids[kind]={'draft':draft['id'],'asset':clone['id'],'source':source['id']}
 public=s.put(owner,'studio_asset',{'title':'隔离公共形象','asset_type':'avatar','provider':'hifly','provider_resource_id':'fixture-public','service_scope':scope,'status':'ready','visibility':'public','compat':m.COMPAT['avatar']});ids['public']=public['id']
+public_voice=s.put(owner,'studio_asset',{'title':'隔离公共声音','asset_type':'voice','provider':'hifly','provider_resource_id':'fixture-public-voice','service_scope':scope,'status':'ready','visibility':'public','compat':m.COMPAT['voice']});ids['public_voice']=public_voice['id']
 flow=s.put(owner,'studio_flow',{'title':'隔离返回作品','brief':'隔离范围验收','stage':2})
 task=s.put(owner,'task',{'title':'隔离返回对话','mode':'auto','messages':[]})
 for scope_key,record in [('flow_id',flow),('origin_task_id',task)]:
@@ -43,6 +44,16 @@ print(json.dumps(ids))
  const page=await browser.newPage({viewport:{width:1500,height:1000}}),errors=[];
  page.on('response',r=>{if(r.status()>=400)console.log('FAILED LOCAL RESPONSE',r.status(),new URL(r.url()).pathname)});
  page.on('pageerror',e=>errors.push(e.message));await fixture.attach(page);await page.reload();
+ const workspace=()=>page.locator('.st-human-workspace:visible');
+ const avatarField=()=>workspace().locator('[data-field="avatar_id"]');
+ const script=()=>workspace().getByLabel('口播文稿',{exact:true});
+ const manageAvatar=async()=>{
+  const originalRoute=page.url();
+  await avatarField().getByRole('button',{name:'选择与预览',exact:true}).click();
+  const picker=page.locator('.studio-modal[open]').filter({has:page.getByRole('heading',{name:'选择形象',exact:true})});
+  await picker.waitFor();assert.equal(page.url(),originalRoute,'Preview selection must stay on the current draft');
+  await picker.getByRole('button',{name:'管理形象',exact:true}).click();
+ };
  await page.goto(fixture.base+'/#studio/avatar/library');
  const card=page.locator('.st-asset-card').filter({hasText:'隔离video形象'});
  try{await card.waitFor()}catch(error){console.log((await page.locator('body').innerText()).slice(0,2500));console.log(JSON.stringify(await fixture.call('/studio/assets')));await page.screenshot({path:path.join(fixture.directory,'failure.png')});throw error}await card.scrollIntoViewIfNeeded();
@@ -64,15 +75,35 @@ print(json.dumps(ids))
  await photo.scrollIntoViewIfNeeded();await photo.locator('img').waitFor();
  assert(await photo.locator('img').evaluate(img=>img.complete&&img.naturalWidth>0));
  checks.push('photo-avatar-uses-image-preview');
- assert.equal(await page.locator('.st-resource-folders button[aria-pressed="true"]').innerText(),'我的形象\n2');
+ const folders=page.locator('.st-resource-folders');
+ assert.equal(await folders.locator('button[aria-pressed="true"] b').innerText(),'全部形象');
+ assert.equal(await folders.locator('button[aria-pressed="true"] small').innerText(),'2');
  assert.equal(await page.locator('.st-resource-card').filter({hasText:'隔离公共形象'}).count(),0);
- await page.getByRole('button',{name:/公共形象/}).click();
- const publicCard=page.locator('.st-resource-card').filter({hasText:'隔离公共形象'});await publicCard.waitFor();
- assert.equal(await publicCard.locator('video').count(),0);
- assert.match(await publicCard.innerText(),/API 未提供/);
- assert.equal(await publicCard.getByRole('link',{name:/官方资源库查看/}).getAttribute('href'),'https://hifly.cc/market/digital');
- await page.getByRole('button',{name:/我的形象/}).click();await card.waitFor();
- checks.push('folder-order-and-public-preview-truthful-fallback');
+ assert.equal(await folders.getByRole('button',{name:/公共形象/}).count(),0);
+ assert.equal(await page.getByRole('button',{name:/同步.*公共/}).count(),0);
+ await folders.getByRole('button',{name:/视频形象/}).click();await card.waitFor();
+ assert.equal(await photo.count(),0);assert.equal(await page.locator('.st-resource-card').count(),1);
+ await folders.getByRole('button',{name:/照片形象/}).click();await photo.waitFor();
+ assert.equal(await card.count(),0);assert.equal(await page.locator('.st-resource-card').count(),1);
+ await folders.getByRole('button',{name:/全部形象/}).click();await card.waitFor();
+ const avatarLibrary=await fixture.call('/studio/assets?asset_type=avatar');
+ assert.equal(avatarLibrary.public_library_enabled,false);assert.equal(avatarLibrary.items.some(a=>a.id===ids.public),false);
+ assert.equal((await fixture.call('/studio/assets')).items.some(a=>a.id===ids.public),false);
+ const rejectedPublicDefault=await fetch(fixture.apiBase+'/api/studio/resource-defaults',{method:'POST',headers:fixture.headers,body:JSON.stringify({avatar_id:ids.public})});
+ assert.equal(rejectedPublicDefault.status,400);assert.equal((await fixture.call('/studio/resource-defaults')).avatar_id,null);
+ checks.push('owned-avatar-type-folders-and-public-avatar-hidden-and-default-rejected');
+ await page.goto(fixture.base+'/#studio/audio/library');
+ await page.locator('.st-resource-folders').getByRole('button',{name:/公共声音/}).click();
+ const publicVoiceCard=page.locator('.st-resource-card').filter({hasText:'隔离公共声音'});await publicVoiceCard.waitFor();
+ const voiceLibrary=await fixture.call('/studio/assets?asset_type=voice');
+ assert.equal(voiceLibrary.public_library_enabled,true);assert.equal(voiceLibrary.items.find(a=>a.id===ids.public_voice).resource_selectable,true);
+ await publicVoiceCard.getByRole('button',{name:'设为默认',exact:true}).click();await publicVoiceCard.locator('.st-default-badge').waitFor();
+ assert.equal((await fixture.call('/studio/resource-defaults')).voice_id,ids.public_voice);
+ await page.reload();await page.locator('.st-resource-folders').getByRole('button',{name:/公共声音/}).click();await publicVoiceCard.locator('.st-default-badge').waitFor();
+ await publicVoiceCard.getByRole('button',{name:'取消默认',exact:true}).click();await publicVoiceCard.locator('.st-default-badge').waitFor({state:'detached'});
+ assert.equal((await fixture.call('/studio/resource-defaults')).voice_id,null);
+ checks.push('public-voices-retained-selectable-and-default-persisted');
+ await page.goto(fixture.base+'/#studio/avatar/library');await card.waitFor();
  await card.getByRole('button',{name:'设为默认',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.st-default-badge')?.textContent.includes('默认'));
  assert.equal((await fixture.call('/studio/resource-defaults')).avatar_id,ids.video.asset);
@@ -82,18 +113,21 @@ print(json.dumps(ids))
  await page.waitForFunction(id=>[...document.querySelectorAll('.st-human-workspace select')].some(s=>s.value===id),ids.video.asset);
  await page.unroute('**/api/studio/resource-defaults');
  checks.push('slow-default-read-after-autosave-still-fills-new-draft');
- await page.locator('.st-human-workspace textarea').fill('首次原稿未丢失，选择后必须保留。');
- await page.getByRole('button',{name:'选择已有飞影形象',exact:true}).click();await card.waitFor();
+ await script().fill('首次原稿未丢失，选择后必须保留。');
+ await manageAvatar();await card.waitFor();
  const savedReturn=new URLSearchParams(new URL(page.url()).hash.split('?').slice(1).join('?')).get('return');
  assert(new URLSearchParams(savedReturn.split('?')[1]).get('draft'),'The entry must save and carry a server draft ID');
  await page.evaluate(()=>localStorage.clear());await page.reload();await card.waitFor();
  await card.getByRole('button',{name:'使用并返回原稿',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.st-human-workspace textarea')?.value==='首次原稿未丢失，选择后必须保留。');
- assert.equal(await page.locator('.st-human-workspace select optgroup[label="我的形象"]').count(),1);
- assert.equal(await page.locator('.st-human-workspace select optgroup[label="公共形象"]').count(),1);
- const selectedDefault=page.locator('.st-human-workspace').getByRole('button',{name:'取消默认',exact:true});
- await selectedDefault.click();await page.waitForFunction(()=>document.querySelector('.st-human-workspace button')&&[...document.querySelectorAll('.st-human-workspace button')].some(b=>b.textContent==='设为默认'));
+ assert.equal(await avatarField().locator('select optgroup[label="我的形象"]').count(),1);
+ assert.equal(await avatarField().locator('select optgroup[label="公共形象"]').count(),0);
+ assert.equal(await avatarField().locator('option[value="'+ids.public+'"]').count(),0);
+ assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('optgroup[label="公共声音"]').count(),1);
+ const selectedDefault=avatarField().getByRole('button',{name:'取消默认',exact:true});
+ await selectedDefault.click();await avatarField().getByRole('button',{name:'设为默认',exact:true}).waitFor();
  assert.equal((await fixture.call('/studio/resource-defaults')).avatar_id,null);
+ assert.equal(await workspace().getByLabel('数字人形象',{exact:true}).inputValue(),ids.video.asset,'Clearing the default must preserve the current draft selection');
  checks.push('default-persist-new-draft-and-cancel-preserves-selection','fresh-library-entry-and-return-with-cleared-cache');
  await page.goto(fixture.base+'/#studio/avatar/library');await card.waitFor();
  for(const width of [1500,850,390]){
@@ -118,16 +152,16 @@ print(json.dumps(ids))
  const returnRoute='studio/avatar/text?draft='+origin.id+'&mode=text_avatar';
  await page.goto(fixture.base+'/#'+returnRoute);
  await page.waitForFunction(()=>document.querySelector('.st-human-workspace textarea')?.value==='原稿内容必须保持');
- await page.getByRole('button',{name:'使用人物视频',exact:true}).click();
+ await page.getByRole('button',{name:'人物视频',exact:true}).click();
  await page.waitForFunction(id=>Object.keys(localStorage).some(k=>{try{const d=JSON.parse(localStorage.getItem(k));return d?.server_id===id&&d.human_source==='video'}catch{return false}}),origin.id);
  const draftCount=(await fixture.call('/studio/drafts')).items.length;
  await page.goto(fixture.base+'/#studio/avatar/library?return='+encodeURIComponent(returnRoute));await card.waitFor();
  assert.equal(await card.getByRole('button',{name:/用于文字驱动/}).count(),0);
  await card.getByRole('button',{name:'使用并返回原稿',exact:true}).click();
  await page.waitForFunction(id=>document.querySelector('select')&&[...document.querySelectorAll('select')].some(s=>s.value===id),ids.video.asset);
- assert.equal(await page.locator('.st-human-workspace textarea').inputValue(),'原稿内容必须保持');
- assert.equal(await page.locator('.st-context select').inputValue(),profile.id);
- assert.equal(await page.getByRole('button',{name:'选择飞影形象',exact:true}).getAttribute('aria-pressed'),'true');
+ assert.equal(await script().inputValue(),'原稿内容必须保持');
+ assert.equal(await workspace().getByLabel('我的 IP').inputValue(),profile.id);
+ assert.equal(await page.getByRole('button',{name:'我的数字人',exact:true}).getAttribute('aria-pressed'),'true');
  assert.equal((await fixture.call('/studio/drafts')).items.length,draftCount);
  checks.push('return-resource-preserves-original-text-ip-and-switches-away-from-video');
  assert.equal((await fixture.call('/studio/drafts')).items.find(d=>d.id===origin.id).input.avatar_id,ids.video.asset);

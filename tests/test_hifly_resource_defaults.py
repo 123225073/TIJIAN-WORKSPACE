@@ -109,14 +109,51 @@ def test_default_payload_rejects_spoofing_and_invalid_ids(studio, data):
     assert not s.list_('alice', 'studio_resource_defaults')
 
 
-def test_public_ready_resource_can_be_default_and_resync_does_not_unarchive(studio, monkeypatch):
+def test_historical_public_avatar_is_hidden_and_cannot_be_selected_default_or_synced(studio, monkeypatch):
+    service = configure(studio, 'hifly')
+    own = resource('avatar', service)
+    avatar = s.put('alice', 'studio_asset', {**own, 'visibility': 'public'}, s.uid())
+    voice = resource('voice', service)
+    defaults = s.put('alice', 'studio_resource_defaults',
+        {'avatar_id': avatar['id'], 'voice_id': voice['id'], 'service_scope': m._scope('hifly', service)},
+        m._resource_defaults_id('alice', m._scope('hifly', service)))
+    monkeypatch.setattr(m, '_api', lambda *a, **kw: pytest.fail('Public avatars may not be synced'))
+    for url in ('/api/studio/assets', '/api/studio/assets?asset_type=avatar'):
+        assert avatar['id'] not in {x['id'] for x in studio.get(url).json()['items']}
+    assert studio.get(URL).json() == {'avatar_id': None, 'voice_id': voice['id']}
+    assert s.get('alice', defaults['id']) == defaults  # Reads do not rewrite old defaults.
+    assert studio.post(URL, json={'avatar_id': avatar['id']}).status_code == 400
+    assert studio.get('/api/studio/assets?asset_type=avatar&refresh=true').status_code == 400
+    assert studio.get('/api/studio/assets?asset_type=avatar').json()['public_library_status'] == 'disabled'
+    with pytest.raises(m.StudioError):m.public_resources('alice', 'avatar')
+    assert s.get('alice', avatar['id']) == avatar
+    assert not s.list_('alice', 'studio_library')
+    history = s.put('alice', 'studio_run', {'status': 'succeeded', 'provider': 'hifly',
+        'tool': 'text_avatar', 'snapshot': {'input': {'avatar_id': avatar['id']}, 'options': {}}})
+    assert any(x['id'] == history['id'] for x in studio.get('/api/studio/runs').json()['items'])
+    assert s.get('alice', history['id']) == history
+    for tool in ('text_avatar', 'audio_avatar'):
+        response = studio.post('/api/studio/drafts', json={'tool': tool, 'input': {'avatar_id': avatar['id']}, 'options': {}})
+        assert response.status_code == 400 and '自己创建' in response.text
+    old_draft = s.put('alice', 'studio_draft', {'tool': 'text_avatar', 'title': '旧公模草稿',
+        'input': {'text': '旧稿仍保留', 'avatar_id': avatar['id'], 'voice_id': voice['id']}, 'options': {}})
+    response = studio.post('/api/studio/generate', json={'draft_id': old_draft['id'], 'version': old_draft['version'],
+        'confirmed': True, 'request_id': 'do-not-submit-old-public-avatar'})
+    assert response.status_code == 400 and s.get('alice', old_draft['id']) == old_draft
+    assert s.list_('alice', 'studio_run') == [history]
+
+
+def test_public_voice_remains_selectable_and_can_be_default(studio, monkeypatch):
     configure(studio, 'hifly')
     monkeypatch.setattr(m, '_api', lambda *a, **kw: {'data': [
-        {'avatar': 'public-opaque-id', 'kind': 2, 'title': '公共形象'}]})
-    m.public_resources('alice', 'avatar')
-    avatar = s.list_('alice', 'studio_asset')[0]
-    assert studio.post(URL, json={'avatar_id': avatar['id']}).json()['avatar_id'] == avatar['id']
-    s.put('alice', 'studio_asset', {**avatar, 'archived': True}, avatar['id'])
-    m.public_resources('alice', 'avatar')
-    assert s.get('alice', avatar['id'])['archived'] is True
+        {'voice': 'public-opaque-id', 'type': 10, 'title': '公共声音'}]})
+    listing = studio.get('/api/studio/assets?asset_type=voice&refresh=true').json()
+    assert listing['public_library_enabled'] is True
+    voice = listing['items'][0]
+    assert voice['resource_selectable'] is True and voice['voice_parameter_editable'] is False
+    assert studio.post(URL, json={'voice_id': voice['id']}).json()['voice_id'] == voice['id']
+    saved = s.get('alice', voice['id'])
+    s.put('alice', 'studio_asset', {**saved, 'archived': True}, voice['id'])
+    studio.get('/api/studio/assets?asset_type=voice&refresh=true')
+    assert s.get('alice', voice['id'])['archived'] is True
     assert studio.get(URL).json() == EMPTY

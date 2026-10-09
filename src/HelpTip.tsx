@@ -1,0 +1,11 @@
+import {useEffect,useId,useRef,useState,type ReactNode} from 'react';
+import {createPortal} from 'react-dom';
+import {CircleHelp} from 'lucide-react';
+
+export default function HelpTip({label,children}:{label:string;children:ReactNode}){
+ const id=useId(),trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null);
+ const [open,setOpen]=useState(false),[pinned,setPinned]=useState(false),[position,setPosition]=useState({left:0,top:0});
+ const close=()=>{setOpen(false);setPinned(false)};
+ useEffect(()=>{if(!open)return;const positionPanel=()=>{const r=trigger.current?.getBoundingClientRect();if(!r)return;const width=Math.min(340,window.innerWidth-24),height=panel.current?.offsetHeight||120;setPosition({left:Math.max(12,Math.min(r.left,window.innerWidth-width-12)),top:r.bottom+height+12>window.innerHeight?Math.max(12,r.top-height-8):r.bottom+8})};positionPanel();const click=(event:PointerEvent)=>{if(!trigger.current?.contains(event.target as Node)&&!panel.current?.contains(event.target as Node))close()};const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.stopPropagation();close()}};window.addEventListener('resize',positionPanel);window.addEventListener('scroll',positionPanel,true);document.addEventListener('pointerdown',click);document.addEventListener('keydown',escape);return()=>{window.removeEventListener('resize',positionPanel);window.removeEventListener('scroll',positionPanel,true);document.removeEventListener('pointerdown',click);document.removeEventListener('keydown',escape)}},[open]);
+ return <><button ref={trigger} type="button" className="st-help-trigger" aria-label={label+'说明'} aria-expanded={open} aria-controls={open?id:undefined} onMouseEnter={()=>setOpen(true)} onMouseLeave={()=>{if(!pinned&&document.activeElement!==trigger.current)setOpen(false)}} onFocus={()=>setOpen(true)} onBlur={e=>{if(!pinned&&!panel.current?.contains(e.relatedTarget))setOpen(false)}} onClick={e=>{e.preventDefault();e.stopPropagation();if(pinned)close();else{setPinned(true);setOpen(true)}}}><CircleHelp size={15}/></button>{open&&createPortal(<div id={id} ref={panel} role="tooltip" className="st-help-panel" style={position}><strong>{label}</strong><div>{children}</div></div>,document.body)}</>;
+}

@@ -35,10 +35,12 @@ try {
  assert.equal(fileHash(path.join(path.dirname(exe),'resources','backend','tijian-service','tijian-service.exe')),fileHash('.runtime/backend-dist/tijian-service/tijian-service.exe'));
  const clone=await page.evaluate(async()=>{
   const r=await fetch('/api/studio/assets?asset_type=avatar',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!r.ok)throw Error('Existing asset list unavailable');
-  const data=await r.json();const asset=data.items.find(a=>a.clone_status==='succeeded'&&a.preview_asset_type==='video'&&a.preview_origin==='creation_source');
+  const data=await r.json();if(data.public_library_enabled!==false||data.items.some(a=>a.visibility==='public'))throw Error('Public avatars should no longer be offered');const asset=data.items.find(a=>a.clone_status==='succeeded'&&a.preview_asset_type==='video'&&a.preview_origin==='creation_source');
   if(!asset)throw Error('Existing completed video clone is missing its creation preview');
   return {id:asset.id,title:asset.title,draft_id:asset.draft_id};
  });
+ const speechContract=await page.evaluate(async()=>{const r=await fetch('/api/studio/catalog',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!r.ok)throw Error('Catalog unavailable');const d=await r.json();return (d.tools||d.items).filter(t=>['text_avatar','photo_talk','audio_avatar'].includes(t.id)).map(t=>({id:t.id,speech_speed:t.speech_speed}))});
+ assert.equal(speechContract.find(t=>t.id==='text_avatar').speech_speed.per_generation,false);assert.equal(speechContract.find(t=>t.id==='audio_avatar').speech_speed.mode,'original_audio');assert.equal(speechContract.find(t=>t.id==='photo_talk').speech_speed.voice_edit.parameters.rate.max,2);
  const forbidden=[];page.on('request',r=>{if(r.method()==='POST'&&/\/studio\/generate|\/publish/.test(new URL(r.url()).pathname))forbidden.push(new URL(r.url()).pathname)});
  await page.evaluate(()=>location.hash='studio/avatar/library');
  const card=page.locator('.st-resource-card').filter({hasText:clone.title});await card.waitFor();
@@ -60,6 +62,9 @@ try {
   await page.waitForFunction(()=>document.querySelector('.st-clone-output video')?.readyState>=2);
   assert.match(await page.locator('.st-clone-output').innerText(),/飞影已确认克隆完成/);
   assert.equal(await page.locator('.st-clone-output').getByRole('button',{name:'下载',exact:true}).count(),0);
+  assert.equal(await page.locator('.st-human-workspace .st-human-requirements,.st-human-workspace .st-human-async-note').count(),0);
+  await page.locator('.st-editor .st-selected-resource').waitFor();
+  assert.equal(await page.locator('.st-editor video').count(),0,'Selected source preview should be compact until opened');
   await page.screenshot({path:path.join(directory,'actual-avatar-result.png'),fullPage:true});
  }
  await page.evaluate(()=>location.hash='studio/brand');
@@ -75,7 +80,7 @@ try {
  const defaults=await page.evaluate(async()=>{const r=await fetch('/api/studio/resource-defaults',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!r.ok)throw Error('Default resource preferences unavailable');return r.json()});
  assert('avatar_id' in defaults&&'voice_id' in defaults);
  assert.deepEqual(forbidden,[]);
- const report={passed:true,version,actual_installed_app:true,final_build_matches:true,actual_existing_clone:true,first_frame:true,playback:true,enlargement:true,creation_result:!!clone.draft_id,personal_ip_preview:true,resource_defaults_read:true,media,paid_generation:false};
+ const report={passed:true,version,actual_installed_app:true,final_build_matches:true,actual_existing_clone:true,first_frame:true,playback:true,enlargement:true,creation_result:!!clone.draft_id,personal_ip_preview:true,resource_defaults_read:true,public_avatars_removed:true,speech_contract_verified:true,compact_source_preview:true,media,paid_generation:false};
  fs.writeFileSync(path.join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({...report,directory}));
 }catch(error){
  if(diagnosticPage){console.log('LOCAL PAGE',new URL(diagnosticPage.url()).origin);console.log('LOCAL PAGE TEXT',(await diagnosticPage.locator('body').textContent({timeout:5000}).catch(()=>''))?.slice(0,1000));await diagnosticPage.screenshot({path:path.join(directory,'failure.png'),timeout:5000}).catch(()=>{})}
