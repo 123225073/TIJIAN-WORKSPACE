@@ -1,0 +1,101 @@
+[
+  {
+    "repo": "JimLiu/baoyu-skills",
+    "commit": "1567581c26ec29f4216c6e6835415bf30343b0e3",
+    "source_path": "LICENSE",
+    "local_path": "vendor/writing-skills/platform-sources/baoyu-xhs/LICENSE",
+    "url": "https://raw.githubusercontent.com/JimLiu/baoyu-skills/1567581c26ec29f4216c6e6835415bf30343b0e3/LICENSE",
+    "license": "MIT",
+    "sha256": "601839401f6ce68b7a8aec0f7ba247ab8ef0848113378220bec4b2615cc84ee7",
+    "bytes": 1064,
+    "retrieved_at": "2026-10-09T03:34:59.007486+00:00"
+  },
+  {
+    "repo": "JimLiu/baoyu-skills",
+    "commit": "1567581c26ec29f4216c6e6835415bf30343b0e3",
+    "source_path": "skills/baoyu-xhs-images/SKILL.md",
+    "local_path": "vendor/writing-skills/platform-sources/baoyu-xhs/skills/baoyu-xhs-images/SKILL.md",
+    "url": "https://raw.githubusercontent.com/JimLiu/baoyu-skills/1567581c26ec29f4216c6e6835415bf30343b0e3/skills/baoyu-xhs-images/SKILL.md",
+    "license": "MIT",
+    "sha256": "17bf5498641cc60cb98f0cc15fbea27fd42777d119a39fb54fd6418840442bba",
+    "bytes": 29570,
+    "retrieved_at": "2026-10-09T03:34:59.274045+00:00"
+  },
+  {
+    "repo": "JimLiu/baoyu-skills",
+    "commit": "1567581c26ec29f4216c6e6835415bf30343b0e3",
+    "source_path": "skills/baoyu-xhs-images/references/workflows/analysis-framework.md",
+    "local_path": "vendor/writing-skills/platform-sources/baoyu-xhs/skills/baoyu-xhs-images/references/workflows/analysis-framework.md",
+    "url": "https://raw.githubusercontent.com/JimLiu/baoyu-skills/1567581c26ec29f4216c6e6835415bf30343b0e3/skills/baoyu-xhs-images/references/workflows/analysis-framework.md",
+    "license": "MIT",
+    "sha256": "c06a57e69b917f8f5c4563da61b0aedb11cfbc6a68b2c599407128d13a014432",
+    "bytes": 7235,
+    "retrieved_at": "2026-10-09T03:34:59.707319+00:00"
+  },
+  {
+    "repo": "coreyhaines31/marketingskills",
+    "commit": "1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff",
+    "source_path": "LICENSE",
+    "local_path": "vendor/writing-skills/platform-sources/marketing-social/LICENSE",
+    "url": "https://raw.githubusercontent.com/coreyhaines31/marketingskills/1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff/LICENSE",
+    "license": "MIT",
+    "sha256": "b70d71e24e40fce5da8f4b6f9cd862096a048e433db7f3c8cac5e348e6d34591",
+    "bytes": 1069,
+    "retrieved_at": "2026-10-09T03:34:59.060739+00:00"
+  },
+  {
+    "repo": "coreyhaines31/marketingskills",
+    "commit": "1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff",
+    "source_path": "skills/social/SKILL.md",
+    "local_path": "vendor/writing-skills/platform-sources/marketing-social/skills/social/SKILL.md",
+    "url": "https://raw.githubusercontent.com/coreyhaines31/marketingskills/1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff/skills/social/SKILL.md",
+    "license": "MIT",
+    "sha256": "1fa237bc6884b7b6c048a334aee02aeaff23f7d6dcb06868ca4fb123e3b71379",
+    "bytes": 18260,
+    "retrieved_at": "2026-10-09T03:34:59.976324+00:00"
+  },
+  {
+    "repo": "coreyhaines31/marketingskills",
+    "commit": "1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff",
+    "source_path": "skills/social/references/short-form-video.md",
+    "local_path": "vendor/writing-skills/platform-sources/marketing-social/skills/social/references/short-form-video.md",
+    "url": "https://raw.githubusercontent.com/coreyhaines31/marketingskills/1efedbc5148b54b2f0f6c6c9fe0be62e151c7fff/skills/social/references/short-form-video.md",
+    "license": "MIT",
+    "sha256": "5e782aa064fe0916b9c432d3317628de961678f1503103a4450ad0d20e94bf46",
+    "bytes": 6517,
+    "retrieved_at": "2026-10-09T03:35:00.670402+00:00"
+  },
+  {
+    "repo": "mengke-wang/xiaohongshu-ai-workbench",
+    "commit": "7c1705d28a95bfc7c3b60f39b14b8041345541db",
+    "source_path": "LICENSE",
+    "local_path": "vendor/writing-skills/platform-sources/xhs-workbench/LICENSE",
+    "url": "https://raw.githubusercontent.com/mengke-wang/xiaohongshu-ai-workbench/7c1705d28a95bfc7c3b60f39b14b8041345541db/LICENSE",
+    "license": "MIT",
+    "sha256": "bb633899d4614b043697b9cb8148f08dc8a804bac9496adc633c7c2926b83e53",
+    "bytes": 1066,
+    "retrieved_at": "2026-10-09T03:35:00.194699+00:00"
+  },
+  {
+    "repo": "mengke-wang/xiaohongshu-ai-workbench",
+    "commit": "7c1705d28a95bfc7c3b60f39b14b8041345541db",
+    "source_path": "xiaohongshu-title/SKILL.md",
+    "local_path": "vendor/writing-skills/platform-sources/xhs-workbench/xiaohongshu-title/SKILL.md",
+    "url": "https://raw.githubusercontent.com/mengke-wang/xiaohongshu-ai-workbench/7c1705d28a95bfc7c3b60f39b14b8041345541db/xiaohongshu-title/SKILL.md",
+    "license": "MIT",
+    "sha256": "7ee7646c232264538d961b4b61f74ac9c8e8b7801ead13dbf5f46ab42b7a6549",
+    "bytes": 10046,
+    "retrieved_at": "2026-10-09T03:35:00.670402+00:00"
+  },
+  {
+    "repo": "mengke-wang/xiaohongshu-ai-workbench",
+    "commit": "7c1705d28a95bfc7c3b60f39b14b8041345541db",
+    "source_path": "xiaohongshu-magazine/SKILL.md",
+    "local_path": "vendor/writing-skills/platform-sources/xhs-workbench/xiaohongshu-magazine/SKILL.md",
+    "url": "https://raw.githubusercontent.com/mengke-wang/xiaohongshu-ai-workbench/7c1705d28a95bfc7c3b60f39b14b8041345541db/xiaohongshu-magazine/SKILL.md",
+    "license": "MIT",
+    "sha256": "61625a8ef406ce37b91be8e27dfec4bfd8c87adb0e4d098fa17c6fa3ed132d4b",
+    "bytes": 6646,
+    "retrieved_at": "2026-10-09T03:35:00.899392+00:00"
+  }
+]

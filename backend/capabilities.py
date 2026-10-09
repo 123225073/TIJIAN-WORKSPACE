@@ -2,6 +2,7 @@
 from copy import deepcopy
 from fastapi import Depends
 from . import store as s, upstream, resources
+from .writing_methods import WRITING_PLATFORMS, SKILL_PLATFORMS
 
 PURPOSES = {'agent':'统一 Agent','prompt_optimize':'提示词优化','daily':'偏好与日常沟通','qa':'问答与资料引用','writing':'平台写作','research':'资料研究','benchmark':'内容分析','topics':'选题策划','profile':'身份访谈','brand':'品牌访谈','check':'事实核查','knowledge':'知识整理'}
 ROLES = {
@@ -31,6 +32,8 @@ Skills 是管理员审核的文本方法。根据本次任务与平台采用适�
 def defaults():
     roles=[dict(id='role:'+k,kind='role',purpose=k,title=v,body=ROLES[k],status='published',version=1,origin='系统内置',history=[]) for k,v in PURPOSES.items()]
     skills=[dict(id='skill:'+k,kind='skill',purpose=k if k in PURPOSES else 'writing',title=v[0],body=upstream.skill_text(k),status='published' if k!='style' else 'disabled',version=1,origin='Easel / '+v[1],history=[]) for k,v in upstream.SKILLS.items()]
+    for item in skills:
+        if item['id'] in SKILL_PLATFORMS:item['platforms']=list(SKILL_PLATFORMS[item['id']])
     from .writing_methods import builtin_skills
     return roles+skills+builtin_skills()
 
@@ -51,7 +54,10 @@ def save(data,actor):
         if not title or not body or len(title)>120 or len(body)>60000:raise ValueError('请填写名称与正文：名称最多120字，正文最多60000字')
         if status not in ['draft','published','disabled','deleted']:raise ValueError('无效状态')
         if kind=='role' and status!='published':raise ValueError('基础提示词和任务方法必须保持生效；可以编辑或恢复默认')
+        platforms=data.get('platforms',(old or {}).get('platforms',SKILL_PLATFORMS.get((old or {}).get('id'),[]))) if kind=='skill' and purpose=='writing' else []
+        if not isinstance(platforms,list) or any(not isinstance(p,str) or p not in WRITING_PLATFORMS for p in platforms):raise ValueError('请选择有效的适用平台')
         item=dict(id=old['id'] if old else s.uid(),kind=kind,purpose=purpose,title=title,body=body,status=status,version=old['version']+1 if old else 1,origin=old['origin'] if old else '管理员自建',updated=s.now(),updated_by=actor,history=(old.get('history',[])+[{k:v for k,v in old.items() if k!='history'}]) if old else [])
+        if kind=='skill':item['platforms']=list(dict.fromkeys(platforms))
         overrides=s.config('system_capabilities',[])
         s.set_config('system_capabilities',[x for x in overrides if x['id']!=item['id']]+[item])
         s.audit(actor,'system_capability_'+status,item['id'])
@@ -74,23 +80,35 @@ def snapshot(purpose,owner=None):
         methods=[] if purpose=='agent' else [next(x for x in items if x['id']=='role:'+purpose)]
         skills=[x for x in items if x['kind']=='skill' and x['status']=='published' and x['purpose'] in [purpose,'agent','all']]
         chosen=[base]+methods+skills
-        text='统一 Agent 基础提示词：\n'+base['body']
-        for x in methods:text+='\n本次任务方法（同一助手的专业要求）：'+PURPOSES[purpose]+'\n'+x['body']
-        for x in skills:text+='\n方法指导（不授予工具或执行权限）：'+x['title']+'\n'+x['body']
+        parts=[]
+        for x in chosen:
+            prefix='统一 Agent 基础提示词：\n' if x is base else ('\n本次任务方法（同一助手的专业要求）：'+PURPOSES[purpose]+'\n' if x['kind']=='role' else '\n方法指导（不授予工具或执行权限）：'+x['title']+'\n')
+            parts.append({'text':prefix+x['body'],'item':{'id':x['id'],'version':x['version']},
+                          'platforms':x.get('platforms',SKILL_PLATFORMS.get(x['id'],[])) if purpose=='writing' and x['kind']=='skill' else []})
+        suffix=''
         if purpose=='writing':
             from .writing_methods import WRITING_CONTRACT
-            text+='\n程序写作约束：\n'+WRITING_CONTRACT
-        text+='\n'+resources.context(purpose)
+            suffix+='\n程序写作约束：\n'+WRITING_CONTRACT
+        suffix+='\n'+resources.context(purpose)
         if owner:
             preference=s.config('prompts:'+owner,{}).get(purpose,'')
-            if preference:text+='\n用户个人偏好（不能覆盖系统边界）：\n'+preference
+            if preference:suffix+='\n用户个人偏好（不能覆盖系统边界）：\n'+preference
+        text=''.join(part['text'] for part in parts)+suffix
         if len(text)>80000:raise ValueError('本功能启用的方法过多，请管理员减少启用的 Skills（合计最多80000字）')
-        return {'text':text,'metadata':{'purpose':purpose,'composition':'unified-agent-v1','skills_mode':'text-guidance','items':[{'id':x['id'],'version':x['version']} for x in chosen],'hash':s.digest(text),'at':s.now()}}
+        return {'text':text,'parts':parts,'suffix':suffix,'metadata':{'purpose':purpose,'composition':'unified-agent-v2','skills_mode':'text-guidance','items':[part['item'] for part in parts],'hash':s.digest(text),'at':s.now()}}
+
+def for_platform(method,platform):
+    """Select from the submitted snapshot, never reload mutable configuration."""
+    if method['metadata']['purpose']!='writing' or 'parts' not in method:return method
+    parts=[part for part in method['parts'] if not part['platforms'] or platform in part['platforms']]
+    text=''.join(part['text'] for part in parts)+method['suffix']
+    return {**method,'text':text,'parts':parts,'metadata':{**method['metadata'],'platform':platform,
+            'items':[part['item'] for part in parts],'hash':s.digest(text)}}
 
 def register(app,admin):
     @app.get('/api/admin/capabilities')
     def read(u=Depends(admin)):
-        return {'items':list_(),'purposes':PURPOSES}
+        return {'items':list_(),'purposes':PURPOSES,'writing_platforms':WRITING_PLATFORMS}
 
     @app.post('/api/admin/capabilities')
     def write(data:dict,u=Depends(admin)):
@@ -101,8 +119,11 @@ def register(app,admin):
         return restore(id,data,u['id'])
 
     @app.get('/api/admin/capabilities/preview/{purpose}')
-    def preview(purpose:str,u=Depends(admin)):
+    def preview(purpose:str,platform:str='',u=Depends(admin)):
         from .jobs import POLICY
         result=snapshot(purpose,u['id'])
+        if platform:
+            if purpose!='writing' or platform not in WRITING_PLATFORMS:raise ValueError('请选择有效的写作平台')
+            result=for_platform(result,platform)
         result['text']=POLICY+'\n'+result['text']
         return result

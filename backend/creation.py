@@ -219,6 +219,7 @@ def register(app,user,admin,error):
         instructions=('返回 JSON 对象，仅包含 title、position、audience、style、views、channels 六个字符串字段，供用户编辑确认。不要捏造个人经历、产品资质或业绩。' if proposal else '返回可直接编辑的完整文案。缺失的产品事实标记待补充，不得捏造数据、资质、承诺。若有目标字数，以中文正文字符数大致接近该值，优先保证内容完整与事实准确，不用重复句子凑字数。')
         prepared=writing_request(method,policy=jobs.POLICY,brief=brief,format_name=content_format,
                     target_words=target_words or None,context=snapshot,original=old.get('body','') if old else '',output_rules=instructions)
+        method={**method,'metadata':prepared['snapshot']['configuration']}
         fingerprint=s.digest(json.dumps({'data':data,'snapshot':snapshot,'method':method['metadata']},ensure_ascii=False,sort_keys=True))
         with s.LOCK:
             if request:

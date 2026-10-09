@@ -172,13 +172,13 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
                 old=originals.get(p,{})
                 content=s.put(owner,'content',{**old,**fields,'task_id':task_id,'platform':p,'format':PLATFORMS[p],
                     'outcome_type':'writing','status':'draft','check':None,'profile_id':profile_id,'source_ids':list(dict.fromkeys(old.get('source_ids',[])+refs)),
-                    'model_id':writer,'capabilities':method['metadata'],'brief':query,'target_words':traces[p]['target_words'],
+                    'model_id':writer,'capabilities':traces[p]['configuration'],'brief':query,'target_words':traces[p]['target_words'],
                     'request_snapshot':traces[p]},old.get('id'),old.get('version'))
                 mapping[p]=content['id'];exports.append(content)
             active=route['platforms'][0]
             _append(owner,task_id,'已生成'+ '、'.join(PLATFORMS[p] for p in prepared)+'稿件并保存到右侧工作成果。可以继续修改，或改写为其他平台。',
                     platform_outcomes=mapping,active_outcome=active,content_id=mapping[active],pending_creation=None,identity_required=False,retrieval=retrieved,last_model=writer,
-                    last_configuration=method['metadata'],last_request_snapshots=traces)
+                    last_configuration=traces[active]['configuration'],last_request_snapshots=traces)
             for content in exports:s.export_object(owner,content)
         return {'task_id':task_id,'content_id':mapping[active],'platforms':list(prepared)}
     return jobs.start(owner,text[:40],work,{'action':'assistant','task_id':task_id,'text':text,'model_id':model,

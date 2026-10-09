@@ -1,0 +1,22 @@
+.ts-theme .st-resource-name{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.ts-theme .st-resource-name>strong,.ts-theme .st-resource-name>h3{min-width:0;overflow-wrap:anywhere;flex:1}
+.ts-theme .studio-v2 button.st-asset-rename,.ts-theme .studio-modal button.st-asset-rename{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;padding:3px 6px;min-height:28px;border:1px solid var(--ts-line);border-radius:6px;background:var(--ts-panel);color:var(--ts-accent);font-size:11px;cursor:pointer}
+.ts-theme .studio-modal:has(.st-rename-form){width:min(480px,92vw);background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-modal:has(.st-rename-form)>header,.ts-theme .studio-modal:has(.st-resource-picker-groups)>header{background:var(--ts-elevated);border-color:var(--ts-line);color:var(--ts-text)}
+.ts-theme .studio-modal:has(.st-rename-form) button,.ts-theme .st-resource-picker-tools button{background:var(--ts-elevated);border:1px solid var(--ts-line);color:var(--ts-text);border-radius:7px;padding:8px 12px;cursor:pointer}
+.ts-theme .studio-modal:has(.st-resource-picker-groups)>header button{background:var(--ts-panel);border:1px solid var(--ts-line);color:var(--ts-text)}
+.ts-theme .st-rename-form{display:grid;gap:12px;padding:22px 24px;color:var(--ts-text);font-size:13px}
+.ts-theme .st-rename-form input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--ts-line);border-radius:8px;background:var(--ts-bg);color:var(--ts-text);font:inherit}
+.ts-theme .st-rename-form small{font-size:12px;color:var(--ts-muted);line-height:1.7}
+.ts-theme .st-rename-form p[role=alert]{margin:0;color:#f0b6a1;font-size:12px}
+.ts-theme .st-rename-form .st-dialog-actions{margin-top:8px;display:flex;gap:10px;justify-content:flex-end}
+.ts-theme .st-rename-form button.st-primary{background:#315b97;color:white;border-color:#456fa6}
+.ts-theme .st-rename-form button:disabled{opacity:.55;cursor:not-allowed}
+.ts-theme .st-rename-form :focus-visible,.ts-theme button.st-asset-rename:focus-visible{outline:2px solid var(--ts-accent);outline-offset:3px}
+.ts-theme .ip-resource-card>header>.st-asset-rename{margin-left:auto}
+/* Portaled resource cards share the same sizing as cards in the workspace. */
+.ts-theme .studio-modal .st-clone-preview{display:grid;gap:10px;min-width:0;color:var(--ts-text)}
+.ts-theme .studio-modal .st-clone-preview>audio{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0;height:40px;color-scheme:dark}
+.ts-theme .studio-modal .st-clone-confirmation{display:flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid #335548;border-radius:8px;background:#1b332c;color:#b4e1c9}
+.ts-theme .studio-modal .st-clone-confirmation strong{font-size:12px;color:inherit}
+.ts-theme .studio-modal .st-clone-source-label,.ts-theme .studio-modal .st-clone-preview-note{font-size:11px;line-height:1.65;color:var(--ts-muted)}

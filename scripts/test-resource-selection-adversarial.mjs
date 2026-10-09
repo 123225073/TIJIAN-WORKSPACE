@@ -143,7 +143,7 @@ try{
   const picker=await openAvatarPicker();
   assert.equal(await picker.locator('article').filter({hasText:'review-public'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-wrong-service'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-archived'}).count(),0);assert.equal(await picker.locator('article').filter({hasText:'review-deleted'}).count(),0);
   await picker.getByRole('button',{name:'关闭弹窗',exact:true}).click();await picker.waitFor({state:'detached'});
-  assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('optgroup[label="公共声音"] option[value="'+ids['public-voice']+'"]').count(),1);
+  assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('option[value="'+ids['public-voice']+'"]').count(),1);
   return {archivedHidden:true,deletedHidden:true,wrongServiceDisabled:true,invalidDefaultsRejected:true,publicAvatarsHiddenAndRejected:true,publicVoicesRetained:true,pickerExcludesUnavailableResources:true};
  });
 

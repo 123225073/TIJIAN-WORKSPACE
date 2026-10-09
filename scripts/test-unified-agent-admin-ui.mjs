@@ -31,6 +31,7 @@ try{
  await page.getByLabel('能力名称',{exact:true}).fill('隔离 UI 方法');
  await page.getByLabel('能力正文',{exact:true}).fill('UI_ACTUAL_PUBLISHED_METHOD：优先解释读者的具体处境。');
  await page.getByLabel('适用功能',{exact:true}).selectOption('writing');
+ await page.getByRole('checkbox',{name:'适用平台：小红书文案',exact:true}).check();
  await page.getByRole('button',{name:'保存并启用',exact:true}).click();
  await page.getByRole('status').filter({hasText:'已生效'}).waitFor();
  await page.getByLabel('预览任务',{exact:true}).selectOption('writing');
@@ -38,6 +39,14 @@ try{
  await page.locator('.capability-preview pre').filter({hasText:'UI_BASE_FREE_PREVIEW'}).waitFor();
  const preview=await page.locator('.capability-preview pre').innerText();
  assert(preview.includes('UI_PRESERVED_WRITING_V2')&&preview.includes('UI_ACTUAL_PUBLISHED_METHOD'));
+ await page.getByLabel('预览写作平台',{exact:true}).selectOption('wechat');
+ await page.getByRole('button',{name:'预览生效提示词',exact:true}).click();
+ await page.locator('.capability-preview pre').waitFor();
+ assert(!(await page.locator('.capability-preview pre').innerText()).includes('UI_ACTUAL_PUBLISHED_METHOD'));
+ await page.getByLabel('预览写作平台',{exact:true}).selectOption('xiaohongshu');
+ await page.getByRole('button',{name:'预览生效提示词',exact:true}).click();
+ await page.locator('.capability-preview pre').filter({hasText:'UI_ACTUAL_PUBLISHED_METHOD'}).waitFor();
+ assert.equal(await page.getByRole('checkbox',{name:'适用平台：小红书文案',exact:true}).isChecked(),true);
  await page.getByRole('button',{name:'停用',exact:true}).click();
  await page.getByRole('status').filter({hasText:'已保存'}).waitFor();
  await page.getByRole('button',{name:'预览生效提示词',exact:true}).click();
@@ -49,7 +58,7 @@ try{
   await page.screenshot({path:path.join(fixture.directory,'admin-'+width+'.png'),fullPage:true});
  }
  assert.equal(fixture.guard.forbidden.length,0);assert.equal(fixture.guard.external.length,0);
- const report={passed:true,base_entry:true,preserved_custom_writing:true,published_and_disabled_skills:true,free_preview:true,viewports:[1500,1024,390],real_model:false};
+ const report={passed:true,base_entry:true,preserved_custom_writing:true,published_and_disabled_skills:true,platform_binding_and_preview:true,free_preview:true,viewports:[1500,1024,390],real_model:false};
  fs.writeFileSync(path.join(fixture.directory,'report.json'),JSON.stringify(report,null,2));
  console.log(JSON.stringify({...report,directory:fixture.directory}));
 }finally{await browser?.close();fixture.close()}

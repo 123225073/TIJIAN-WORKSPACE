@@ -459,6 +459,8 @@ def _provider_preview(asset, *, cover=False):
 def _public(obj, models=None, owner=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
     out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'provider_preview', 'service_scope', 'upload_scope', 'upload_until', 'voice_edit_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    if owner and obj.get('kind') == 'studio_asset' and obj.get('asset_type') in ('avatar', 'voice'):
+        out['resource_renamable'] = not (obj.get('visibility') == 'public' or obj.get('archived') or obj.get('deleted'))
     if obj.get('snapshot'):
         snap=obj['snapshot'];mid=snap.get('model_id','')
         title=next((m.get('title',mid) for m in (s.config('models',[]) if models is None else models) if m.get('id')==mid),mid)
@@ -811,6 +813,8 @@ def _validate(owner, data, complete=False):
             if complete and (not audio.get('duration') or length > audio['duration'] + .05):
                 raise StudioError('配音可用时长不足或尚未验证；请缩短场景或补充配音')
     if complete:
+        if tool in ('avatar_create', 'voice_create'):
+            _text(data.get('title'), '形象或声音名称', 200)
         if tool=='text_image' and chosen.startswith('media:') and model['family']=='gpt-image-2.5-edit' and not (inputs.get('image_id') or inputs.get('image_ids')):
             raise StudioError('参考图生成模型至少需要一张参考图片')
         if any(not inputs.get(key) for key in required):
@@ -1907,6 +1911,24 @@ def public_resources(owner, asset_type, service=None):
               'provider_preview': hifly_resource_preview.metadata(item, asset_type)}, id)
 
 
+def rename_resource(owner, id, data):
+    """Change this user's local asset label; provider IDs and saved runs stay intact."""
+    _strict(data, {'version', 'title'})
+    if not _integer(data.get('version')):
+        raise StudioError('改名需要当前资产版本')
+    title = _text(data.get('title'), '资产名称', 200).strip()
+    if re.search(r'[\x00-\x1f\x7f]', title):
+        raise StudioError('资产名称不能包含换行或控制字符')
+    with s.LOCK:
+        asset = _object(owner, id, 'studio_asset')
+        if asset.get('asset_type') not in ('avatar', 'voice') or asset.get('visibility') == 'public':
+            raise StudioError('只能修改自己创建的数字人形象或声音名称')
+        if asset['version'] != data['version']:
+            raise s.Conflict('资产已更新，请重新打开改名窗口后保存')
+        updated = asset if title == asset.get('title') else s.put(owner, 'studio_asset', {**asset, 'title': title}, id, expected=data['version'])
+        return _public(updated, owner=owner)
+
+
 def _voice_parameter(key, value):
     """JSON numbers or decimal strings only; bool/NaN/exponents are not rates."""
     low, high = VOICE_PARAMETER_LIMITS[key]
@@ -2232,6 +2254,10 @@ def register(app, user, admin, error):
     @app.post('/api/studio/resource-defaults')
     def set_resource_defaults(data: dict, u=Depends(user)):
         return invoke(resource_defaults, u['id'], data)
+
+    @app.patch('/api/studio/assets/{id}')
+    def rename_asset(id: str, data: dict, u=Depends(user)):
+        return invoke(rename_resource, u['id'], id, data)
 
     @app.get('/api/studio/assets')
     def assets(background_tasks: BackgroundTasks, asset_type: str | None = None, refresh: bool = False, u=Depends(user)):

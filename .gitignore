@@ -63,6 +63,7 @@ __pycache__/
 **/.git/
 
 # Original-machine credentials/paid diagnostics are not public utilities.
+/docs/中文方法库-2026-10-09/已应用配置.json
 /scripts/import-authorized-cpa.py
 /scripts/validate-real-ai.py
 /scripts/diagnose-cimi-body.py

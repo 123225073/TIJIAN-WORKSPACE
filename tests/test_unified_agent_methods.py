@@ -4,7 +4,8 @@ from test_workflows import client,account
 from test_creation import finish,fake_model
 from test_assistant_workspace import setup,send
 from backend import store as s,capabilities as c,jobs,gateway as g
-from backend.writing_methods import word_requirement
+from backend.writing_methods import word_requirement, writing_request
+import pytest
 
 def test_word_requirement_uses_requested_revision_not_old_draft_length():
     assert word_requirement('把500字压到300字')==(300,'approximate')
@@ -45,6 +46,61 @@ def test_base_applies_to_every_method_and_published_skills_only(client):
     c.save({**writing_skill,'status':'deleted'},owner)
     assert 'GLOBAL_METHOD_MARKER' not in c.snapshot('qa',owner)['text']
     assert 'WRITER_ONLY_MARKER' not in c.snapshot('writing',owner)['text']
+
+def test_writing_platform_selection_filters_bodies_and_actual_trace(client):
+    owner=account(client)['user']['id']
+    shared=c.save({'title':'共用方法','body':'SHARED_RULE','purpose':'writing','status':'published'},owner)
+    xhs=c.save({'title':'小红书限定','body':'XHS_RULE','purpose':'writing','platforms':['xiaohongshu'],'status':'published'},owner)
+    video=c.save({'title':'口播限定','body':'VIDEO_RULE','purpose':'writing','platforms':['channels','douyin'],'status':'published'},owner)
+    frozen=c.snapshot('writing',owner)
+    formats={'公众号文章':'wechat','小红书文案':'xiaohongshu','口播脚本':'channels','通用文案':'general'}
+    for form,platform in formats.items():
+        request=writing_request(frozen,policy=jobs.POLICY,brief='电梯报价条件，350字',format_name=form)
+        system=request['messages'][0]['content'];meta=request['snapshot']['configuration']
+        ids={x['id'] for x in meta['items']}
+        assert 'SHARED_RULE' in system and shared['id'] in ids
+        assert ('XHS_RULE' in system)==(platform=='xiaohongshu')
+        assert (xhs['id'] in ids)==(platform=='xiaohongshu')
+        assert ('VIDEO_RULE' in system)==(platform=='channels')
+        assert (video['id'] in ids)==(platform=='channels')
+        assert ('skill:wechat-narrative' in ids)==(platform=='wechat')
+        assert ('skill:xiaohongshu-writing' in ids)==(platform=='xiaohongshu')
+        assert ('skill:short-video-script' in ids)==(platform=='channels')
+        assert 'skill:humanizer' in ids
+        assert meta['hash']==s.digest(c.for_platform(frozen,platform)['text'])
+        assert request['snapshot']['system_hash']==s.digest(system)
+    douyin=writing_request(frozen,policy='',brief='写脚本',format_name='抖音',platform='douyin')
+    assert 'VIDEO_RULE' in douyin['messages'][0]['content'] and 'XHS_RULE' not in douyin['messages'][0]['content']
+    assert frozen['metadata'].get('platform') is None
+
+def test_platform_binding_save_validation_and_history_restore(client):
+    owner=account(client)['user']['id']
+    original=c.save({'title':'定向写作','body':'ORIGINAL','purpose':'writing','platforms':['xiaohongshu'],'status':'published'},owner)
+    edited=c.save({**original,'body':'EDITED','platforms':['channels']},owner)
+    restored=c.restore(edited['id'],{'version':edited['version'],'target':original['version']},owner)
+    assert restored['platforms']==['xiaohongshu'] and restored['body']=='ORIGINAL'
+    preserved=c.save({'id':restored['id'],'version':restored['version'],'title':restored['title'],'body':'NEW','purpose':'writing','status':'published'},owner)
+    assert preserved['platforms']==['xiaohongshu']
+    for bad in ['xiaohongshu',['unknown'],[{}],[None]]:
+        with pytest.raises(ValueError,match='适用平台'):
+            c.save({**preserved,'platforms':bad},owner)
+    preview=client.get('/api/admin/capabilities/preview/writing?platform=xiaohongshu').json()
+    assert preview['metadata']['platform']=='xiaohongshu' and '小红书文案与图文阅读节奏' in preview['text']
+    assert '公众号场景叙事与情绪节奏' not in preview['text']
+
+def test_platform_selection_uses_frozen_binding_not_current_configuration(client,monkeypatch):
+    owner,task,requests,_=setup(client,monkeypatch)
+    held=[];monkeypatch.setattr(jobs.POOL,'submit',lambda fn:held.append(fn))
+    skill=c.save({'title':'小红书冻结方法','body':'XHS_BINDING_BEFORE','purpose':'writing','platforms':['xiaohongshu'],'status':'published'},owner)
+    client.post('/api/tasks/'+task['id']+'/send',json={'text':'帮我写350字小红书文案','mode':'auto','skip_profile':True})
+    c.save({**skill,'body':'XHS_BINDING_AFTER','platforms':['wechat']},owner)
+    held.pop()()
+    writer=next(r for r in requests if '只返回JSON对象' in r[0]['content'])
+    assert 'XHS_BINDING_BEFORE' in writer[0]['content'] and 'XHS_BINDING_AFTER' not in writer[0]['content']
+    saved=s.get(owner,s.get(owner,task['id'])['platform_outcomes']['xiaohongshu'])
+    assert saved['capabilities']==saved['request_snapshot']['configuration']
+    assert saved['capabilities']['platform']=='xiaohongshu'
+    assert {'id':skill['id'],'version':skill['version']} in saved['capabilities']['items']
 
 def test_form_and_assistant_share_base_custom_method_skills_and_preferences(client,monkeypatch):
     owner,task,requests,answer=setup(client,monkeypatch)

@@ -9,6 +9,10 @@ WRITING_CONTRACT = '''本次平台、内容形式、创作要求、目标字数�
 写作方法改善内容质量，不能保证爆款、播放量或转化率。最终稿不含系统方法全文、内部资料 ID、机器编号、写作分析和自检报告；来源信息保留在参考记录中。'''
 
 FORM_PLATFORMS = {'公众号文章':'wechat','小红书文案':'xiaohongshu','口播脚本':'channels','视频脚本':'channels','朋友圈文案':'moments'}
+WRITING_PLATFORMS = {'wechat':'公众号文章','xiaohongshu':'小红书文案','channels':'视频号／口播脚本','douyin':'抖音脚本','moments':'朋友圈文案','general':'通用文案'}
+SKILL_PLATFORMS = {'skill:writing':['wechat'], 'skill:wechat-narrative':['wechat'],
+                   'skill:wechat-title-cover':['wechat'], 'skill:wechat-editor':['wechat'],
+                   'skill:xiaohongshu-writing':['xiaohongshu'], 'skill:short-video-script':['channels','douyin']}
 
 def word_requirement(brief, fallback=None):
     """Only explicit writing length is a number; keep free-form intent in the brief."""
@@ -23,6 +27,9 @@ def word_requirement(brief, fallback=None):
 def writing_request(method, *, policy, brief, format_name, target_words=None, context=None,
                     original=None, output_rules='', payload=None, platform=None):
     """Shared transport and trace for conversation and form writing; no model calls."""
+    from .capabilities import for_platform
+    selected_platform=platform or FORM_PLATFORMS.get(format_name,'general')
+    method=for_platform(method,selected_platform)
     inferred,mode=word_requirement(brief,target_words)
     # A structured form control is authoritative over a number elsewhere in its brief.
     if target_words is not None and target_words!=inferred:mode='approximate'
@@ -33,7 +40,7 @@ def writing_request(method, *, policy, brief, format_name, target_words=None, co
     system=policy+'\n'+method['text']+('\n'+output_rules if output_rules else '')
     user=json.dumps(data,ensure_ascii=False)
     trace={'configuration':method['metadata'],'format':format_name,
-           'platform':platform or FORM_PLATFORMS.get(format_name,'general'),
+           'platform':selected_platform,
            'target_words':words,'word_constraint':mode,'contract_version':1,
            'system_hash':s.digest(system),'input_hash':s.digest(user),'at':s.now()}
     return {'messages':[{'role':'system','content':system},{'role':'user','content':user}],
@@ -76,7 +83,7 @@ TITLE_COVER_METHOD = '''公众号标题与封面编辑（仅用于公众号成�
 '''
 
 def builtin_skills():
-    return [dict(id='skill:wechat-narrative',kind='skill',purpose='writing',title='公众号场景叙事与情绪节奏',body=NARRATIVE_METHOD,status='published',version=1,history=[],origin='项目审阅适配 · Humanizer / 公众号写作方法研究'),
+    skills=[dict(id='skill:wechat-narrative',kind='skill',purpose='writing',title='公众号场景叙事与情绪节奏',body=NARRATIVE_METHOD,status='published',version=1,history=[],origin='项目审阅适配 · Humanizer / 公众号写作方法研究'),
             dict(id='skill:wechat-title-cover',kind='skill',purpose='writing',title='公众号标题与封面构图',body=TITLE_COVER_METHOD,status='published',version=1,history=[],origin='项目原创适配 · MarketingSkills / baoyu-cover-image方法研究'),
             dict(id='skill:wechat-editor', kind='skill', purpose='writing', title='公众号读者与传播写作',
                  body=ARTICLE_METHOD, status='published', version=1, history=[],
@@ -85,6 +92,15 @@ def builtin_skills():
                  body=('中文嵌入模式：只返回终稿，锁定事实、数字、日期、引文与图片链接。\n' +
                        (s.ROOT/'vendor/writing-skills/humanizer/SKILL.md').read_text(encoding='utf-8')),
                  status='published', version=1, history=[], origin='blader/humanizer (MIT) · 本地文本方法')]
+    root=s.ROOT/'vendor/writing-skills/platform-sources'
+    for ident,title,filename,origin in [
+        ('skill:xiaohongshu-writing','小红书文案与图文阅读节奏','小红书文案中文方法.md','宝玉小红书图文方法／王梦珂小红书运营工作台 · MIT · 中文审阅适配'),
+        ('skill:short-video-script','短视频口播与分镜','短视频脚本中文方法.md','开源营销方法库：社交内容与短视频脚本 · MIT · 中文审阅适配')]:
+        skills.append(dict(id=ident,kind='skill',purpose='writing',title=title,body=(root/filename).read_text(encoding='utf-8'),
+                           status='published',version=2,history=[],origin=origin))
+    for item in skills:
+        if item['id'] in SKILL_PLATFORMS:item['platforms']=list(SKILL_PLATFORMS[item['id']])
+    return skills
 
 INTERNAL_CITATION = re.compile(r'\[(?:资料|来源|系统资料)?\s*[0-9a-f]{32}(?:[0-9a-f]{32})?\](?!\()', re.I)
 

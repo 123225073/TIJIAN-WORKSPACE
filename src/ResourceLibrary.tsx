@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import HelpTip from './HelpTip';
+import AssetRename from './AssetRename';
 import {FolderOpen,Plus,RefreshCw,ArrowRight,Check} from 'lucide-react';
 import {CloneAssetPreview,cloneConfirmed,type Asset} from './ResourcePreview';
 import {hiflyCostHint} from './HiflyBilling';
@@ -20,8 +21,8 @@ export default function ResourceLibrary({kind,assets,folder,onFolder,query,onQue
    <nav className="st-resource-folders" aria-label={label+'文件夹'}><span>资源文件夹</span>{kind==='avatar'?([['all','全部形象',owned.length],['video','视频形象',owned.filter(a=>a.preview_asset_type==='video').length],['image','照片形象',owned.filter(a=>a.preview_asset_type==='image').length]] as const).map(([value,title,count])=><button key={value} aria-pressed={avatarFolder===value} onClick={()=>setAvatarFolder(value)}><FolderOpen size={16}/><b>{title}</b><small>{count}</small></button>):([['mine','我的'+label,owned.length],['public','公共'+label,publicAssets.length],['all','全部资源',current.length]] as const).map(([value,title,count])=><button key={value} aria-pressed={folder===value} onClick={()=>onFolder(value)}><FolderOpen size={16}/><b>{title}</b><small>{count}</small></button>)}</nav>
    <div className="st-resource-results"><div className="st-resource-toolbar"><input className="st-search" value={query} onChange={e=>onQuery(e.target.value)} aria-label="搜索资源" placeholder={'搜索'+label+'名称…'}/><small>{choices.length} 个{label}</small></div>
     <div className="st-asset-grid">{choices.map(asset=><article className="st-asset-card st-resource-card" key={asset.id}>
+     <div className="st-resource-name"><h3>{asset.title||asset.name||'未命名资源'}{defaults[resourceKey]===asset.id&&<small className="st-default-badge"><Check size={12}/>默认</small>}</h3><AssetRename asset={asset}/></div>
      <CloneAssetPreview asset={asset} compact/>
-     <h3>{asset.title||asset.name||'未命名资源'}{defaults[resourceKey]===asset.id&&<small className="st-default-badge"><Check size={12}/>默认</small>}</h3>
      <p><span className="st-status">{asset.resource_selectable===false?'当前不可用':cloneConfirmed(asset)?'克隆完成 · 可复用':asset.status==='ready'?'可用':asset.status==='failed'?'创建失败':'处理中'}</span><small>{asset.visibility==='public'?'飞影公共资源':'我的专属资产'}</small></p>
      {asset.resource_selectable===false&&<small className="st-clone-source-label">{asset.resource_unavailable_reason||'当前飞影账号不能使用此资源'}</small>}
      <div className="st-resource-choice-actions"><button type="button" aria-pressed={defaults[resourceKey]===asset.id} disabled={busy||asset.status!=='ready'||asset.resource_selectable===false} onClick={()=>onDefault(asset)}>{defaults[resourceKey]===asset.id?'取消默认':'设为默认'}</button>{onUse&&<button type="button" className="st-primary" disabled={busy||asset.status!=='ready'||asset.resource_selectable===false} onClick={()=>onUse(asset)}>使用并返回原稿<ArrowRight size={14}/></button>}</div>

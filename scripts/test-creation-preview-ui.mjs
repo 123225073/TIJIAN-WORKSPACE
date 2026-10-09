@@ -120,10 +120,10 @@ print(json.dumps(ids))
  await page.evaluate(()=>localStorage.clear());await page.reload();await card.waitFor();
  await card.getByRole('button',{name:'使用并返回原稿',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.st-human-workspace textarea')?.value==='首次原稿未丢失，选择后必须保留。');
- assert.equal(await avatarField().locator('select optgroup[label="我的形象"]').count(),1);
+ assert.equal(await avatarField().locator('select option[value="'+ids.video.asset+'"]').count(),1);
  assert.equal(await avatarField().locator('select optgroup[label="公共形象"]').count(),0);
  assert.equal(await avatarField().locator('option[value="'+ids.public+'"]').count(),0);
- assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('optgroup[label="公共声音"]').count(),1);
+ assert.equal(await workspace().getByLabel('口播声音',{exact:true}).locator('option[value="'+ids.public_voice+'"]').count(),1);
  const selectedDefault=avatarField().getByRole('button',{name:'取消默认',exact:true});
  await selectedDefault.click();await avatarField().getByRole('button',{name:'设为默认',exact:true}).waitFor();
  assert.equal((await fixture.call('/studio/resource-defaults')).avatar_id,null);

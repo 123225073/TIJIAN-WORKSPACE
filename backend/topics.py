@@ -393,7 +393,7 @@ def register(app, user, error):
         sources = _sources(u['id'], topic.get('source_ids', []))
         profile = _owned(u['id'], topic['profile_id'], 'profile') if topic.get('profile_id') else None
         model_id = model(u['id'], 'writing', {})
-        method = capabilities.snapshot('writing', u['id'])
+        method = capabilities.for_platform(capabilities.snapshot('writing', u['id']), 'wechat')
         original = {key: delivery.get(key, '') for key in DELIVERY_FIELDS['wechat']}
         masked_body, image_markers = _protected_body(original['body'])
         owner = u['id']
@@ -542,7 +542,7 @@ def register(app, user, error):
             raise s.Conflict('交付稿已更新，请刷新后重试')
         target_words = _target_words(data.get('target_words', delivery.get('target_words', 1200))) if delivery['platform'] == 'wechat' else None
         model_id = model(u['id'], 'writing', {})
-        method = capabilities.snapshot('writing', u['id'])
+        method = capabilities.for_platform(capabilities.snapshot('writing', u['id']), delivery['platform'])
         sources = _sources(u['id'], topic.get('source_ids', []))
         profile = _owned(u['id'], topic['profile_id'], 'profile') if topic.get('profile_id') else None
         owner = u['id']
