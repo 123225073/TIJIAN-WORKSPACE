@@ -15,7 +15,7 @@ async function start(){
  const devPython=path.join(root,'.runtime','venv','Scripts','python.exe');
  const program=app.isPackaged?path.join(process.resourcesPath,'backend','tijian-service','tijian-service.exe'):require('node:fs').existsSync(devPython)?devPython:path.join(root,'.venv','Scripts','python.exe');
  const args=app.isPackaged?[]:['-m','backend.run'];
- backend=spawn(program,args,{cwd:app.isPackaged?app.getPath('userData'):root,windowsHide:true,stdio:'ignore',env:{...process.env,TIJIAN_PORT:String(port),TIJIAN_DATA:app.isPackaged?path.join(app.getPath('userData'),'data'):path.join(root,'.runtime'),TIJIAN_FFPROBE:app.isPackaged?path.join(process.resourcesPath,'media-tools','ffprobe.exe'):path.join(root,'.runtime','media-tools','ffprobe.exe')}});
+ backend=spawn(program,args,{cwd:app.isPackaged?app.getPath('userData'):root,windowsHide:true,stdio:'ignore',env:{...process.env,TIJIAN_PORT:String(port),TIJIAN_DATA:app.isPackaged?path.join(app.getPath('userData'),'data'):path.join(root,'.runtime'),TIJIAN_FFPROBE:app.isPackaged?path.join(process.resourcesPath,'media-tools','ffprobe.exe'):path.join(root,'.runtime','media-tools','ffprobe.exe'),TIJIAN_FFMPEG:app.isPackaged?path.join(process.resourcesPath,'media-tools','ffmpeg.exe'):path.join(root,'.runtime','media-tools','ffmpeg.exe')}});
  let exited=false;backend.on('error',()=>exited=true);backend.on('exit',()=>exited=true);
  let ready=false;
  for(let i=0;i<120;i++){

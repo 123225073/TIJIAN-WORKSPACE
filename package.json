@@ -1,6 +1,6 @@
 {
   "name": "elevator-workbench",
-  "version": "0.23.10",
+  "version": "0.23.11",
   "private": true,
   "description": "Elevator industry personal content workbench",
   "type": "module",
@@ -53,6 +53,7 @@
         "to": "media-tools",
         "filter": [
           "ffprobe.exe",
+          "ffmpeg.exe",
           "LICENSE",
           "README.txt",
           "SOURCE.json"

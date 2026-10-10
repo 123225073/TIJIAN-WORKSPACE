@@ -238,14 +238,19 @@ def test_generation_speed_options_are_not_silently_forwarded_or_applied_to_voice
 def test_catalog_distinguishes_voice_asset_setting_from_original_audio_video_speed(studio, voice_http):
     _, calls, _ = voice_http
     tools = {item['id']: item for item in studio.get('/api/studio/catalog').json()['tools']}
-    for name in ('text_avatar', 'photo_talk', 'tts'):
+    for name in ('tts',):
         speed = tools[name]['speech_speed']
         assert speed['per_generation'] is False and speed['mode'] == 'voice_asset'
         assert speed['voice_edit']['parameters']['rate'] == {'min': .5, 'max': 2.0, 'default': 1.0, 'wire_type': 'string'}
         assert speed['voice_edit']['own_only'] is True
         assert 'rate' not in tools[name]['options']
-    assert tools['text_avatar']['speech_speed']['source_video']['supported'] is False
-    assert tools['audio_avatar']['speech_speed']['mode'] == 'original_audio'
+    for name in ('text_avatar','photo_talk','audio_avatar'):
+        assert tools[name]['speech_speed']['per_generation'] is True
+        assert tools[name]['speech_speed']['mode']=='local_timeline'
+        assert tools[name]['speech_speed']['preserves_voice_asset'] is True
+        assert tools[name]['options']['video_rate'][0]==.5 and tools[name]['options']['video_rate'][-1]==2
+    assert tools['text_avatar']['speech_speed']['source_video']['supported'] is True
+    assert tools['audio_avatar']['speech_speed']['mode'] == 'local_timeline'
     assert 'voice_edit' not in tools['audio_avatar']['speech_speed']
     assert tools['avatar_create']['speech_speed']['mode'] == 'not_applicable'
     assert tools['text_avatar']['resource_libraries'] == {

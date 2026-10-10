@@ -41,7 +41,7 @@ from fastapi import BackgroundTasks, Depends, File, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from . import gateway as g, jobs, network, store as s, media_registry, ark_video, hifly_resource_preview
+from . import gateway as g, jobs, network, store as s, media_registry, ark_video, hifly_resource_preview, hifly_render
 
 MAX_FILE = 500 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024
@@ -80,6 +80,9 @@ OPTIONS = {
     'image_edit': {'size': ['1024*1024', '2048*2048'], 'watermark': [True, False], 'n': list(range(1, 7))},
     'compose': {'resolution': ['sd', 'hd', '1080'], 'aspectRatio': ['16:9', '9:16', '1:1']},
 }
+for _video_tool in hifly_render.VIDEO_TOOLS:
+    OPTIONS[_video_tool]['video_rate']=hifly_render.RATES
+OPTIONS['text_avatar'].update(subtitle_position=['bottom','middle'],subtitle_size=['small','medium','large'])
 # Checked against voice/edit on 2026-10-09. None of the documented creation
 # endpoints accepts rate. Editing a voice changes that asset for future uses.
 VOICE_PARAMETER_LIMITS = {'rate': (0.5, 2.0), 'volume': (0.1, 2.0), 'pitch': (0.1, 2.0)}
@@ -694,6 +697,11 @@ def _validate(owner, data, complete=False):
     choices=tool_options(tool,chosen,active=complete)
     if TOOLS[tool][1] == 'hifly' and isinstance(options, dict) and ('rate' in options or 'speech_rate' in options):
         raise StudioError('飞影生成接口不支持单次语速参数；请在自有声音参数中设置，音频或源视频模式保留原语速')
+    if tool in hifly_render.VIDEO_TOOLS and isinstance(options,dict):
+        try:hifly_render.rate(options.get('video_rate',1))
+        except ValueError as exc:raise StudioError(str(exc)) from None
+        if complete and options.get('video_rate',1)!=1 and not hifly_render.ffmpeg():
+            raise StudioError('本机缺少成片处理组件，请修复安装后再设置视频语速；尚未提交付费任务')
     from . import image_parameters
     if tool in media_registry.IMAGE_TOOLS:
         try:options=image_parameters.normalize(choices,options)
@@ -709,6 +717,7 @@ def _validate(owner, data, complete=False):
     else:
         _strict(options, set(choices) | (image_parameters.META if tool in media_registry.IMAGE_TOOLS else set()))
         for key, value in options.items():
+            if key=='video_rate' and tool in hifly_render.VIDEO_TOOLS:continue  # Numeric value already validated; JSON 1 and 1.0 are equivalent.
             if tool in media_registry.IMAGE_TOOLS and key in image_parameters.META:continue
             if not any(type(value) is type(choice) and value == choice for choice in choices[key]):
                 raise StudioError('当前模型不支持此生成选项：' + key)
@@ -1087,7 +1096,13 @@ def _build(owner, draft, service):
                 payload[key[:-3]] = assets[key]['provider_resource_id']
         if 'text' in inputs:
             payload['text'] = inputs['text']
-        payload.update(options)
+        payload.update({key:value for key,value in options.items() if key not in hifly_render.LOCAL_OPTIONS})
+        if tool=='text_avatar':
+            payload.setdefault('st_show',0)
+            if payload['st_show']==1:
+                source=assets.get('video_id') or (_creation_preview(owner,assets['avatar_id']) or assets['avatar_id'])
+                try:payload.update(hifly_render.subtitle(source,options))
+                except ValueError as exc:raise StudioError(str(exc)) from None
         paths = {'text_avatar': 'video/create_by_tts', 'audio_avatar': 'video/create_by_audio',
                  'photo_talk': 'video/create_by_image', 'tts': 'audio/create_by_tts', 'voice_create': 'voice/create'}
         if tool == 'photo_talk':
@@ -1500,6 +1515,15 @@ def _archive(owner, run):
             value['provider_resource_id'] = _text(result.get('resource_id'), '供应商资源ID', 500)
         else:
             filename, metadata = _download(owner, id, url, kind, output_format=result.get('metadata', {}).get('output_format') or run['snapshot']['options'].get('output_format')) if run['provider'] == 'ark' else _download(owner, id, url, kind)
+            if run['provider']=='hifly' and run['tool'] in hifly_render.VIDEO_TOOLS and run['snapshot'].get('options',{}).get('video_rate',1)!=1:
+                multiplier=run['snapshot']['options']['video_rate']
+                original=filename
+                rendered=_path(owner,s.digest(id+':timed')+'.mp4')
+                try:hifly_render.process(_path(owner,filename),rendered,multiplier,metadata.get('duration'))
+                except ValueError as exc:raise StudioError(str(exc)) from None
+                metadata={**_metadata(rendered,'.mp4'),'video_rate':multiplier,'source_duration':metadata.get('duration')}
+                filename=rendered.name
+                value['original_file']=original
             value.update(metadata, local_file=filename)
             value['requested_size']=run['snapshot'].get('options',{}).get('size')
             value['requested_resolution']=run['snapshot'].get('options',{}).get('resolution')
@@ -1954,7 +1978,9 @@ def _read_voice_parameters(asset, service):
             raise StudioError('飞影未返回有效声音参数')
         for row in rows:
             if isinstance(row, dict) and row.get('voice') == asset['provider_resource_id'] and row.get('type') in (8, 20, 22):
-                return {key: _voice_parameter(key, row.get(key)) for key in VOICE_PARAMETER_LIMITS}
+                # Newly cloned basic voices return empty strings for unset fields.
+                # Official defaults are 1.0; still reject malformed nonempty values.
+                return {key: _voice_parameter(key, 1 if row.get(key) in (None,'') else row[key]) for key in VOICE_PARAMETER_LIMITS}
         if len(rows) < 300:
             break
     raise StudioError('未找到当前自有声音的参数；请在飞影核对该声音，不会自动修改或生成作品')
@@ -2009,6 +2035,11 @@ def voice_parameters(owner, id, data=None):
 
 def _speech_speed_contract(tool):
     result = {'per_generation': False, 'docs_url': PROVIDERS['hifly']['docs_url']}
+    if tool in hifly_render.VIDEO_TOOLS:
+        return {**result,'per_generation':True,'mode':'local_timeline','min':.5,'max':2,'default':1,
+                'step':.05,'option':'video_rate','preserves_voice_asset':True,
+                'reason':'每条成片单独设置，生成后同步调整声音和画面并保存实际视频；不修改克隆声音资产。',
+                'source_video':{'supported':True}}
     if tool in ('text_avatar', 'photo_talk', 'tts', 'voice_create'):
         result.update(mode='voice_asset', voice_input='voice_id',
                       reason='语速是声音资产参数，会影响后续使用该声音的创作；生成接口没有单次语速覆盖参数。',

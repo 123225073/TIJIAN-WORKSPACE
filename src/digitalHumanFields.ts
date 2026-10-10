@@ -5,11 +5,11 @@ const script:HumanField={key:'text',label:'口播文稿',type:'textarea',require
 const avatar=asset('avatar_id','数字人形象','avatar','选择自己用视频或照片创建完成的数字人；可设为默认，下次创作自动带入。');
 const voice=asset('voice_id','口播声音','voice','选择已创建的声音，也可以使用声音库中的声音；自己的录音可通过“创建声音”保存复用。');
 const video=asset('video_id','人物视频','video','选择或上传 MP4 / MOV 人物视频，用视频替代形象选择；不能使用一张照片。');
-const audio=asset('audio_id','驱动音频','audio','上传或选择 MP3、M4A、WAV 音频，时长 5 秒至 30 分钟；沿用录音原有语速，不重新配音；如需更快，请先调整录音。');
+const audio=asset('audio_id','驱动音频','audio','上传或选择 MP3、M4A、WAV 音频，时长 5 秒至 30 分钟；不重新配音。可在本条视频设置中同步调整声音和画面的语速。');
 const image=asset('image_id','人物照片','image','选择或上传清晰的人物照片；图片驱动不需要先创建数字人形象。');
 export const isHumanTool=(tool:string)=>['text_avatar','audio_avatar','photo_talk','avatar_create','voice_create','tts'].includes(tool);
 export function digitalHumanFields(tool:string,source:HumanSource):HumanField[]|null {
- if(tool==='text_avatar')return source==='video'?[{...video,hint:'人物视频提供出镜形象和声音，无需另选口播声音；该模式没有生成语速参数。'},script]:[avatar,voice,script];
+ if(tool==='text_avatar')return source==='video'?[{...video,hint:'人物视频提供出镜形象和声音，无需另选口播声音；本条视频语速在成片时单独处理，原素材不变。'},script]:[avatar,voice,script];
  if(tool==='audio_avatar')return [source==='video'?video:avatar,audio];
  if(tool==='photo_talk')return [image,voice,script];
  if(tool==='avatar_create')return source==='image'?[{...image,hint:'用人物照片创建可复用的飞影形象；只选择一种创建素材。'}]:[{...video,hint:'用 MP4 / MOV 人物视频创建可复用的飞影形象；只选择一种创建素材。'}];
