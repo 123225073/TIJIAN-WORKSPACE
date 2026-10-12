@@ -1,0 +1,39 @@
+import {useEffect,useRef,useState} from 'react';
+import {Download,Eye,ImagePlus,PenLine,Save} from 'lucide-react';
+import {download} from './api';
+import Markdown from './Markdown';
+import AssetPicker,{AssetThumbnail} from './AssetPicker';
+import WechatLayoutProof,{defaultWechatStyle} from './WechatLayoutProof';
+import ArticleRichEditor,{type RichEditorHandle,type ArticleBookmark} from './ArticleRichEditor';
+import ArticleImagePicker from './ArticleImagePicker';
+import {useArticleDraft,ArticleDraftFeedback} from './article-draft';
+const contentFields=['title','body','summary','cover_brief','cover_asset_id','caption','script','shotlist','tags','wechat_style'];
+export default function PlatformArticleOutcome({content,platform,task,t,pictures,running,registerSave,onCreateCover}:any){
+ const key='platform-draft:'+t.state.user.id+':'+content.id;
+ const fields=(row:any)=>Object.fromEntries(contentFields.map(k=>[k,k==='wechat_style'?{...defaultWechatStyle,...row[k]}:row[k]??'']));
+ const draft=useArticleDraft({content,key,fields,path:'/tasks/'+task.id+'/outcomes/'+content.id,refresh:t.refresh});
+ const {values,version,saving,dirty}=draft;
+ const [preview,setPreview]=useState(false),[picker,setPicker]=useState<'cover'|null>(null),[bodyPicker,setBodyPicker]=useState<string|null>(null),[feedback,setFeedback]=useState(''),[coverError,setCoverError]=useState('');
+ const rich=useRef<RichEditorHandle>(null),bookmark=useRef<ArticleBookmark|null>(null);
+ const positionKey='article-position:'+t.state.user.id+':'+content.id;
+ const change=draft.change,save=draft.save;
+ const openBody=(tab:string)=>{try{const pending=JSON.parse(localStorage.getItem('article-picture:'+t.state.user.id+':'+content.id)||'{}').pending;bookmark.current=pending?JSON.parse(localStorage.getItem(positionKey)||'null'):rich.current?.bookmark()||bookmark.current||JSON.parse(localStorage.getItem(positionKey)||'null');if(!bookmark.current)throw Error('请先在正文编辑区点击要插图的位置');localStorage.setItem(positionKey,JSON.stringify(bookmark.current));setBodyPicker(tab)}catch(e:any){setFeedback(e.message);setPreview(false)}};
+ useEffect(()=>{registerSave.current=save;return()=>{registerSave.current=null}},[values,draft.version,draft.dirty]);
+ const insertPicture=async(pic:any,caption:string,place:string)=>{let mark=bookmark.current;if(!mark)throw Error('插入位置已丢失，请重新选择正文位置；图片保留在素材库');if(place!=='cursor'){rich.current?.focus();const editor=document.querySelector('.article-rich-editor');if(editor){const range=document.createRange();range.selectNodeContents(editor);range.collapse(place==='start');window.getSelection()?.removeAllRanges();window.getSelection()?.addRange(range);editor.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));mark=rich.current!.bookmark()}}if(!rich.current)throw Error('请回到正文编辑区插入，图片已保留在素材库');rich.current.insertImages([{...pic,title:caption||pic.title}],mark);setFeedback('图片已插入正文当前位置 · 已暂存本机，请保存修改');setBodyPicker(null);};
+ const wechat=platform==='wechat'||(platform==='legacy'&&/公众号/.test(content.format||'')),video=['channels','douyin'].includes(platform);
+ const exportFile=async()=>{await save();await download('/content/'+content.id+'/export?format='+ (wechat?'html':'md'),(values.title||'文稿')+(wechat?'.html':'.md'))};
+ const cover=pictures.find((p:any)=>p.id===values.cover_asset_id);
+ return <div className="aw-outcome"><ArticleDraftFeedback draft={draft} id={content.id}/>{feedback&&<p role="status" className="article-insertion-feedback">{feedback}</p>}{coverError&&<p role="alert">{coverError} <button onClick={()=>{setPreview(false);requestAnimationFrame(()=>rich.current?.focus())}}>返回正文核对并保存</button></p>}<div className="aw-outcome-bar"><span>{saving?'正在保存…':dirty?'修改已暂存本机':'已保存草稿 v'+version}</span><button disabled={running||saving} onClick={()=>{if(rich.current)bookmark.current=rich.current.bookmark();setPreview(v=>!v)}}>{preview?<PenLine size={14}/>:<Eye size={14}/>} {preview?'继续编辑':'阅读预览'}</button><button disabled={saving||!dirty||running} onClick={()=>t.action(save,'已保存当前平台稿件')}><Save size={14}/>保存修改</button></div>
+  <section className="aw-section"><h3><span>01</span>{video?'视频标题':'文章标题'}</h3><input aria-label="成果标题" value={values.title} onChange={e=>change('title',e.target.value)} disabled={running}/></section>
+  <section className="aw-section"><h3><span>02</span>{wechat?'文章正文':video?'口播脚本':'文案正文'}</h3>
+   {wechat?<><div className="aw-editor-actions"><button disabled={running} onClick={()=>openBody('library')}><ImagePlus size={14}/>插入图片</button><button disabled={running} onClick={()=>openBody('generate')}><ImagePlus size={14}/>生成新配图</button><span>选中文字可设置格式</span></div>{preview?<WechatLayoutProof body={values.body} settings={values.wechat_style}/>:<div className={running?'aw-editor-disabled':''}><ArticleRichEditor ref={rich} value={values.body} onChange={(v:string)=>{if(!running)change('body',v)}} fontSize={values.wechat_style.font_size} lineHeight={values.wechat_style.line_height} paragraphGap={values.wechat_style.paragraph_gap} accent={values.wechat_style.accent} onDropAsset={(id:string)=>{const pic=pictures.find((p:any)=>p.id===id);if(!running&&pic){bookmark.current=rich.current!.bookmark();void insertPicture(pic,'','cursor').catch((e:any)=>setFeedback(e.message))}}} onDropFiles={()=>openBody('library')}/></div>}</>:preview?<Markdown text={video?values.script||values.body:values.body}/>:<textarea aria-label="成果正文" rows={14} value={video?values.script||values.body:values.body} onChange={e=>{change(video?'script':'body',e.target.value);if(video)change('body',e.target.value)}} disabled={running}/>}
+  </section>
+  {wechat&&<><section className="aw-section"><h3><span>03</span>封面图片</h3><div className="aw-cover">{cover?<AssetThumbnail asset={cover}/>:<div>封面待生成或选择</div>}<div><button disabled={running} onClick={()=>setPicker('cover')}>从素材库选择</button><button disabled={running} onClick={async()=>{try{setCoverError('');await save();await onCreateCover()}catch(e){const message=(e as Error).message;setCoverError(message);t.setError(message)}}}>生成封面方案</button></div></div><label>画面建议<textarea rows={3} aria-label="封面画面建议" value={values.cover_brief} disabled={running} onChange={e=>change('cover_brief',e.target.value)}/></label></section><section className="aw-section"><h3><span>04</span>摘要</h3><textarea aria-label="成果摘要" rows={3} maxLength={120} disabled={running} value={values.summary} onChange={e=>change('summary',e.target.value)}/></section></>}
+  {video&&<><section className="aw-section"><h3><span>03</span>发布文案</h3><textarea aria-label="发布文案" rows={3} value={values.caption} disabled={running} onChange={e=>change('caption',e.target.value)}/></section><section className="aw-section"><h3><span>04</span>分镜与画面</h3><textarea aria-label="分镜与画面" rows={7} value={values.shotlist} disabled={running} onChange={e=>change('shotlist',e.target.value)}/></section></>}
+  {values.tags&&<section className="aw-section"><label>相关标签<input value={values.tags} disabled={running} onChange={e=>change('tags',e.target.value)}/></label></section>}
+  <footer className="aw-outcome-footer"><span>草稿请核对后使用</span><button disabled={saving||running} onClick={()=>t.action(exportFile,'已导出当前平台稿件')}><Download size={14}/>导出文稿</button></footer>
+  {picker&&<AssetPicker items={pictures} busy={running} onClose={()=>setPicker(null)} onSelect={(a:any)=>{change('cover_asset_id',a.id);setPicker(null)}}/>}
+  {bodyPicker&&<ArticleImagePicker content={{...content,...values}} owner={t.state.user.id} initialTab={bodyPicker} context={bookmark.current?.context} onClose={()=>setBodyPicker(null)} onInsert={insertPicture}/>}
+
+ </div>;
+}

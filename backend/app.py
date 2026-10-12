@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.23.11','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.24.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -443,6 +443,9 @@ def send(id:str,data:dict,u=Depends(user)):
     if mode=='auto':
         from .assistant_workspace import turn
         return turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('model_id'),data.get('reference_scope'),data.get('skip_profile') is True)
+    if mode=='profile':
+        from .assistant_workspace import turn
+        return turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),data.get('model_id'),data.get('reference_scope'),profile_only=True)
     return jobs.task_turn(u['id'],id,text,data.get('source_ids'),data.get('profile_id'),mode,data.get('model_id'),data.get('reference_scope'))
 
 @app.post('/api/content/{id}/check')
@@ -505,7 +508,7 @@ def retry(id:str,u=Depends(user)):
         return wechat.collect(u['id'],x['article_ids'],x['benchmark_id'])
     if action=='batch':return WORKFLOWS['batch'](x,u)
     if x.get('distilled_task'):return WORKFLOWS['distill'](x['distilled_task'],u)
-    if action=='prepare_profile':return agent.prepare(u['id'],x['task_id'],x.get('model_id'))
+    if action=='prepare_profile':return assistant_workspace.prepare_profile(u['id'],x['task_id'],x.get('model_id'),x.get('operation'),x.get('target_id'))
     if action=='artifact':
         task=s.get(u['id'],x['task_id']);content=s.get(u['id'],task['content_id']) if task.get('content_id') else None
         return artifacts.confirm(u['id'],x['task_id'],{'version':content['version'] if content else None,'model_id':x.get('model_id')})
@@ -692,18 +695,153 @@ def create_user(data:Auth,u=Depends(admin)):
     return {'id':id,'email':email}
 
 @app.get('/api/search')
-def search(q:str,u=Depends(user)):
-    words=q.strip().lower()
-    rows=[x for x in s.list_(u['id']) if x['kind'] not in ['job','issue'] and not x.get('archived') and words in (x.get('title','')+' '+x.get('body','')).lower()][:50]
-    return [media_studio._public(x) if x['kind'] in {'studio_asset','studio_run'} else x for x in rows]
+def search(q:str='',u=Depends(user)):
+    """Read-only lexical search. The array contract is retained for existing clients.
+
+    Title > human content > small explicit synonym groups. All query words must
+    match; IDs, settings and serialized runtime metadata are never searchable.
+    """
+    import re, unicodedata
+    from urllib.parse import quote, urlsplit
+    def fold(value):
+        return unicodedata.normalize('NFKC',str(value or '')).casefold()
+    query=fold(q).strip()
+    if len(query)>200:error(400,'搜索关键词请控制在200字以内')
+    if not query:return []
+    terms=list(dict.fromkeys(query.split()))
+    synonyms=[('结婚','婚礼','婚庆','婚姻'),('电梯更新','电梯改造'),('适老化','适老改造')]
+    def alternatives(term):
+        return next(([x for x in group if x!=term] for group in synonyms if term in group),[])
+    categories={'source':'原始资料','knowledge':'Wiki知识','memory':'个人记忆',
+        'profile':'我的IP','studio_brand':'我的IP','studio_profile_proposal':'IP方案',
+        'studio_topic':'选题','studio_flow':'创作作品','content':'文稿',
+        'studio_delivery':'平台稿件','studio_text_draft':'文案草稿','studio_draft':'媒体草稿',
+        'studio_run':'生成记录','studio_asset':'素材','task':'对话',
+        'news':'行业资讯','hotlist':'平台热点','benchmark':'对标账号','plan':'内容计划'}
+    all_rows=[x for x in s.list_(u['id']) if x['kind'] in categories and not x.get('archived') and not x.get('deleted')]
+    lookup={x['id']:x for x in all_rows}
+    fields=('body','brief','text','prompt','summary','description','angle','rationale',
+        'caption','script','audience','position','style','views','keywords')
+    def human_text(obj):
+        parts=[obj.get(k) for k in fields if isinstance(obj.get(k),str)]
+        for key in ('input','inputs','fields'):
+            data=obj.get(key)
+            if isinstance(data,dict):parts.extend(data[k] for k in fields if isinstance(data.get(k),str))
+        if obj['kind']=='task':
+            parts.extend(m.get('text','') for m in obj.get('messages',[]) if isinstance(m,dict) and isinstance(m.get('text'),str))
+        return '\n'.join(parts)
+    def route(obj):
+        kind=obj['kind'];ident=quote(obj['id'],safe='')
+        if kind in ('source','knowledge','memory'):return 'knowledge/'+kind+'/'+ident
+        if kind=='task':return 'task/'+ident
+        if kind=='studio_flow':return 'studio/flow?work='+ident
+        if kind in ('profile','studio_brand','studio_profile_proposal'):return 'studio/brand?profile_id='+ident
+        if kind=='studio_topic':return 'studio/topics?topic='+ident
+        if kind=='studio_delivery':return ('studio/flow?work='+quote(obj['flow_id'],safe='')+'&step=4') if obj.get('flow_id') in lookup else 'studio/topics?topic='+quote(str(obj.get('topic_id','')),safe='')
+        if kind in ('studio_draft','studio_text_draft'):
+            tools={'text':'text','text_image':'image','image_edit':'image','text_video':'video','image_video':'video',
+                'text_avatar':'avatar/text','audio_avatar':'avatar/audio','photo_talk':'avatar/photo',
+                'avatar_create':'avatar/create','voice_create':'audio/create','tts':'audio/tts','compose':'compose'}
+            tool=obj.get('tool','text' if kind=='studio_text_draft' else '');page=tools.get(tool)
+            if not page:return 'studio/works?record='+ident
+            path='studio/'+page+'?draft='+ident+'&mode='+quote(tool,safe='')
+            if obj.get('flow_id') in lookup:path+='&return='+quote('studio/flow?work='+obj['flow_id']+'&step=2',safe='')
+            elif obj.get('origin_task_id') in lookup:path+='&return='+quote('task/'+obj['origin_task_id'],safe='')
+            return path
+        if kind=='content':
+            if obj.get('flow_id') in lookup:return 'studio/flow?work='+quote(obj['flow_id'],safe='')+'&step=3'
+            if obj.get('task_id') in lookup:return 'task/'+quote(obj['task_id'],safe='')
+        if kind in ('content','studio_asset','studio_run'):return 'studio/works?record='+ident
+        if kind in ('hotlist','news'):return 'radar'
+        if kind=='benchmark':return 'benchmark'
+        return 'records'
+    # Collapse linked draft/run/assets by identity, never merely by title.
+    media={'studio_draft','studio_text_draft','studio_run','studio_asset','content'}
+    parents={x['id']:x['id'] for x in all_rows if x['kind'] in media}
+    def root(ident):
+        while parents[ident]!=ident:
+            parents[ident]=parents[parents[ident]];ident=parents[ident]
+        return ident
+    for obj in all_rows:
+        if obj['id'] not in parents:continue
+        refs=[obj.get(k) for k in ('draft_id','studio_draft_id','run_id')]
+        refs.extend(obj.get('asset_ids',[]) if isinstance(obj.get('asset_ids'),list) else [])
+        for ref in refs:
+            if isinstance(ref,str) and ref in parents:parents[root(ref)]=root(obj['id'])
+    families={}
+    for ident in parents:families.setdefault(root(ident),[]).append(lookup[ident])
+    priority={'studio_asset':4,'content':4,'studio_run':3,'studio_text_draft':2,'studio_draft':1}
+    candidates=[]
+    for obj in all_rows:
+        if obj['kind']=='hotlist':
+            for entry in obj.get('items',[]):
+                if not isinstance(entry,dict):continue
+                url=entry.get('url','');parsed=urlsplit(url)
+                if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password:continue
+                candidates.append({**obj,**{k:entry.get(k,'') for k in ('title','body','url')},'entry_id':s.digest(url)[:16]})
+        else:candidates.append(obj)
+    hits=[]
+    for obj in candidates:
+        title=str(obj.get('title') or obj.get('name') or '').strip();body=human_text(obj)
+        if obj['kind']=='studio_flow' and not body.strip() and title in ('','未命名作品','一站式创作'):continue
+        title_fold=fold(title);body_fold=fold(body);score=0;matched=[];expanded=[];title_hit=False
+        for term in terms:
+            if term in title_fold:score+=100;matched.append(term);title_hit=True
+            elif term in body_fold:score+=40;matched.append(term)
+            else:
+                alt=next((a for a in alternatives(term) if a in title_fold or a in body_fold),None)
+                if not alt:break
+                score+=15;matched.append(alt);expanded.append(term+'→'+alt)
+        else:
+            if query==title_fold:score+=200
+            elif query in title_fold:score+=80
+            # Show the matching passage, including matches deep in long documents.
+            text=body or title
+            pos=min((fold(text).find(w) for w in matched if w in fold(text)),default=0)
+            snippet=re.sub(r'\s+',' ',text[max(0,pos-45):max(0,pos-45)+180]).strip()
+            family=families.get(root(obj['id']),[]) if obj['id'] in parents else []
+            # Pick only a record that actually matched. Family siblings can have
+            # completely different picture titles and must not steal the preview.
+            representative=obj
+            dest=route(representative)
+            reason='相关词：'+'、'.join(expanded) if expanded else ('标题匹配' if title_hit else '内容匹配')
+            row={'id':representative['id'],'kind':representative['kind'],'title':representative.get('title') or title or snippet[:50] or '未命名',
+                'version':representative.get('version',1),'updated':representative.get('updated',''),
+                'category':categories[representative['kind']],'summary':snippet or title,'route':dest,
+                'score':score,'match_reason':reason,'matched_terms':matched,
+                'related_ids':sorted(x['id'] for x in family) if family else [obj['id']]}
+            if family:row['family_key']=root(obj['id'])
+            editors=[x for x in family if x['kind'] in ('studio_draft','studio_text_draft')]
+            if editors:row['edit_route']=route(sorted(editors,key=lambda x:(str(x.get('updated','')),x['id']),reverse=True)[0])
+            if obj['kind']=='hotlist':row.update(title=title,url=obj['url'],entry_id=obj['entry_id'],platform=obj.get('platform'),fetched_at=obj.get('fetched_at'))
+            elif obj.get('url'):
+                parsed=urlsplit(obj['url'])
+                if parsed.scheme=='https' and parsed.hostname and not parsed.username and not parsed.password:row['url']=obj['url']
+            hits.append(row)
+    hits.sort(key=lambda x:(-x['score'],-priority.get(x['kind'],0),x['id'],x.get('entry_id','')))
+    # Saved original sources supersede the identical public lead.
+    source_urls={x.get('url') for x in hits if x['kind']=='source' and x.get('url')}
+    output=[];seen=set()
+    for row in hits:
+        if row['kind'] in ('hotlist','news') and row.get('url') in source_urls:continue
+        key=('lead',row['url']) if row['kind'] in ('hotlist','news') and row.get('url') else ('family',row['family_key']) if row.get('family_key') else (row['id'],row.get('entry_id',''))
+        if key in seen:continue
+        seen.add(key);output.append(row)
+        if len(output)==50:break
+    return output
 
 from . import agent
-agent.register(app,user,error)
 from . import artifacts, illustrations
 from . import assistant_workspace
+assistant_workspace.register_actions(app,user)
 assistant_workspace.register(app,user)
 artifacts.register(app,user,error)
 illustrations.register(app,user,error)
+
+@app.post('/api/studio/text/article-illustration-prompt')
+def article_illustration_prompt(data:dict,u=Depends(user)):
+    from .article_illustration import suggest
+    return suggest(u['id'],data)
 from . import creation
 creation.register(app,user,admin,error)
 from . import topics

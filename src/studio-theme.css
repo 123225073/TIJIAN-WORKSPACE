@@ -222,9 +222,9 @@
 .ts-theme :is(.wa-rich-editor,.md-body textarea,.md-rendered) {background:#f7f8fc!important;color:#203047!important;color-scheme:light;font-size:16px;line-height:1.9}
 .ts-theme :is(.wa-rich-editor,.md-rendered) :where(h1,h2,h3,h4) {color:#173856}
 .ts-theme :is(.wa-rich-editor,.md-rendered) a {color:#17639d}
-.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper) .markdown {color:#203047}
-.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper) .markdown :is(h1,h2,h3,h4) {color:#173856}
-.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper) .markdown :is(pre,blockquote) {background:#edf1f7;color:#334d69;border-color:#b8c9dc}
+.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper,.wa-rich-editor,.wa-preview) .markdown {color:#203047}
+.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper,.wa-rich-editor,.wa-preview) .markdown :is(h1,h2,h3,h4) {color:#173856}
+.ts-theme .shell :is(.md-rendered,.article-preview,.st-paper,.wa-rich-editor,.wa-preview) .markdown :is(pre,blockquote) {background:#edf1f7;color:#334d69;border-color:#b8c9dc}
 .ts-theme .shell :is(.wa-rich-editor,.wa-preview,.md-rendered,.article-preview,.st-paper) :is(h1,h2,h3,h4) {color:#173856;background:transparent}
 .ts-theme .shell :is(.wa-rich-editor,.wa-preview,.md-rendered,.article-preview,.st-paper) :where(p,li,blockquote,strong) {color:inherit}
 .ts-theme .shell :is(.wa-rich-editor,.wa-preview,.md-rendered,.article-preview,.st-paper) blockquote {background:#edf1f7;border-color:#b8c9dc}
@@ -772,3 +772,49 @@
 .ts-theme ::-webkit-scrollbar {width:8px;height:8px;background:#111722}
 .ts-theme ::-webkit-scrollbar-track {background:#111722}
 .ts-theme ::-webkit-scrollbar-thumb {background:#566780;border:2px solid #111722;border-radius:8px}
+
+/* Legacy task/proposal chrome must pair its surface with its text colours. */
+.ts-theme :is(.agent-result,.profile-save-bar,.outcome-stream,.artifact-footer) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .agent-result :is(.agent-result-heading strong,.agent-fields dd,summary) {color:var(--ts-text)}
+.ts-theme .agent-result :is(.agent-result-heading span,.agent-fields dt),
+.ts-theme .agent-result>p,.ts-theme .profile-save-bar>span {color:var(--ts-muted)}
+.ts-theme .agent-result .agent-notes {color:var(--ts-gold)}
+.ts-theme .agent-result :is([role=alert],.form-error) {color:#ffb7a6}
+.ts-theme .agent-result .markdown {color:var(--ts-text)}
+.ts-theme :is(.agent-result,.artifact-footer,.profile-save-bar) button:not(.primary) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.agent-result,.artifact-footer,.profile-save-bar) button:hover:not(:disabled):not(.primary) {background:#263b59;color:var(--ts-accent);border-color:#7895c3}
+
+/* Form labels live outside paper, including dialogs mounted beside the shell. */
+.ts-theme .modal .field {color:var(--ts-text)}
+.ts-theme .modal .field b {color:var(--ts-gold)}
+.ts-theme .modal .field small {color:var(--ts-muted)}
+.ts-theme .modal :is(input:not([type=checkbox]):not([type=radio]),select,textarea) {background:#111722;color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
+.ts-theme .modal :is(input,textarea)::placeholder {color:var(--ts-muted);opacity:1}
+.ts-theme .modal :is(input,textarea,select):disabled {background:#232b38;color:var(--ts-muted);opacity:1;-webkit-text-fill-color:var(--ts-muted)}
+.ts-theme .modal button:not(.primary) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .modal button:hover:not(:disabled):not(.primary) {background:#263b59;color:var(--ts-accent);border-color:#7895c3}
+.ts-theme .modal-footer {border-color:var(--ts-line)}
+.ts-theme .modal-backdrop {background:#080d18b8;backdrop-filter:none}
+
+/* Knowledge menus and legacy feedback cards are UI, never authored documents. */
+.ts-theme .knowledge-page .knowledge-management .knowledge-overview {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .knowledge-page .knowledge-overview strong {color:var(--ts-accent)}
+.ts-theme .knowledge-page .knowledge-section-intro summary {color:var(--ts-muted)}
+.ts-theme .knowledge-page :is(.candidate-notice,.comparison) {background:var(--ts-elevated);color:var(--ts-muted);border-color:var(--ts-line)}
+.ts-theme .page-operations>div {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .page-operations>div>strong {color:var(--ts-text)}
+.ts-theme .page-operations .operation-error {background:#38251f;color:#ffb7a6;border-color:#785044}
+.ts-theme :is(.outcome-stream,.messages) .inline-job {background:var(--ts-elevated);color:var(--ts-muted)}
+.ts-theme :is(.outcome-stream,.messages,.page-operations) .stream-preview {color:var(--ts-text)}
+.ts-theme :is(.outcome-stream,.messages,.page-operations) .inline-job.failed {color:#ffb7a6}
+
+/* The selection toolbar is a body portal, outside both the shell and the paper. */
+.ts-theme .wa-selection-toolbar {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);box-shadow:0 12px 36px #0005}
+.ts-theme .wa-selection-toolbar :is(button,select) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
+.ts-theme .wa-selection-toolbar :is(button,select):hover:not(:disabled) {background:#263b59;color:var(--ts-accent)}
+.ts-theme .wa-selection-toolbar :is(button,select):focus-visible {outline:2px solid var(--ts-accent);outline-offset:2px}
+.ts-theme .wa-selection-toolbar :is(button,select):disabled {background:#232b38;color:var(--ts-muted);opacity:1;cursor:not-allowed}
+
+/* Upload labels and lazy-loaded preview chrome use the same dark theme pairs. */
+.ts-theme .studio-v2 label.st-primary{background:#2e66d3!important;color:#fff!important}
+.ts-theme .wa-layout-proof .wa-proof-head small{color:var(--ts-muted)!important}

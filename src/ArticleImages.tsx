@@ -1,17 +1,27 @@
-import {JobFeedback} from './OperationFeedback';
-import {useState,useEffect} from 'react';
-import {api,Item} from './api';
-import './outcomes.css';
+import {useRef,useState} from 'react';
+import ArticleImagePicker from './ArticleImagePicker';
+import {api,getToken} from './api';
+import {textBookmark,type TextBookmark} from './article-position';
+import './article-recovery.css';
 
+// Legacy outcome entry. Current platform outcomes use PlatformArticleOutcome.
 export default function ArticleImages({t,content,body,save,dirty,disabled}:any){
- const [open,setOpen]=useState(false),[prompt,setPrompt]=useState(''),[model,setModel]=useState(''),[size,setSize]=useState('1536x1024'),[selected,setSelected]=useState(''),[preview,setPreview]=useState(''),[place,setPlace]=useState('end'),[caption,setCaption]=useState('');
- const images=t.list('illustration').filter((x:Item)=>x.content_id===content.id);
- const models=t.state.models.filter((m:any)=>m.capability==='image');
- useEffect(()=>{if(!model&&models.length)setModel(models[0].id)},[model,models.map((m:any)=>m.id).join(',')]);
- const pick=selected||images[0]?.id||'';
- const busy=t.list('job').some((j:Item)=>j.input?.content_id===content.id&&['queued','running'].includes(j.status));
- useEffect(()=>{let active=true;setPreview('');if(pick&&open)api('/illustrations/'+pick+'/file').then(d=>{if(active)setPreview(d.data_uri)}).catch((e:Error)=>t.setError(e.message));return()=>{active=false}},[pick,open]);
- const headings=[...body.matchAll(/^#{1,6}\s+(.+)$/gm)].map((m:any)=>({label:m[1],position:m.index+m[0].length}));
- const insert=()=>t.action(async()=>{if(dirty)await save();const state=await api('/state');const current=state.objects.find((x:Item)=>x.id===content.id);if(current.body!==body)throw Error('文章已变化，请重新选择插入位置');const index=place==='end'?body.length:place==='start'?0:Number(place);const position=Array.from(body.slice(0,index)).length;await api('/content/'+content.id+'/illustrations/insert',{illustration_id:pick,version:current.version,position,caption});},'配图已插入文章');
- return <div className="article-images"><button className="quiet" onClick={()=>setOpen(!open)}>{open?'收起配图':'添加配图'}{images.length?' · '+images.length+' 张':''}</button>{open&&<div className="image-workspace"><div><label className="field"><span>画面要求</span><textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder={'例如：为「'+content.title+'」制作简洁的行业示意图，墨绿和米白色调，无文字。'}/></label><div className="image-options"><select aria-label="生图模型" value={model} onChange={e=>setModel(e.target.value)}><option value="">选择已上架的生图模型</option>{models.map((m:any)=><option key={m.id} value={m.id}>{m.provider_title} · {m.title}</option>)}</select><select aria-label="图片尺寸" value={size} onChange={e=>setSize(e.target.value)}><option value="1536x1024">横图</option><option value="1024x1024">方图</option><option value="1024x1536">竖图</option></select></div>{!models.length&&<p className="muted">暂无上架的生图模型。{t.state.user.role==='admin'?<a href="#admin">到后台配置 →</a>:'请联系管理员配置。'}也可以上传本地图片。</p>}<JobFeedback job={t.list('job').find((j:Item)=>j.input?.content_id===content.id)}/><div className="button-row"><button disabled={disabled||busy||!model||!prompt.trim()} onClick={()=>t.action(()=>api('/content/'+content.id+'/illustrations',{model_id:model,prompt,size}),'正在生成配图')}>{busy?'生成中…':'生成预览'}</button><label className="image-upload">上传本地图片<input type="file" accept="image/png,image/jpeg,image/webp" disabled={disabled} onChange={e=>{const file=e.target.files?.[0];if(!file)return;const form=new FormData();form.append('file',file);void t.action(async()=>{const r=await api('/content/'+content.id+'/illustrations/upload',form);setSelected(r.illustration_id)},'图片已加入预览');e.target.value=''}}/></label></div></div>{images.length>0&&<div className="image-preview"><select aria-label="预览图片" value={pick} onChange={e=>setSelected(e.target.value)}>{images.map((im:Item)=><option key={im.id} value={im.id}>{im.source_type} · {im.title}</option>)}</select>{preview&&<img alt="待插入配图预览" src={preview}/>}<input aria-label="图片说明" placeholder="图片说明（可选）" value={caption} onChange={e=>setCaption(e.target.value)}/><select aria-label="插入位置" value={place} onChange={e=>setPlace(e.target.value)}><option value="start">文章开头</option>{headings.map((h:any,i:number)=><option key={i} value={h.position}>{h.label} · 标题后</option>)}<option value="end">文章末尾</option></select><button className="primary" disabled={disabled||busy} onClick={insert}>确认插入文章</button></div>}</div>}</div>
+ const [tab,setTab]=useState<string|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const bookmark=useRef<TextBookmark|null>(null),copies=useRef(new Map<string,string>());
+ const open=(value:string)=>{const editor=document.querySelector<HTMLTextAreaElement>('.document-editor');bookmark.current=textBookmark(body,editor?.selectionStart??body.length,editor?.selectionEnd??body.length);setTab(value);setError('')};
+ const insert=async(pic:any,caption:string,place:string)=>{
+  try{
+   const mark=bookmark.current;if(!mark)throw Error('请重新选择插入位置');
+   if(place==='cursor'&&mark.body!==body)throw Error('正文已变化，请重新选择插入位置；图片保留在素材库');
+   let id=copies.current.get(pic.id);
+   if(!id){const response=await fetch(pic.file_url||'/api/studio/assets/'+pic.id+'/file',{headers:{Authorization:'Bearer '+getToken()}});if(!response.ok)throw Error('图片读取失败');const form=new FormData();form.append('file',new File([await response.blob()],pic.title||'配图.png',{type:pic.mime_type||'image/png'}));const r=await api('/content/'+content.id+'/illustrations/upload',form);id=r.illustration_id;copies.current.set(pic.id,id!)}
+   if(dirty)await save();
+   const state=await api('/state/updates?ids='+content.id),row=state.items.find((x:any)=>x.id===content.id);
+   if(!row||row.body!==body)throw Error('服务器正文已变化，请先比较版本；选中图片与插入位置仍保留');
+   const index=place==='start'?0:place==='end'?body.length:mark.start;
+   await api('/content/'+content.id+'/illustrations/insert',{illustration_id:id,version:row.version,position:Array.from(body.slice(0,index)).length,caption:caption||pic.title});
+   setNotice('图片已插入正文当前位置并保存');setTab(null);await t.refresh();
+  }catch(e:any){setError(e.message);throw e}
+ };
+ return <div className="article-images" data-error-target={content.id}><button type="button" disabled={disabled} onClick={()=>open('library')}>素材库插图</button><button type="button" disabled={disabled} onClick={()=>open('generate')}>AI 生成新配图</button>{notice&&<p role="status">{notice}</p>}{error&&<p role="alert">{error} <button type="button" onClick={()=>{setTab(null);document.querySelector<HTMLTextAreaElement>('.document-editor')?.focus()}}>返回正文解决</button></p>}{tab&&<ArticleImagePicker content={content} owner={t.state.user.id} initialTab={tab} context={bookmark.current?.context} onClose={()=>setTab(null)} onInsert={insert}/>}</div>;
 }

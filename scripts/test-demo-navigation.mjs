@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import path from 'node:path';
+import {chromium} from 'playwright-core';
+import {startIsolatedUI} from './test-studio-color-states.mjs';
+
+const fixture=await startIsolatedUI('demo-navigation');
+let browser;
+try {
+ await fixture.call('/workspace',{});
+ const task=await fixture.call('/objects/task',{title:'隔离导航恢复测试',messages:[{role:'user',text:'定位需求'}]});
+ const seed=spawnSync(path.resolve('.runtime/venv/Scripts/python.exe'),['-c',`import json,sys\nfrom backend import store as s\nd=json.load(sys.stdin);s.init();s.put(d['owner'],'job',{'title':'公开流式显示测试','status':'running','task_id':d['task'],'input':{'action':'assistant'},'started_at':s.now(),'progress':'正在生成回复','stream_text':'已经收到的第一段公开回复。','progress_history':[{'text':'正在核对本次资料','at':s.now()}]})`],{env:fixture.env,input:JSON.stringify({owner:fixture.auth.user.id,task:task.id}),encoding:'utf8',windowsHide:true});
+ assert.equal(seed.status,0,seed.stderr);
+ browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+ const page=await browser.newPage({viewport:{width:1530,height:1000}});
+ await fixture.attach(page);await page.goto(fixture.base+'/?ui=1#task/'+task.id);
+ await page.locator('.aw-workspace').waitFor();
+ const process=page.locator('.job-process');await process.waitFor();
+ assert.equal(await process.getAttribute('open'),null);
+ await process.locator('summary').click();
+ await process.getByText('已经收到的第一段公开回复。',{exact:true}).waitFor();
+ await process.getByText('正在核对本次资料',{exact:true}).waitFor();
+ await page.evaluate(()=>{for(let i=0;i<3;i++)window.dispatchEvent(new CustomEvent('operation',{detail:{id:'failure-'+i,route:location.hash.slice(1),path:'/tasks/test/outcomes/test',label:'保存操作',error:'测试冲突，请比较版本',pending:false,at:Date.now()}}))});
+ await page.locator('.page-operations .operation-error').waitFor();
+ assert.equal(await page.locator('.page-operations .operation-error').count(),1);
+ await page.evaluate(()=>window.addEventListener('operation-recover',()=>document.body.dataset.recovery='clicked',{once:true}));
+ await page.locator('.page-operations').getByRole('button',{name:'定位并处理'}).click();
+ assert.equal(await page.locator('body').getAttribute('data-recovery'),'clicked');
+ await page.locator('.sidebar').getByRole('button',{name:'我的 IP',exact:true}).click();
+ await page.getByRole('button',{name:'继续当前任务',exact:true}).click();
+ await page.locator('.aw-workspace').waitFor();
+ assert.equal(new URL(page.url()).hash,'#task/'+task.id);
+ await page.reload();await page.locator('.aw-workspace').waitFor();
+ await page.locator('.sidebar').getByRole('button',{name:'首页',exact:true}).click();
+ await page.getByRole('button',{name:'继续当前任务',exact:true}).click();
+ assert.equal(new URL(page.url()).hash,'#task/'+task.id);
+ await page.locator('.search-button').click();
+ const dialog=page.getByRole('dialog',{name:'全局搜索'});
+ await dialog.getByRole('textbox',{name:'搜索资料与作品'}).fill('隔离导航恢复测试');
+ await dialog.locator('.global-search-result').waitFor();
+ assert.equal(await dialog.locator('.global-search-result').count(),1);
+ await dialog.locator('.global-search-result').click();await page.locator('.aw-workspace').waitFor();
+ assert.equal(new URL(page.url()).hash,'#task/'+task.id);
+ console.log(JSON.stringify({passed:true,checks:['public output visible before completion','process collapsed by default','repeated error deduplicated','actionable error','return after navigation','return after reload','integrated keyword search','search returns selected task'],paidCalls:false}));
+} finally {await browser?.close();fixture.close();}

@@ -6,6 +6,13 @@ from . import store as s, gateway as g, upstream, resources, capabilities, libra
 POOL=concurrent.futures.ThreadPoolExecutor(max_workers=3,thread_name_prefix='tijian')
 CANCEL={}
 
+def progress_history(item, text):
+    """Only program-authored stages; model reasoning and tool arguments stay private."""
+    history = list(item.get('progress_history') or [])
+    if not history or history[-1]['text'] != text:
+        history.append({'text': text, 'at': s.now()})
+    return history[-24:]
+
 def serialized(fn):
     @wraps(fn)
     def wrapped(*args,**kwargs):
@@ -33,7 +40,9 @@ def start(owner,title,fn,inputs=None):
             if data.get('status')=='cancelled':raise InterruptedError('任务已取消')
             data.update(stream_text=readable(text)[-250000:],stream_phase=phase)
             if phase=='buffered':data['stream_note']='此服务未返回流式数据，已显示完整结果'
-            elif phase=='start':data.update(stream_note='',progress='模型正在处理，等待首段内容')
+            elif phase=='start':
+                data.update(stream_note='',progress='模型正在处理，等待首段内容')
+                data['progress_history']=progress_history(data,data['progress'])
             elif phase=='delta':data['progress']='正在生成 · 已收到 '+str(len(text))+' 字符'
             c.execute('UPDATE objects SET data=?,updated=? WHERE id=?',(json.dumps(data,ensure_ascii=False),s.now(),j['id']))
     def progress(text,result=None):
@@ -41,7 +50,7 @@ def start(owner,title,fn,inputs=None):
             if event.is_set():raise InterruptedError('任务已取消')
             item=s.get(owner,j['id'])
             if item.get('status')=='cancelled':raise InterruptedError('任务已取消')
-            s.put(owner,'job',{**item,'progress':text,'status':'running','started_at':item.get('started_at') or s.now(),**({'result':result} if result is not None else {})},j['id'])
+            s.put(owner,'job',{**item,'progress':text,'progress_history':progress_history(item,text),'status':'running','started_at':item.get('started_at') or s.now(),**({'result':result} if result is not None else {})},j['id'])
     def run():
         try:
             progress('正在准备资料')

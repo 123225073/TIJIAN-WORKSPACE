@@ -121,7 +121,8 @@ def generate(id,messages,probe=False):
                         if len(text)>2_000_000:raise ValueError('模型输出过长，已停止')
                         streaming.emit('delta',text)
                 if not complete:raise ValueError('模型连接提前结束，未保存不完整内容，请重试')
-    if not text:raise ValueError('模型未返回可显示内容')
+    text=streaming.without_thoughts(text)
+    if not text.strip():raise ValueError('模型未返回可显示内容')
     streaming.emit('end',text)
     return text
 

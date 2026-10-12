@@ -1,9 +1,33 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {RefreshCw,Plus,Globe,ExternalLink,X,Search} from 'lucide-react';
 import {api,type Item} from './api';
 import {DeleteRecord} from './DeleteRecord';
 import {SourceWizard,openReader} from './DiscoveryPanels';
 import './radar.css';
+
+const hotlistPlatforms=[['weibo','微博热搜'],['zhihu','知乎热榜'],['toutiao','头条热榜'],['douyin','抖音热榜'],['rednote','小红书热榜'],['baidu/hot','百度热榜']];
+const hotlistTime=(value?:string)=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('zh-CN',{hour12:false}):'未记录';
+export function HotlistBoards({t,query='',industry=false,onRead}:{t:any;query?:string;industry?:boolean;onRead:(row:any)=>void}){
+ const [clock,setClock]=useState(Date.now());
+ useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),15000);return()=>clearInterval(timer)},[]);
+ const active=t.list('job').some((j:Item)=>j.input?.action==='hotlists'&&['queued','running'].includes(j.status));
+ return <><p className="radar-explanation">公开平台榜单，每个平台分别更新；主源不可用时最多尝试两个公开备用来源。5分钟内复用缓存。获取时间与上游榜单时间分别展示，热榜线索需查看原文核实。</p>
+  <div className="hotlist-grid">{hotlistPlatforms.map(([platform,label])=>{
+   const board=t.list('hotlist').find((x:Item)=>x.platform===platform),age=board?.fetched_at?clock-Date.parse(board.fetched_at):Infinity;
+   const rows=(board?.items||[]).filter((row:any)=>row.title.toLowerCase().includes(query.toLowerCase())&&(!industry||/电梯|扶梯|物业|适老|旧改|老旧小区|楼宇|特种设备|城市更新/.test(row.title)));
+   const failed=!!board?.error,status=failed?(board?.items?.length?'更新失败 · 历史榜单':'更新失败 · 暂无榜单'):!board?.items?.length?'尚未加载':board.cache_hit||age>300000?'缓存榜单':'本次获取';
+   const cooling=board?.last_attempt_at&&clock-Date.parse(board.last_attempt_at)<300000;
+   return <section className="hotlist-board" key={platform} aria-label={label}><header><span className="platform-mark">{label[0]}</span><div><h2>{label}</h2><small>{status}</small></div><span>{rows.length} 条</span></header>
+    <div className="hotlist-provenance"><span>获取：{hotlistTime(board?.fetched_at)}</span><span>上游榜单：{board?.upstream_at?hotlistTime(board.upstream_at):'未提供时间'}</span>{board?.last_attempt_at&&<span>最近尝试：{hotlistTime(board.last_attempt_at)}</span>}
+     {board?.provider_url&&<a href={board.provider_url} target="_blank" rel="noopener noreferrer">{board.provider||'历史聚合来源'}</a>}</div>
+    {failed&&<p className="local-warning">{board.error}</p>}
+    <div className="hotlist-board-actions"><button disabled={active||!!cooling} onClick={()=>t.action(()=>api('/hotlists/refresh',{platforms:[platform]}),'已提交'+label+'更新')}><RefreshCw size={13}/>{active?'更新中…':cooling?'5分钟后可再次更新':failed?'重试此平台':'更新此平台'}</button>
+     {!!board?.attempts?.length&&<details><summary>来源检查</summary>{board.attempts.map((attempt:any)=><p key={attempt.url}>{new URL(attempt.url).hostname} · {attempt.status==='ok'?'取得 '+attempt.count+' 条':attempt.error}</p>)}</details>}</div>
+    <div className="hotlist-rows">{rows.map((row:any)=><button key={row.url} onClick={()=>onRead({...row,board,source_type:label})}><b className={row.rank<=3?'top-rank':''}>{row.rank}</b><span><strong>{row.title}</strong><small>热度 {row.heat}{row.published_at?' · 条目发布 '+hotlistTime(row.published_at):''}</small></span></button>)}
+     {!rows.length&&<p className="inline-empty">{board?.items?.length?'没有匹配的热点。可关闭筛选查看综合榜。':failed?'尚无可用榜单，已报告本次更新失败。':'点击更新，加载真实榜单。'}</p>}</div>
+   </section>
+  })}</div></>
+}
 
 const labels:Record<string,string>={ready:'可读取',no_match:'未发现匹配',needs_browser:'需网页读取',failed:'获取失败'};
 export const sourceState=(f:Item)=>f.enabled===false?'已暂停':labels[f.last_result?.status]|| (f.error?'获取异常':'尚未获取');

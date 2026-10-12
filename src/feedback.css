@@ -8,3 +8,9 @@
 .activity-track i{display:block;width:42%;height:100%;background:#16855f;border-radius:20px;animation:activity-slide 1.5s ease-in-out infinite}
 @keyframes activity-slide{from{transform:translateX(-110%)}to{transform:translateX(340%)}}
 @media(prefers-reduced-motion:reduce){.activity-track i{animation:none;width:100%}}
+.job-process{width:100%;border:1px solid #3b485c;border-radius:10px;background:#111722;padding:10px 12px;color:#edf2fb}
+.job-process summary{cursor:pointer;color:#b5ceff;font-size:12px;list-style-position:inside}
+.job-process ol{padding-left:20px;font-size:12px;color:#b8c8dc;line-height:1.8}
+.job-process .stream-preview{max-height:320px;overflow:auto;border-top:1px solid #3b485c;margin-top:10px;padding-top:10px}
+.job-process>small{display:block;margin-top:8px;color:#b1bed1}
+.job-process[open] summary{margin-bottom:10px}
