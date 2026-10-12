@@ -1,0 +1,155 @@
+[
+ {
+  "name": "historical article headings",
+  "source": {
+   "title": "旧创作要求",
+   "body": "# 真正文稿标题\n\n## 小标题\n**完整正文**。\n\n### 第二小标题\n完整结尾。"
+  },
+  "text": "完整正文。\n\n完整结尾。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "explicit spoken priority",
+  "source": {
+   "title": "显示标题",
+   "body": "# 文章标题\n文章正文",
+   "script": "次选脚本",
+   "spoken": "我要读这句话。\n完整结尾。"
+  },
+  "text": "我要读这句话。\n完整结尾。",
+  "field": "spoken",
+  "needs_conversion": false
+ },
+ {
+  "name": "explicit script formatting",
+  "source": {
+   "script": "# 文稿标题\n**你好**。\n【画面：门口】\n完整结尾。"
+  },
+  "text": "你好。\n\n完整结尾。",
+  "field": "script",
+  "needs_conversion": false
+ },
+ {
+  "name": "explicit script H2 headings",
+  "source": {
+   "script": "## 口播文稿标题\n完整开头。\n### 结尾小标题\n完整结尾。\n> ## 引用中的标题是原话"
+  },
+  "text": "完整开头。\n完整结尾。\n引用中的标题是原话",
+  "field": "script",
+  "needs_conversion": false
+ },
+ {
+  "name": "structured generated JSON",
+  "source": {
+   "body": "{\"title\":\"视频标题\",\"body\":\"另存的文章\",\"script\":\"真实口播。\\n完整结尾。\",\"shotlist\":\"分镜说明\"}"
+  },
+  "text": "真实口播。\n完整结尾。",
+  "field": "script",
+  "needs_conversion": false
+ },
+ {
+  "name": "fenced generated JSON",
+  "source": {
+   "body": "```json\n{\"spoken\":\"你好，先核对记录。\"}\n```"
+  },
+  "text": "你好，先核对记录。",
+  "field": "spoken",
+  "needs_conversion": false
+ },
+ {
+  "name": "inline production labels",
+  "source": {
+   "body": "标题：发布用\n发布标题：不用朗读\n正文。【分镜：特写】接着说。\n制作说明：配乐\n完整结尾。"
+  },
+  "text": "正文。接着说。\n\n完整结尾。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "nested shotlist block",
+  "source": {
+   "body": "## 口播脚本\n正文开头。\n## 分镜脚本\n画面说明\n### 镜头一\n动作说明\n## 口播稿\n完整结尾。"
+  },
+  "text": "正文开头。\n完整结尾。",
+  "field": "speech_section",
+  "needs_conversion": false
+ },
+ {
+  "name": "quote preservation",
+  "source": {
+   "spoken": "今天的标题是：核对记录。\n他说：“【分镜：原话】”，正文【分镜：特写】继续。\n> # 引用中的标题\n> 【字幕：引用原话】\n完整结尾。"
+  },
+  "text": "今天的标题是：核对记录。\n他说：“【分镜：原话】”，正文继续。\n引用中的标题\n【字幕：引用原话】\n完整结尾。",
+  "field": "spoken",
+  "needs_conversion": false
+ },
+ {
+  "name": "links images list and entities",
+  "source": {
+   "body": "# 标题\n![图片](https://example.invalid/image.png)\n1. 核对**记录**。\n2. 参见[公开说明](https://example.invalid/info)。\n\n&lt;完整&gt; &amp; 保留结尾。"
+  },
+  "text": "核对记录。\n参见公开说明。\n\n<完整> & 保留结尾。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "plain user speech identical",
+  "source": {
+   "format": "口播脚本",
+   "title": "标题也是我要说的",
+   "body": "标题也是我要说的\n\n今天聊维保。\n完整结尾。"
+  },
+  "text": "标题也是我要说的\n\n今天聊维保。\n完整结尾。",
+  "field": "body",
+  "needs_conversion": false
+ },
+ {
+  "name": "title value block",
+  "source": {
+   "body": "## 文章标题\n标题值\n## 正文\n真实正文。\n\n## 制作说明\n需要配乐"
+  },
+  "text": "真实正文。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "empty explicit falls back",
+  "source": {
+   "spoken": " ",
+   "script": "",
+   "body": "完整的文章正文。"
+  },
+  "text": "完整的文章正文。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "explicit spoken title sentence",
+  "source": {
+   "spoken": "标题：安全不是一句口号，而是每天的检查。\n请大家记住这句话。"
+  },
+  "text": "标题：安全不是一句口号，而是每天的检查。\n请大家记住这句话。",
+  "field": "spoken",
+  "needs_conversion": false
+ },
+ {
+  "name": "HTML article heading boundaries",
+  "source": {
+   "title": "旧电梯更新",
+   "body": "<h1>旧电梯更新</h1><p>先核对检验记录。</p><p>最后核对完整结论。</p>"
+  },
+  "text": "先核对检验记录。\n最后核对完整结论。",
+  "field": "body",
+  "needs_conversion": true
+ },
+ {
+  "name": "HTML punctuation and named entities",
+  "source": {
+   "spoken": "范围：甲&mdash;乙；请等候&hellip;\n&ldquo;完整&rdquo; &times; &copy; &trade; &eacute; 保留结束。"
+  },
+  "text": "范围：甲—乙；请等候…\n“完整” × © ™ é 保留结束。",
+  "field": "spoken",
+  "needs_conversion": false
+ }
+]

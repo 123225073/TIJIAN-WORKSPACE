@@ -21,6 +21,8 @@ let browser,page;
 const states=[],errors=[],extraGuard=[];
 const report={passed:false,sourceCSS,expectRed,real_paid_model:false,fixture_only:true,integration:fixture.integration,css:css.map(({file,body})=>({file,sha256:createHash('sha256').update(body).digest('hex')})),states,errors,guard:fixture.guard,extraGuard};
 const persist=()=>fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify(report,null,2));
+let checkpoint='seed';
+const watchdog=setTimeout(async()=>{report.executionError='Timed out at '+checkpoint;persist();if(page)await page.screenshot({path:path.join(directory,'timeout.png'),fullPage:true,timeout:5000}).catch(()=>{});console.error(JSON.stringify({checkpoint,errors,directory}));await browser?.close().catch(()=>{});fixture.close();},90000);
 async function seed(){
  assert.equal(fixture.env.TIJIAN_DATA,directory);
  assert(directory.startsWith(path.resolve('.runtime')+path.sep));
@@ -51,7 +53,7 @@ try{
  const ids=await seed();report.ids=ids;
  browser=await chromium.launch({headless:true,executablePath:process.env.UI_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--disable-gpu']});
  page=await browser.newPage({viewport:{width:1530,height:1000}});page.on('pageerror',e=>errors.push(e.message));
- await attach(page);
+ checkpoint='attach';await attach(page);
  await page.route('**/*',async route=>{
   const request=route.request(),url=new URL(request.url());
   if(url.origin!==base){extraGuard.push(url.href);return route.abort()}
@@ -65,9 +67,9 @@ try{
   if(body)return route.fulfill({body,contentType:key.endsWith('.css')?'text/css':key.endsWith('.js')?'application/javascript':key.endsWith('.html')?'text/html':undefined});
   return route.fallback();
  });
- const go=async(route,selector)=>{await page.goto(base+'/?ui=1#'+route);await page.locator(selector).first().waitFor();if(sourceCSS)await page.addStyleTag({content:css.map(x=>x.body).join('\n')});await settleUI(page)};
+ const go=async(route,selector)=>{checkpoint='navigate '+route;await page.goto(base+'/?ui=1#'+route);await page.locator(selector).first().waitFor();if(sourceCSS)await page.addStyleTag({content:css.map(x=>x.body).join('\n')});checkpoint='settle '+route;await settleUI(page)};
  const scan=async(name,scope,screenshot=false)=>{
-  await settleUI(page);const result=await page.evaluate(measureContrast,{scope,excludeUserPaper:true});assert(result.checked>0,name+' must contain rendered text');
+  checkpoint='scan '+name;await settleUI(page);const result=await page.evaluate(measureContrast,{scope,excludeUserPaper:true});assert(result.checked>0,name+' must contain rendered text');
   states.push({name,...result});if(screenshot)await page.screenshot({path:path.join(directory,name+'.png'),fullPage:true});persist();return result;
  };
  const cdp=await page.context().newCDPSession(page);await cdp.send('DOM.enable');await cdp.send('CSS.enable');
@@ -124,4 +126,4 @@ try{
   assert.equal(report.passed,true,'Computed UI contrast failures; see result.json and screenshots');
  }
 }catch(error){report.executionError=error.message;persist();if(page)await page.screenshot({path:path.join(directory,'failure.png'),fullPage:true}).catch(()=>{});console.error('Evidence: '+directory);throw error}
-finally{if(browser)await browser.close();fixture.close()}
+finally{clearTimeout(watchdog);if(browser)await browser.close();fixture.close()}

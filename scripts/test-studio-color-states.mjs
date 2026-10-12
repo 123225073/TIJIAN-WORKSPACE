@@ -12,7 +12,7 @@ import {chromium} from 'playwright-core';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const freePort=async()=>{const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));return port};
 export async function settleUI(page){
- await page.evaluate(async()=>{const finite=document.getAnimations().filter(animation=>Number.isFinite(animation.effect?.getComputedTiming().endTime));await Promise.all(finite.map(animation=>animation.finished.catch(()=>{})))});
+ await page.evaluate(()=>{for(const animation of document.getAnimations()){if(Number.isFinite(animation.effect?.getComputedTiming().endTime)&&animation.playState!=='idle'){try{animation.finish()}catch{/* Paused zero-rate effects have no pending paint to await. */}}}});
 }
 export async function startIsolatedUI(prefix='studio-color') {
  const directory=path.resolve('.runtime',prefix+'-'+Date.now());fs.mkdirSync(directory,{recursive:true});

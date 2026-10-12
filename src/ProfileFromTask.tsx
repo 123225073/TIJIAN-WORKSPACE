@@ -7,7 +7,8 @@ export function ProfileFromTask({t,task,mode,modelId,onSaved}:{t:any;task:Item;m
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  const p=task.agent_proposal;
  const [target,setTarget]=useState(p?.target_id||task.profile_id||''),recovery=useRef<HTMLDetailsElement>(null);
- useEffect(()=>{setError('');setTarget(p?.target_id||task.profile_id||'')},[p?.id]);
+ const [writeMode,setWriteMode]=useState<'create'|'update'>(p?.operation==='update'||p?.target_id?'update':'create');
+ useEffect(()=>{setError('');setTarget(p?.target_id||task.profile_id||'');setWriteMode(p?.operation==='update'||p?.target_id?'update':'create')},[task.id,p?.id]);
  useEffect(()=>{const recover=(event:Event)=>{const e=event as CustomEvent<{path:string;error:string;route:string}>;
   const path=e.detail?.path?.replace(/^\/api/,'')||'';
   if(!path.startsWith('/tasks/'+task.id+'/')||!(/\/agent\//.test(path)||path.endsWith('/profile'))||e.detail.route.split('?')[0]!=='task/'+task.id)return;
@@ -15,6 +16,7 @@ export function ProfileFromTask({t,task,mode,modelId,onSaved}:{t:any;task:Item;m
  };window.addEventListener('operation-recover',recover);return()=>window.removeEventListener('operation-recover',recover)},[task.id]);
  const running=t.list('job').some((j:Item)=>j.task_id===task.id&&['queued','running'].includes(j.status));
  const stale=p?.status==='pending'&&(p.task_version!==undefined&&p.task_version!==task.version||p.kind==='profile'&&!p.operation);
+ const bindingChanged=p?.kind==='profile'&&p.status==='pending'&&(writeMode!==p.operation||writeMode==='update'&&target!==p.target_id);
  const action=async(fn:()=>Promise<any>)=>{setBusy(true);setError('');try{await fn();await t.refresh()}catch(e){setError((e as Error).message)}finally{setBusy(false)}};
  const prepare=(operation?:string,targetId?:string)=>action(()=>api('/tasks/'+task.id+'/agent/prepare-profile',{model_id:modelId||undefined,...(operation?{operation}:{}),...(targetId?{target_id:targetId}:{})}));
  const apply=async(fields?:any)=>{const saved=await api('/tasks/'+task.id+'/agent/apply',{proposal_id:p.id,task_version:p.task_version,...(fields?{fields}:{})});if(p.kind==='profile')onSaved?.(saved.id);t.setToast(p.kind==='profile'?(p.operation==='create'?'已新增 IP：':'已更新 IP：')+saved.title:'已写入个人记忆');return saved};
@@ -29,8 +31,14 @@ export function ProfileFromTask({t,task,mode,modelId,onSaved}:{t:any;task:Item;m
  <details><summary>查看完整{p.kind==='profile'?'定位方案':'记忆内容'}</summary><Markdown text={p.fields.body}/></details>
  {p.notes?.length>0&&<ul className="agent-notes">{p.notes.map((n:string,i:number)=><li key={i}>{n}</li>)}</ul>}
  {stale&&<p role="status" className="profile-stale">{!p.operation?'这是历史候选，请重新整理并核对新增或更新目标。':'对话已更新，请重新整理并核对当前候选。'}</p>}
- <div className="button-row"><button className="primary" disabled={busy||running||stale} onClick={()=>action(()=>apply())}>{busy?'写入中…':'确认写入'}</button><button disabled={busy||running||stale} onClick={edit}>微调内容</button><button disabled={busy||running} onClick={()=>action(()=>api('/tasks/'+task.id+'/agent/dismiss',{proposal_id:p.id}))}>暂不写入</button></div>
- {p.kind==='profile'&&<details className="profile-recovery" ref={recovery} open={stale||!!error}><summary>调整写入方式</summary><div className="profile-recovery-controls"><button disabled={busy||running} onClick={()=>prepare()}>重新整理当前对话</button><button disabled={busy||running} onClick={()=>prepare('create')}>重新整理为新增 IP</button><label>更新目标<select aria-label="IP 更新目标" value={target} disabled={busy||running} onChange={e=>setTarget(e.target.value)}><option value="">选择已有 IP</option>{t.list('profile').map((profile:Item)=><option key={profile.id} value={profile.id}>{profile.title}</option>)}</select></label><button disabled={busy||running||!target} onClick={()=>prepare('update',target)}>重新整理为更新此 IP</button><p>重新整理会生成新候选，核对后再确认写入。</p></div></details>}
+ {!stale&&bindingChanged&&<p role="status" className="profile-stale">写入方式或更新目标已调整，请重新整理，核对新候选后再写入。</p>}
+ <div className="button-row"><button className="primary" disabled={busy||running||stale||bindingChanged} onClick={()=>action(()=>apply())}>{busy?'写入中…':'确认写入'}</button><button disabled={busy||running||stale||bindingChanged} onClick={edit}>微调内容</button><button disabled={busy||running} onClick={()=>action(()=>api('/tasks/'+task.id+'/agent/dismiss',{proposal_id:p.id}))}>暂不写入</button></div>
+ {p.kind==='profile'&&<details className="profile-recovery" ref={recovery} open={stale||!!error}><summary>调整写入方式</summary><div className="profile-recovery-controls">
+  <div className="profile-write-tabs" role="tablist" aria-label="IP 写入方式">{(['create','update'] as const).map(operation=><button key={operation} id={'profile-write-'+task.id+'-'+operation} role="tab" aria-selected={writeMode===operation} aria-controls={'profile-write-panel-'+task.id} tabIndex={writeMode===operation?0:-1} disabled={busy||running} onClick={()=>setWriteMode(operation)} onKeyDown={e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?'create':e.key==='End'?'update':operation==='create'?'update':'create';setWriteMode(next);document.getElementById('profile-write-'+task.id+'-'+next)?.focus()}}>{operation==='create'?'新增 IP':'更新已有 IP'}</button>)}</div>
+  <div className="profile-write-panel" id={'profile-write-panel-'+task.id} role="tabpanel" aria-labelledby={'profile-write-'+task.id+'-'+writeMode}>
+   {writeMode==='create'?<><p>建立独立的 IP 档案，参考定位不会被覆盖。</p><button disabled={busy||running} onClick={()=>prepare('create')}>重新整理为新增 IP</button></>:<><label>更新目标<select aria-label="IP 更新目标" value={target} disabled={busy||running} onChange={e=>setTarget(e.target.value)}><option value="">选择已有 IP</option>{t.list('profile').filter((profile:Item)=>!profile.archived).map((profile:Item)=><option key={profile.id} value={profile.id}>{profile.title}</option>)}</select></label><p>只更新选中的 IP 档案。</p><button disabled={busy||running||!target} onClick={()=>prepare('update',target)}>重新整理为更新此 IP</button></>}
+  </div><p>重新整理会生成新候选，核对后再确认写入。</p>
+ </div></details>}
  </>}{error&&<p role="alert" className="form-error">{error}</p>}
  </section>
 }

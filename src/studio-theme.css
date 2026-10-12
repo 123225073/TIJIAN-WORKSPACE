@@ -818,3 +818,39 @@
 /* Upload labels and lazy-loaded preview chrome use the same dark theme pairs. */
 .ts-theme .studio-v2 label.st-primary{background:#2e66d3!important;color:#fff!important}
 .ts-theme .wa-layout-proof .wa-proof-head small{color:var(--ts-muted)!important}
+
+/* Populated platform delivery is chrome; only the authored article remains paper. */
+.ts-theme .td-page {color:var(--ts-text)}
+.ts-theme .td-page :is(.td-topic-heading,.td-publish,.td-topic-edit,.td-bundle,.td-publish-extra,.td-media,.td-add-drawer,.td-candidate,.td-stream-preview) {background:var(--ts-panel)!important;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page :is(.td-editor-meta,.td-video-field,.td-review-status,.td-delivery-status,.td-job-status,.td-ai-topic,.td-mode-tabs,.td-delivery-phases li,.td-bundle-grid article) {background:var(--ts-elevated)!important;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page :is(.td-sticky,.td-review-actions,.td-add-drawer header) {background:var(--ts-panel)!important;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page :is(.td-topic-heading,.td-publish-head,.td-section-heading,.td-publish-guide,.td-add-drawer,.td-review-heading,.td-cover-brief-head) :is(h2,h3,strong,summary) {color:var(--ts-text)}
+.ts-theme .td-page :is(.td-topic-heading,.td-publish-head,.td-publish-card,.td-publish-guide,.td-section-heading,.td-editor-meta,.td-add-drawer,.td-review-status,.td-delivery-status,.td-ai-topic,.td-stream-preview) :is(p,small),
+.ts-theme .td-page :is(.td-topic-heading>span,.td-topic-edit-hint,.td-editor-meta span,.td-help,.td-action-hint,.td-step-help,.td-bundle-empty,.td-delivery-status-head span) {color:var(--ts-muted)}
+.ts-theme .td-page :is(.td-back,.td-publish-guide a,.td-topic-edit summary,.td-review-status-head,.td-candidate-check,.td-ai-topic summary) {color:var(--ts-accent)}
+.ts-theme .td-page .td-publish-head>div>small {color:var(--ts-gold)}
+.ts-theme .td-page :is(.td-section-heading>span,.td-media h3 span,.td-delivery-phases li.complete,.td-ai-topic summary span) {background:#263b59;color:var(--ts-accent)}
+.ts-theme .td-page .td-delivery-phases li.current {background:#3169d7!important;color:white}
+.ts-theme .td-page :is(.td-notice,.td-error) {background:var(--ts-elevated);color:var(--ts-muted)}
+.ts-theme .td-page .td-error {background:#38251f;color:#ffb7a6}
+.ts-theme .td-page :is(.td-mode-tabs button.active,.td-optimize-resume,.td-delivery-stop) {background:#263b59;color:var(--ts-accent);border-color:var(--ts-line)}
+.ts-theme .td-page :is(.td-publish,.td-add-drawer) button:not(:is(.primary,.td-primary,.wa-primary,.wa-optimize,.wa-insert,.wa-all-optimize)) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page :is(.td-publish,.td-add-drawer) button:hover:not(:disabled):not(:is(.primary,.td-primary,.wa-primary)) {background:#263b59;color:var(--ts-accent)}
+.ts-theme .td-page :is(button,input,textarea,select):disabled {opacity:1;background:#232b38;color:var(--ts-muted);-webkit-text-fill-color:var(--ts-muted)}
+.ts-theme .td-page .wa-guide {color:var(--ts-text)}
+.ts-theme .td-page .wa-guide :is(a,.wa-all-optimize) {color:var(--ts-accent);background:var(--ts-elevated);border-color:var(--ts-line)}
+.ts-theme .td-page .wa-card>h3>small {color:var(--ts-muted)}
+.ts-theme .td-page .wp-panel {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page .wp-panel :is(p,small,.wp-foot) {color:var(--ts-muted)}
+.ts-theme .td-page .wp-panel :is(.wp-config,.wp-status,.wp-ip-guide) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page .wp-panel :is(input,textarea,select) {background:#111722;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page .wa-guide :is(ol,li) {color:var(--ts-muted)}
+.ts-theme .td-page .wp-panel label {color:var(--ts-text)}
+.ts-theme .td-page .wp-panel :is(a,.wp-heading span) {color:var(--ts-accent)}
+.ts-theme .td-page .wp-panel :is(.wp-ip-steps,.wp-steps small) {color:var(--ts-muted)}
+.ts-theme .td-page .wp-panel :is(.wp-steps>div,.wp-ip-controls output) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .td-page .wp-panel :is(.wp-steps b,.wp-notice) {background:#263b59;color:var(--ts-accent)}
+.ts-theme .td-page .wp-panel :is(.wp-ip-steps strong,.wp-ip-error,.wp-error,.wp-status-warning) {background:#38251f;color:#ffb7a6}
+.ts-theme .td-page .td-publish .td-platforms button.active {background:#263b59;color:var(--ts-accent);box-shadow:inset 0 0 0 1px #526c94}
+.ts-theme .td-page .td-add-drawer label {color:var(--ts-text)}
+.ts-theme .td-page .td-review-actions small {color:var(--ts-muted)}

@@ -2,6 +2,7 @@ import json
 import re
 from fastapi import Depends
 from . import store as s,jobs,network,upstream,gateway as g,library
+from .speech_helper import speech_from_content, conversion_input, speech_generation_request
 
 _DRAFT_KINDS = {'studio_text_draft', 'studio_draft'}
 
@@ -99,7 +100,7 @@ def _sync_flow_outputs(owner, flow_id=None):
             s.put(owner, obj['kind'], {**obj, binding[0]: binding[1]}, obj['id'], obj['version'])
 
 
-def _copy(owner, obj, flow_id):
+def _copy(owner, obj, flow_id, source_map=None):
     # Copies keep user-editable content and immutable media files, never task/run
     # associations, export paths, checks or generated-job histories.
     excluded = {'id', 'kind', 'version', 'updated', 'created', 'flow_id', 'task_id',
@@ -107,12 +108,72 @@ def _copy(owner, obj, flow_id):
                 'job_ids', 'job_versions', 'optimization_job_id', 'generated_at',
                 'origin_task_id', 'run_id', 'draft_id', 'studio_draft_id', 'job_id'}
     values = {k: v for k, v in obj.items() if k not in excluded}
+    if obj['kind'] == 'studio_draft' and source_map and isinstance(values.get('source_ids'), list):
+        values['source_ids'] = [source_map.get(ident, ident) for ident in values['source_ids']]
     values.update(flow_id=flow_id, imported_from=obj['id'], imported_version=obj['version'])
     if obj['kind'] == 'studio_text_draft':
         values.update(job_ids=[], job_versions={})
     if obj['kind'] in {'content', 'studio_delivery'}:
         values.update(status='draft', check=None)
     return s.put(owner, obj['kind'], values)
+
+
+def _copy_legacy_links(owner, sources, flow_id):
+    # Clone the selected document first; only its media-reference ID is remapped.
+    changes, source_map = {}, {}
+    for field, obj in sorted(sources.items(), key=lambda item: item[0] != 'content_id'):
+        copied = _copy(owner, obj, flow_id, source_map)
+        changes[field] = copied['id']
+        if field == 'content_id':
+            source_map[obj['id']] = copied['id']
+    return changes
+
+
+def _at_version(owner, obj, version):
+    if type(version) is not int or version < 1:
+        return None
+    if obj['version'] == version:
+        return obj
+    return next((record for record in s.versions(owner, obj['id'])
+                 if record['version'] == version), None)
+
+
+def _repair_copied_media_sources(owner, row):
+    # Bound to this flow's linked pair; never infer links from a latest document.
+    if not row.get('content_id') or not row.get('last_draft'):
+        return
+    document = _live(owner, row['content_id'], {'content'})
+    draft = _live(owner, row['last_draft'], _DRAFT_KINDS)
+    source_id = document.get('imported_from')
+    if (document.get('flow_id') != row['id'] or draft.get('flow_id') != row['id']
+            or draft['kind'] != 'studio_draft' or not source_id
+            or not draft.get('imported_from') or not isinstance(draft.get('source_ids'), list)
+            or source_id not in draft['source_ids']):
+        return
+    try:
+        original = s.get(owner, source_id)
+        original_draft = s.get(owner, draft['imported_from'])
+    except s.Missing:
+        return
+    if original['kind'] != 'content' or original_draft['kind'] != 'studio_draft':
+        return
+    source = _at_version(owner, original, document.get('imported_version'))
+    origin_draft = _at_version(owner, original_draft, draft.get('imported_version'))
+    first_document = _at_version(owner, document, 1)
+    history = s.versions(owner, draft['id'])
+    first_draft = next((record for record in [*history, draft] if record['version'] == 1), None)
+    if not source or not origin_draft or not first_document or not first_draft:
+        return
+    for current, first in [(document, first_document), (draft, first_draft)]:
+        if any(first.get(key) != current.get(key) for key in ('imported_from', 'imported_version', 'flow_id')):
+            return
+    if (first_document.get('body') != source.get('body')
+            or first_draft.get('source_ids') != origin_draft.get('source_ids')
+            or source_id not in (origin_draft.get('source_ids') or [])
+            or any(source_id not in (record.get('source_ids') or []) for record in history)):
+        return
+    references = [document['id'] if ident == source_id else ident for ident in draft['source_ids']]
+    s.put(owner, draft['kind'], {**draft, 'source_ids': references}, draft['id'], draft['version'])
 
 
 def _draft_path(obj):
@@ -138,8 +199,10 @@ def _upgrade_flow(owner, row):
         obj = _live(owner, row[field], kinds)
         if obj.get('flow_id') != row['id']:
             sources[field] = obj
-    changes = {field: _copy(owner, obj, row['id'])['id'] for field, obj in sources.items()}
-    return s.put(owner, 'studio_flow', {**row, **changes}, row['id'], row['version']) if changes else row
+    changes = _copy_legacy_links(owner, sources, row['id'])
+    upgraded = s.put(owner, 'studio_flow', {**row, **changes}, row['id'], row['version']) if changes else row
+    _repair_copied_media_sources(owner, upgraded)
+    return upgraded
 
 
 def _install_flow_routes(app, user):
@@ -171,6 +234,16 @@ def _install_flow_routes(app, user):
             if any(key in data and data[key] != task_id for key in ('origin_task_id', 'task_id')):
                 raise ValueError('不能修改任务草稿归属')
             payload = {k: v for k, v in data.items() if k not in {'flow_id', 'origin_task_id', 'task_id'}}
+            # Only a new, exact source-body transfer is normalized. Draft edits
+            # and custom speech inputs are authoritative and remain untouched.
+            if not old and flow_id and data.get('tool') in {'text_avatar', 'tts'}:
+                source_id = _flow(owner, flow_id).get('content_id')
+                if source_id and source_id in data.get('source_ids', []):
+                    source = _live(owner, source_id, {'content'})
+                    if source.get('flow_id') != flow_id:
+                        raise s.Conflict('文稿不属于当前作品')
+                    if payload.get('input', {}).get('text') == source.get('body'):
+                        payload['input'] = {**payload['input'], 'text': speech_from_content(source)['text']}
             if (flow_id or task_id) and isinstance(payload.get('job_ids'), list):
                 for job_id in payload['job_ids']:
                     job = _live(owner, job_id, {'job'})
@@ -236,8 +309,9 @@ def _install_flow_routes(app, user):
             # Run all original field/reference checks before making legacy copies.
             result = original_save(data=values, u=u)
             if copies:
-                changes = {field: _copy(owner, obj, result['id'])['id'] for field, obj in copies.items()}
+                changes = _copy_legacy_links(owner, copies, result['id'])
                 result = s.put(owner, 'studio_flow', {**result, **changes}, result['id'], result['version'])
+            _repair_copied_media_sources(owner, result)
             return result
 
     flow_route.dependant.call = flow_save
@@ -291,6 +365,22 @@ def _install_flow_routes(app, user):
     def flow_draft_create(flow_id: str, data: dict, u=Depends(user)):
         return save_draft(u['id'], data, flow_id)
 
+    def flow_speech(owner, flow_id, content_id=''):
+        row = _flow(owner, flow_id)
+        source_id = content_id or row.get('content_id')
+        source = _live(owner, source_id, {'content'}) if source_id else None
+        if source and source.get('flow_id') != flow_id:
+            raise s.Conflict('文稿不属于当前作品，请先导入副本')
+        return row, source
+
+    @app.get('/api/studio/flows/{flow_id}/speech')
+    def speech_read(flow_id: str, content_id: str = '', u=Depends(user)):
+        with s.LOCK:
+            row, source = flow_speech(u['id'], flow_id, content_id)
+            if not source:
+                return {'text':'', 'source_field':'', 'needs_conversion':False, 'conversion_input':None}
+            return {**speech_from_content(source), 'conversion_input':conversion_input(source)}
+
     @app.patch('/api/studio/flows/{flow_id}/drafts/{draft_id}')
     def flow_draft_patch(flow_id: str, draft_id: str, data: dict, u=Depends(user)):
         return save_draft(u['id'], data, flow_id, draft_id)
@@ -331,7 +421,7 @@ def _install_flow_routes(app, user):
     for path in ('/api/studio/text/generate', '/api/studio/generate'):
         route = endpoint(path, 'POST')
         original = route.dependant.call
-        def generate(data, u, _original=original, **kwargs):
+        def generate(data, u, _original=original, _text=path == '/api/studio/text/generate', **kwargs):
             with s.LOCK:
                 draft = _live(u['id'], data['draft_id'], _DRAFT_KINDS) if data.get('draft_id') else None
                 flow_id = data.get('flow_id', '')
@@ -357,7 +447,10 @@ def _install_flow_routes(app, user):
                     content = _live(u['id'], data['content_id'], {'content'})
                     if content.get('task_id') or content.get('flow_id', '') != flow_id:
                         raise s.Conflict('原稿不属于当前创作范围，请手动导入副本')
-                result = _original(data={k: v for k, v in data.items() if k not in {'flow_id', 'task_id', 'origin_task_id'}}, u=u, **kwargs)
+                payload = {k: v for k, v in data.items() if k not in {'flow_id', 'task_id', 'origin_task_id'}}
+                if _text:
+                    payload = speech_generation_request(payload, draft)
+                result = _original(data=payload, u=u, **kwargs)
                 _sync_flow_outputs(u['id'])
                 return result
         route.dependant.call = generate

@@ -2,6 +2,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {ArrowLeft,ArrowRight,Plus,Search,Table2, X} from 'lucide-react';
 import {useProfileDefault,profileScope,profileUnavailable,unavailableProfileOption,flowProfileInitial,resolveProfileId,profileChoiceKey,readProfileChoice,writeProfileChoice} from './profile-defaults';
 import {api} from './api';
+import {speechFromContent} from './speech-helper';
 import {JobFeedback,activeJob} from './OperationFeedback';
 import {bundleOrder,bundleHidden} from './DeliveryBundle';
 import PlatformPublishForm from './PlatformPublishForm';
@@ -64,7 +65,7 @@ export default function TopicDelivery({t,page}:{t:any;page:string}){
  const sourceBody=String(source?.body||''),sourceExcerpt=sourceBody.replace(/!\[[^\]]*\]\([^)]+\)/g,'').replace(/[#*`>]/g,'').replace(/\s+/g,' ').trim().slice(0,105);
  const visual=String(flow.topic_id===selected?flow.visual_id||'':''),imageTag=visual?`![文章配图](/api/studio/assets/${visual}/file)`:'';
  const wechatBody=sourceBody&&visual&&!sourceBody.includes(visual)?(/\n\s*\n/.test(sourceBody)?sourceBody.replace(/\n\s*\n/,'\n\n'+imageTag+'\n\n'):sourceBody+'\n\n'+imageTag):sourceBody;
- const starter:Delivery={id:'',topic_id:selected,platform,version:0,updated:'',status:'draft',title:platform==='wechat'?(source?.title||active?.title||'').slice(0,32):active?.title||'',summary:platform==='wechat'?String(source?.summary||sourceExcerpt).slice(0,120):'',body:platform==='wechat'?wechatBody:'',caption:platform==='wechat'?'':source?.title||'',script:platform==='wechat'?'':source?.body||'',shotlist:'',cover_brief:platform==='wechat'&&sourceExcerpt?`围绕“${source?.title||active?.title||'文章主题'}”制作封面，画面呼应正文内容：${sourceExcerpt}`:'',keywords:'',tags:'',publishing_notes:'',cover_asset_id:params.get('cover_asset')||(flow.topic_id===selected?flow.cover_id:'')||'',video_asset_id:platform==='wechat'?'':(flow.topic_id===selected?flow.video_id:'')||'',wechat_style:{font_size:'16',line_height:'1.8',paragraph_gap:'12',accent:'forest'},bundle_order:['title','copy','cover','video'],bundle_hidden:[]};
+ const starter:Delivery={id:'',topic_id:selected,platform,version:0,updated:'',status:'draft',title:platform==='wechat'?(source?.title||active?.title||'').slice(0,32):active?.title||'',summary:platform==='wechat'?String(source?.summary||sourceExcerpt).slice(0,120):'',body:platform==='wechat'?wechatBody:'',caption:platform==='wechat'?'':source?.title||'',script:platform==='wechat'?'':speechFromContent(source).text,shotlist:'',cover_brief:platform==='wechat'&&sourceExcerpt?`围绕“${source?.title||active?.title||'文章主题'}”制作封面，画面呼应正文内容：${sourceExcerpt}`:'',keywords:'',tags:'',publishing_notes:'',cover_asset_id:params.get('cover_asset')||(flow.topic_id===selected?flow.cover_id:'')||'',video_asset_id:platform==='wechat'?'':(flow.topic_id===selected?flow.video_id:'')||'',wechat_style:{font_size:'16',line_height:'1.8',paragraph_gap:'12',accent:'forest'},bundle_order:['title','copy','cover','video'],bundle_hidden:[]};
  try{const cached=JSON.parse(localStorage.getItem(key(newKey))||'null');if(cached?.values)Object.assign(starter,cached.values)}catch{/* Keep the original, editable template. */}
  const currentDelivery=delivery||starter;
  const currentDeliveryJob=job?.input?.action==='studio_delivery'&&job.input.delivery_id===currentDelivery.id?job:null;

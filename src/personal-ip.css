@@ -2,6 +2,10 @@
 .ip-assets{align-items:start}
 .ip-profile-list{display:grid;gap:14px;margin-top:18px}.ip-profile-list .ip-profile-card{padding:18px;border:1px solid var(--ts-line,#dce6dc);border-radius:10px;min-width:0;background:var(--ts-panel,#fff)}.ip-profile-list .ip-profile-card.is-focused{border-color:var(--ts-accent,#167251)}.ip-profile-content{min-width:0;flex:1}.ip-profile-content>header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.ip-profile-content h3,.ip-profile-content dd{overflow-wrap:anywhere}.ip-profile-status{font-size:11px;color:var(--ts-muted,#526c5b)}.ip-profile-content>details{margin-top:16px}.ip-profile-content>details>summary{cursor:pointer;font-size:12px;color:var(--ts-muted,#526c5b)}.ip-profile-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:18px}.ip-profile-actions>a{font-size:12px;color:var(--ts-accent,#167251)}.ip-profile .st-section-head{flex-wrap:wrap;gap:14px}.ip-profile .st-section-head h2{display:flex;align-items:center;gap:8px}@media(max-width:500px){.ip-profile-list .ip-profile-card{padding:14px;gap:10px}.ip-profile-card .st-brand-monogram{width:34px;height:34px;flex:none}.ip-profile-content h3{font-size:17px}}
 .ip-assets>section{min-width:0}
+.ip-dashboard .ip-profile .ip-profile-actions>button{background:var(--ts-elevated,#edf4ef);color:var(--ts-text,#203c2c);border-color:var(--ts-line,#dce6dc)}
+.ip-dashboard .ip-profile .ip-profile-actions>button:hover:not(:disabled){background:var(--ts-panel,#e4efe8);color:var(--ts-accent,#167251);border-color:var(--ts-accent,#167251)}
+.ip-dashboard .ip-profile .ip-profile-actions>button:focus-visible{outline:2px solid var(--ts-accent,#167251);outline-offset:3px}
+.ip-dashboard .ip-profile .ip-profile-actions>button:disabled{background:var(--ts-elevated,#edf4ef);color:var(--ts-muted,#526c5b);border-color:var(--ts-line,#dce6dc);cursor:not-allowed}
 .ip-assets .st-section-head{align-items:flex-start;gap:12px}
 .ip-assets .st-section-head>div{min-width:0}
 .ip-assets .st-section-head>a{white-space:nowrap;flex-shrink:0}
