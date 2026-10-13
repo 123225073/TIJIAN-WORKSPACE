@@ -5,6 +5,7 @@ import re
 
 from . import upstream
 from .writing_methods import publish_body
+from .article_production import reader_production_body
 
 
 DEFAULT = {'font_size': '16', 'line_height': '1.8', 'paragraph_gap': '12', 'accent': 'forest'}
@@ -57,7 +58,7 @@ def render(body, settings=None):
     list_style = upstream.wechat.DEFAULT_LIST_STYLE.copy()
     list_style.update(num_container=f'color:{color};font-weight:700;margin-right:7px;',
                       bullet_container=f'color:{color};margin-right:7px;')
-    marked = re.sub(r'(?m)^# ', '## ', publish_body(body))
+    marked = re.sub(r'(?m)^# ', '## ', publish_body(reader_production_body(body)))
     # The upstream parser closes a list on each blank line and restarts its
     # explicit counter at 1. Markdown commonly separates list items this way.
     marked = re.sub(r'(?m)(^(\d+)\.\s+[^\n]+)\n(?:[ \t]*\n)+(?=(\d+)\.\s+)',

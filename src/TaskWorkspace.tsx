@@ -25,7 +25,7 @@ export default function TaskWorkspace(t:any){
  const cache=(()=>{try{return JSON.parse(localStorage.getItem(composerKey)||'null')}catch{return null}})();
  const [text,setText]=useState(cache?.text??(task.messages?.length?'':task.title)),[profile,setProfile]=useProfileDefault(t.list('profile'),profileScope(t.state),'task:'+task.id,taskProfileInitial(task,cache,profileScope(t.state)),t.state.complete!==false),[model,setModel]=useState(cache?.model||'');
  const [scope,setScope]=useState<ReferenceScope>(cache?.scope||task.reference_scope||defaultScope),[tab,setTab]=useState('body'),[references,setReferences]=useState(false),[selected,setSelected]=useState(task.active_outcome||Object.keys(task.platform_outcomes||{})[0]||'legacy'),[versions,setVersions]=useState<any[]>([]),[sending,setSending]=useState(false);
- const saveActive=useRef<null|(()=>Promise<void>)>(null),messages=useRef<HTMLDivElement>(null),lastOutcome=useRef(task.active_outcome);
+ const saveActive=useRef<null|(()=>Promise<any>)>(null),messages=useRef<HTMLDivElement>(null),lastOutcome=useRef(task.active_outcome);
  const mapping:Record<string,string>={...(task.content_id&&!Object.keys(task.platform_outcomes||{}).length?{legacy:task.content_id}:{}),...task.platform_outcomes,...task.media_outcomes};
  const content=t.get(mapping[selected]);
  const jobs=t.list('job').filter((j:any)=>j.task_id===task.id),liveJob=jobs[0],running=sending||jobs.some(activeJob);

@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.24.1','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.24.2','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -527,7 +527,8 @@ def retry(id:str,u=Depends(user)):
 def export(id:str,format:str='md',u=Depends(user)):
     obj=s.get(u['id'],id)
     if obj['kind']!='content':error(400,'请选择稿件')
-    body=illustrations.expanded(u['id'],obj.get('body',''))
+    from .article_production import reader_article_body
+    body=illustrations.expanded(u['id'],reader_article_body(obj.get('body','')))
     if format=='html':
         # Upstream converts editorial Markdown; strip active HTML before conversion.
         body=re.sub(r'<[^>]*>','',body)

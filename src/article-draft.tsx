@@ -8,7 +8,7 @@ export function useArticleDraft({content,key,fields,path,refresh}:{content:any;k
  const initial=useRef<any>(null);
  if(!initial.current){let cache:any;try{cache=JSON.parse(localStorage.getItem(key)||'null');if(!cache&&key.startsWith('platform-draft:'))cache=JSON.parse(localStorage.getItem(key.replace('platform-draft:','draft:'))||'null')}catch{}const server=fields(content);initial.current={values:cache?.values??cache?.fields??(cache?.body!==undefined?{...server,body:cache.body}:server),baseline:cache?.baseline&&typeof cache.baseline==='object'?cache.baseline:typeof cache?.baseline==='string'?{...server,body:cache.baseline}:server,known:!!cache?.baseline||!cache,version:cache?.version??content.version,recovery:cache?.recovery||[]}}
  const [draft,setDraft]=useState(initial.current),[saving,setSaving]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[conflict,setConflict]=useState<any>(null);
- const current=useRef(draft),flight=useRef<Promise<void>|null>(null);current.current=draft;
+ const current=useRef(draft),flight=useRef<Promise<any>|null>(null);current.current=draft;
  const persist=(next:any)=>{current.current=next;setDraft(next);try{localStorage.setItem(key,JSON.stringify({...next,fields:next.values,body:next.values.body}))}catch{setError('本机草稿暂存失败，请及时保存或复制正文')}};
  const change=(name:string,value:any)=>{persist({...current.current,values:{...current.current.values,[name]:value}});setNotice('')};
  const accept=(row:any)=>{
@@ -30,11 +30,13 @@ export function useArticleDraft({content,key,fields,path,refresh}:{content:any;k
     if((d.known&&same(server,d.baseline))||same(server,d.values)){d={...d,baseline:server,version:row.version,known:true};persist(d)}
     else{setConflict({row,fields:server});throw Error('稿件存在外部修改，请在版本比较中选择保留的内容')}
    }
-   if(same(d.values,d.baseline)){setNotice('已保存稿件 v'+d.version);return}
+   if(same(d.values,d.baseline)){setNotice('已保存稿件 v'+d.version);return row}
    const submitted={...d.values};let saved:any;
    try{saved=await api(path,{version:d.version,...submitted},'PATCH')}catch(e:any){if(e.status===409){const latest=await latestServer();setConflict({row:latest,fields:fields(latest)})}throw e}
    persist({...current.current,baseline:submitted,version:saved.version,known:true});setConflict(null);setNotice('已保存稿件 v'+saved.version);
    try{await refresh()}catch{setNotice('已保存稿件 v'+saved.version+'；页面同步暂未完成，可继续编辑')}
+   if(!same(current.current.values,submitted))throw Error('保存期间文稿又有修改，请核对并再次保存后继续');
+   return saved;
   }catch(e:any){setError(e.message);throw e}finally{setSaving(false);flight.current=null}})();
   return flight.current;
  };

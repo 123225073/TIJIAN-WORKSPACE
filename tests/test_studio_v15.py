@@ -32,7 +32,7 @@ def test_images_binding_generates_local_asset_and_retries_once(studio,monkeypatc
     s.set_config('providers',[{'id':'cpa','base_url':'https://example.test/v1','secret':'opaque'}])
     s.set_config('models',[{'id':'pic','provider':'cpa','capability':'image','model':'gpt-image-2.5','title':'Image 2.5','verified':True,'published':True}])
     s.set_config('bindings',{'text_image':'pic'})
-    calls=[];monkeypatch.setattr(illustrations,'generate',lambda *a:(calls.append(a) or 'data:image/png;base64,'+base64.b64encode(png()).decode()))
+    calls=[];monkeypatch.setattr(illustrations,'generate',lambda *a,**kw:(calls.append((a,kw)) or 'data:image/png;base64,'+base64.b64encode(png()).decode()))
     tool=next(x for x in studio.get('/api/studio/catalog').json()['tools'] if x['id']=='text_image')
     assert tool['configured'] and tool['provider']=='images' and 'watermark' not in tool['options']
     draft=studio.post('/api/studio/drafts',json={'tool':'text_image','title':'测试','input':{'prompt':'leaf'},'options':{'size':'1024x1024'}}).json()
@@ -40,6 +40,9 @@ def test_images_binding_generates_local_asset_and_retries_once(studio,monkeypatc
     run=studio.post('/api/studio/generate',json=body).json();run=studio.get('/api/studio/runs').json()['items'][0]
     assert run['status']=='succeeded',run
     assert studio.post('/api/studio/generate',json=body).json()['id']==run['id'] and len(calls)==1
+    assert calls[0][0]==('pic','leaf','1024x1024')
+    assert set(calls[0][1])=={'on_size_adjustment','_retry_size'}
+    assert callable(calls[0][1]['on_size_adjustment']) and calls[0][1]['_retry_size'] is True
     assert 'result' not in run
     asset=s.get('alice',run['asset_ids'][0]);assert media._path('alice',asset['local_file']).read_bytes()==png()
     s.set_config('bindings',{'text_image':''});assert not next(x for x in studio.get('/api/studio/catalog').json()['tools'] if x['id']=='text_image')['configured']

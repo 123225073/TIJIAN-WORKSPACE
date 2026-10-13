@@ -207,6 +207,8 @@ def _upgrade_flow(owner, row):
 
 def _install_flow_routes(app, user):
     """Wrap registered handlers: keep existing validation and dependency wiring."""
+    from . import outcome_handoff
+    outcome_handoff.register(app, user)
     def endpoint(path, method):
         return next(route for route in app.routes if getattr(route, 'path', '') == path
                     and method in getattr(route, 'methods', set()))

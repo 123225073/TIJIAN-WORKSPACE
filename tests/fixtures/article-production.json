@@ -1,0 +1,55 @@
+[
+  {
+    "name": "three historical cards including a separate content paragraph",
+    "body": "📌开头：正文应正常讨论提示词。\n\n▧ 文章配图 · 门机检查\n图片内容建议：工作人员核对门机，不要文字。\n制作说明：此处用行业插画。\n\n中段手工改为先看记录。\n\n▧ 文章配图 · 记录对照\n\n图片内容建议：维保记录与设备对照。\n\n末段请带上检查清单。\n\n▧ 文章配图 · 核对清单\n图片内容建议：清单、笔与电梯按钮。",
+    "count": 3,
+    "readerBody": "📌开头：正文应正常讨论提示词。\n\n\n\n中段手工改为先看记录。\n\n\n\n末段请带上检查清单。\n\n",
+    "prompts": ["工作人员核对门机，不要文字。", "维保记录与设备对照。", "清单、笔与电梯按钮。"]
+  },
+  {
+    "name": "markdown quote illustration plans and production note",
+    "body": "开头正文。\n\n> **插图方案 1：**\n> 图片内容建议：检查电梯门机。\n> 制作说明：不要伪造照片。\n\n正文观点。\n\n> 插图方案（2）：\n> 配图提示词：工作人员对照记录。\n\n> 制作说明：保留给作者，不进入文章。\n> 不声称已生成图片。\n\n结尾正文。",
+    "count": 3,
+    "readerBody": "开头正文。\n\n\n\n正文观点。\n\n\n\n\n\n结尾正文。",
+    "prompts": ["检查电梯门机。", "工作人员对照记录。", ""]
+  },
+  {
+    "name": "explicit blocks preserve notes and plain discussion",
+    "body": "正文：好的提示词可以帮助说明需求。\n\n:::article-production illustration door-1\n图片内容建议：检查门机，不要文字。\n制作说明：仅为示意。\n:::end-article-production\n\n:::article-production note editor-1\n制作说明：作者确认后再发布。\n:::end-article-production\n\n结尾。",
+    "count": 2,
+    "readerBody": "正文：好的提示词可以帮助说明需求。\n\n\n\n\n\n结尾。",
+    "prompts": ["检查门机，不要文字。", ""]
+  },
+  {
+    "name": "normal discussion quotes images and similar keywords survive",
+    "body": "我会讨论配图提示词和制作说明的用处。\n\n## 插图方案的价值\n\n> 作者说：提示词要具体。\n> 图片内容建议：这句话是正常引用，不是制作块。\n\n图片内容建议：单独标签不能证明整段是制作元数据。\n\n▧ 文章配图 · 图书设计\n这是本文讨论的书名，没有内容标签。\n\n![文章配图 · 已生成图片](/api/studio/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/file)",
+    "count": 0,
+    "prompts": []
+  },
+  {
+    "name": "code examples are article content",
+    "body": "读者可参考这个语法。\n\n```markdown\n:::article-production illustration sample\n图片内容建议：示例，不是生产块。\n:::end-article-production\n> 插图方案：示例\n▧ 文章配图 · 示例\n图片内容建议：仍在代码里。\n```\n\n    > 制作说明：缩进代码也不删除。\n\n结尾。",
+    "count": 0,
+    "prompts": []
+  },
+  {
+    "name": "CRLF and repeated ideas have exact independent locations",
+    "body": "首段。\r\n\r\n> 配图提示词：同一画面\r\n\r\n中段。\r\n\r\n> 配图提示词：同一画面\r\n\r\n末段。",
+    "count": 2,
+    "readerBody": "首段。\r\n\r\n\r\n\r\n中段。\r\n\r\n\r\n\r\n末段。",
+    "prompts": ["同一画面", "同一画面"]
+  },
+  {
+    "name": "inline historical card and pipe quote plan",
+    "body": "首段正文。\n\n**▧ 文章配图 · 检查现场** 图片内容建议：物业人员核对门机。\n\n> **插图方案 2｜**\n> 提示词：记录与设备对照。\n\n尾段正文。",
+    "count": 2,
+    "readerBody": "首段正文。\n\n\n\n\n\n尾段正文。",
+    "prompts": ["物业人员核对门机。", "记录与设备对照。"]
+  },
+  {
+    "name": "incomplete explicit block is not guessed",
+    "body": "正文。\n\n:::article-production illustration incomplete\n提示词：尚未闭合",
+    "count": 0,
+    "prompts": []
+  }
+]

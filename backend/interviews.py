@@ -26,6 +26,12 @@ def register(app,user):
             old=None if creating else (owned(u['id'],data['id'],'studio_flow') if data.get('id') else next(iter(s.list_(u['id'],'studio_flow')),None))
             if data.get('version')!=(old['version'] if old else 0):raise s.Conflict('创作主题已在其他页面更新，请刷新后重试')
             fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','cover_id','video_id','audio_id','brief','last_draft','last_draft_tool','topic_id','stage','tool_path','platform','assembled'})
+            # Handoff provenance is server-owned and survives normal step saves.
+            for key in ('source_outcome_id', 'source_version', 'source_task_id', 'delivery_id'):
+                if old and key in old:
+                    fields[key] = old[key]
+            if old and old.get('identity_skipped'):
+                fields['identity_skipped'] = not bool(fields.get('profile_id'))
             if fields.get('stage','0') not in {'0','1','2','3','4'}:raise ValueError('创作步骤无效')
             if fields.get('tool_path','text') not in {'text','image','video','avatar/text','audio/tts','compose'}:raise ValueError('创作工具无效')
             if fields.get('last_draft_tool') and fields['last_draft_tool'] not in {'text','image','video','avatar/text','audio/tts','compose'}:raise ValueError('草稿工具无效')

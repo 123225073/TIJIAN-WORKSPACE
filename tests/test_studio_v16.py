@@ -26,8 +26,10 @@ def test_selected_model_reference_quality_survive_draft_and_reach_worker(studio,
     r=submit(studio,d.json());assert r.status_code==200,r.text
     run=studio.get('/api/studio/runs').json()['items'][0]
     assert run['status']=='succeeded',run
-    assert calls[0][0][0]=='selected' and calls[0][0][2]=='2048x2048'
-    assert calls[0][1]=={'reference':png(),'quality':'high'}
+    assert calls[0][0]==('selected','Keep the leaf, use ivory background','2048x2048')
+    assert set(calls[0][1])=={'reference','quality','on_size_adjustment','_retry_size'}
+    assert {key:calls[0][1][key] for key in ('reference','quality')}=={'reference':png(),'quality':'high'}
+    assert callable(calls[0][1]['on_size_adjustment']) and calls[0][1]['_retry_size'] is True
     output=studio.get('/api/studio/assets').json()['items'][0]
     assert output['requested_size']=='2048x2048' and output['width']==256
     assert s.get('alice',run['id'])['snapshot']['model_id']=='selected'
@@ -126,8 +128,10 @@ def test_legacy_generation_keeps_selected_model_and_all_reference_images(studio,
     assert saved.json()['input']['image_ids'] == [first, second]
     result = submit(studio, saved.json(), 'legacy-generate-two-references')
     assert result.status_code == 200 and result.json()['status'] == 'succeeded', result.text
-    assert calls[0][0][0] == 'selected'
-    assert calls[0][1] == {'reference': [png(), png()], 'quality': 'max'}
+    assert calls[0][0] == ('selected', '保留主体并换成电梯大厅', '1024x1024')
+    assert set(calls[0][1]) == {'reference', 'quality', 'on_size_adjustment', '_retry_size'}
+    assert {key: calls[0][1][key] for key in ('reference', 'quality')} == {'reference': [png(), png()], 'quality': 'max'}
+    assert callable(calls[0][1]['on_size_adjustment']) and calls[0][1]['_retry_size'] is True
 
 
 def test_legacy_image_input_limit_is_checked_before_submission(studio, monkeypatch):

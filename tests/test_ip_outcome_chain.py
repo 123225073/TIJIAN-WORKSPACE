@@ -157,7 +157,9 @@ def test_readonly_demo_copy_recovers_real_historical_candidate(client,monkeypatc
     """Optional local acceptance: copy only the requested task/profile, never users or keys."""
     import os,sqlite3,hashlib
     from pathlib import Path
-    source=Path(os.environ.get('IP_DEMO_READONLY_DB','C:/Users/CM1165/AppData/Roaming/elevator-workbench/data/workbench.sqlite'))
+    source_path=os.environ.get('IP_DEMO_READONLY_DB')
+    if not source_path:pytest.skip('历史本机验收须显式提供只读快照；普通回归不读取用户当前数据库')
+    source=Path(source_path)
     if not source.exists():pytest.skip('指定的本机 demo 数据库不存在')
     assert source.resolve()!=s.DB.resolve()
     before=hashlib.sha256(source.read_bytes()).hexdigest()
