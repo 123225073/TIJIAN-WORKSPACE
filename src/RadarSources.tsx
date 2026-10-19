@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {RefreshCw,Plus,Globe,ExternalLink,X,Search} from 'lucide-react';
 import {api,type Item} from './api';
 import {DeleteRecord} from './DeleteRecord';
@@ -6,6 +6,27 @@ import {SourceWizard,openReader} from './DiscoveryPanels';
 import './radar.css';
 
 const hotlistPlatforms=[['weibo','微博热搜'],['zhihu','知乎热榜'],['toutiao','头条热榜'],['douyin','抖音热榜'],['rednote','小红书热榜'],['baidu/hot','百度热榜']];
+// Embedded in BenchmarkStudio. Existing source manager and wizard keep their
+// persistence/update contracts; no route change or automatic acquisition.
+export function IndustryDiscovery({t}:{t:any}){
+ const [tab,setTab]=useState('news'),[manage,setManage]=useState(false),[adding,setAdding]=useState(false),[query,setQuery]=useState(''),[reader,setReader]=useState<any>(null);
+ const list=(kind:string):Item[]=>t.list?.(kind)||[];
+ const feeds=list('feed'),news=list('news').filter(x=>String(x.title).includes(query));
+ const running=list('job').some(j=>j.input?.action==='radar'&&['queued','running'].includes(j.status));
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const pending=useRef(false);
+ const act=async(fn:()=>Promise<unknown>,note:string)=>{if(pending.current)return;pending.current=true;setBusy(true);setError('');setNotice('');try{await fn();await t.refresh?.();setNotice(note)}catch(e){setError((e as Error).message)}finally{pending.current=false;setBusy(false)}};
+ return <section className="bv-industry" aria-label="看行业">
+  <div className="bv-section-head"><div><h2>行业资讯</h2><p>添加关注来源，阅读已获取的行业线索。</p></div><div className="button-row"><button onClick={()=>setAdding(true)}>添加信源</button><button aria-expanded={manage} onClick={()=>setManage(!manage)}>{manage?'收起信源':'管理信源'}</button></div></div>
+  <div hidden={!manage}><RadarSources {...t}/></div>
+  <div className="work-tabs"><button className={tab==='news'?'active':''} onClick={()=>setTab('news')}>关注资讯</button><button className={tab==='hot'?'active':''} onClick={()=>setTab('hot')}>平台热点</button></div>
+  <div className="radar-toolbar"><label className="filter-search"><Search size={16}/><input aria-label="搜索行业内容" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索已获取的内容"/></label>{tab==='news'&&<button disabled={busy||running||!feeds.some(f=>f.enabled!==false)} onClick={()=>void act(()=>api('/radar/refresh',{}),'已提交资讯更新，请稍候查看结果。')}>{busy||running?'获取中…':'获取关注资讯'}</button>}</div>
+  {error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
+  {tab==='news'?<div className="bv-industry-news">{news.map(n=><article key={n.id}><h3>{n.title}</h3><p>{feeds.find(f=>f.id===n.feed_id)?.title||'来源未知'} · {n.published||'日期未知'}</p><button onClick={()=>setReader(n)}>查看内容</button></article>)}{!news.length&&<p className="inline-empty">{feeds.length?'暂无匹配资讯，点击获取关注资讯或调整搜索。':'先添加一个行业网站或订阅地址，关注值得写的内容。'}</p>}</div>:<HotlistBoards t={t} query={query} onRead={setReader}/>}
+  {adding&&<SourceWizard t={t} onClose={()=>setAdding(false)}/>}
+  {reader&&<div className="reader-overlay"><section className="detail-drawer discovery-panel" role="dialog" aria-modal="true" aria-label="行业内容"><div className="block-heading"><h2>{reader.title}</h2><button autoFocus aria-label="关闭行业内容" onClick={()=>setReader(null)}><X/></button></div>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}<p>{reader.summary||reader.body||'仅取得标题线索，正文请到原始来源核实。'}</p>{reader.link_scope==='source_search'&&<p>当前为搜索摘要，完整公告需到来源网站核实。</p>}<div className="button-row">{(reader.article_url||reader.url)&&<a href={reader.article_url||reader.url} target="_blank" rel="noreferrer">查看原始来源</a>}<button disabled={busy} onClick={()=>void act(()=>api(reader.board?'/hotlists/'+reader.board.id+'/save':'/news/'+reader.id+'/save',reader.board?{url:reader.url}:{}),'已保存到原始资料。')}>保存线索</button></div></section></div>}
+ </section>;
+}
 const hotlistTime=(value?:string)=>value&&Number.isFinite(Date.parse(value))?new Date(value).toLocaleString('zh-CN',{hour12:false}):'未记录';
 export function HotlistBoards({t,query='',industry=false,onRead}:{t:any;query?:string;industry?:boolean;onRead:(row:any)=>void}){
  const [clock,setClock]=useState(Date.now());

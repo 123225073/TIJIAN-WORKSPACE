@@ -75,7 +75,7 @@ const shot=async(page,name)=>{await settleUI(page);const filename=name+'.png';aw
 const open=async(viewport={width:1366,height:768})=>{
  const context=await browser.newContext({viewport});const page=await context.newPage();
  page.setDefaultTimeout(6000);page.on('pageerror',error=>browserErrors.push(error.message));
- const fixture={requests:[],run:null,done:false,failGenerate:false,failInsert:false,uploads:0,generateStatus:'running'};
+ const fixture={requests:[],run:null,done:false,failGenerate:false,failInsert:false,uploads:0,generateStatus:'running',promptStatus:'done',promptJobStatus:'done',promptResult:{suggested_prompt:candidate}};
  await context.route('**/*',async route=>{
   const request=route.request(),url=new URL(request.url());
   if(url.origin!==base){unexpected.push(request.url());return route.abort()}
@@ -86,7 +86,8 @@ const open=async(viewport={width:1366,height:768})=>{
   const json=(data,status=200)=>route.fulfill({status,json:data});
   if(p==='/studio/catalog')return json({tools:[{id:'text_image',binding:'fixture-image',enabled:true,models:[{id:'fixture-image',title:'隔离测试模型（不收费）',configured:true,options:{size:['1024x1024','1536x1024'],quality:['standard','high']}}]}]});
   if(p==='/studio/assets')return json({items:assets});
-  if(p==='/studio/text/article-illustration-prompt'||p==='/studio/prompt/optimize')return json({id:'fixture-prompt',status:'done',result:{suggested_prompt:candidate}});
+  if(p==='/studio/text/article-illustration-prompt'||p==='/studio/prompt/optimize')return json({id:'fixture-prompt',status:fixture.promptStatus,result:fixture.promptResult,error:fixture.promptStatus==='failed'?'隔离模拟：整理失败':undefined});
+  if(p==='/jobs/fixture-prompt')return json({id:'fixture-prompt',status:fixture.promptJobStatus,result:fixture.promptResult,error:fixture.promptJobStatus==='failed'?'隔离模拟：整理失败':undefined});
   if(p==='/studio/drafts'){const count=fixture.requests.filter(x=>x.path===p).length;return json({id:count===1?'fixture-draft':'fixture-draft-'+count,version:1})}
   if(p==='/studio/generate'){
    if(fixture.failGenerate){fixture.failGenerate=false;return json({detail:'隔离模拟：响应中断，请核查原请求'},503)}
@@ -148,29 +149,34 @@ try{
  await openPicker(page);
  await page.getByLabel('配图画面想法').fill('用户自定义想法：不要替换正文');
  await page.getByLabel('配图风格').fill('用户自定义深色插画风格');
- await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.locator('.ap-candidate').waitFor();
- await test('candidate / actual portal contrast',()=>visual(page,'candidate',['.ap-candidate','.ap-preview','.ap-context']));
- await test('candidate / hover contrast',async()=>{await page.getByRole('button',{name:'采用 AI 提示词'}).hover();return visual(page,'candidate-hover',['.ap-candidate'])});
- await test('candidate / keyboard focus contrast',async()=>{await page.getByRole('button',{name:'采用 AI 提示词'}).focus();return visual(page,'candidate-focus',['.ap-candidate'])});
- await test('candidate / original prompt, bookmark and no generation',async()=>{
+ await test('prompt / immediate result auto-adopts without another click or generation',async()=>{
+  await page.getByRole('button',{name:'AI 整理画面提示词'}).click();
+  await page.waitForFunction(value=>document.querySelector('[aria-label="配图提示词"]').value===value,candidate);
   const request=fixture.requests.find(x=>x.path==='/studio/text/article-illustration-prompt');
   assert.equal(request.body.body,content.body);assert.equal(request.body.body.slice(request.body.start,request.body.end),'第一段前半后半。');
-  assert.equal(request.body.idea,'用户自定义想法：不要替换正文');
-  assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate').length,0);
-  await page.getByRole('button',{name:'保留原文',exact:true}).click();assert.equal(await page.getByLabel('配图提示词').inputValue(),'');
-  await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.getByRole('button',{name:'采用 AI 提示词'}).click();
-  assert.equal(await page.getByLabel('配图提示词').inputValue(),candidate);assert.equal(await page.locator('.ap-candidate').count(),0);
+  assert.equal(request.body.idea,'用户自定义想法：不要替换正文');assert.equal(request.body.style,'用户自定义深色插画风格');
+  assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate'||x.path==='/studio/drafts').length,0);
+  assert.equal(await editor.inputValue(),content.body);
+  assert.equal(await page.getByRole('button',{name:'采用 AI 提示词'}).count(),0);
+  assert.equal(await page.locator('.ap-candidate').count(),0);
+  await page.waitForFunction(({key,value})=>JSON.parse(localStorage.getItem(key)).prompt===value,{key:pictureKey,value:candidate});
+ });
+ await test('adopted prompt / actual portal contrast',()=>visual(page,'adopted-prompt',['.ap-opt','.ap-preview','.ap-context']));
+ await test('generate / hover contrast',async()=>{await page.getByRole('button',{name:'生成新配图',exact:true}).hover();return visual(page,'generate-hover',['.ap-opt'])});
+ await test('generate / keyboard focus contrast',async()=>{await page.getByRole('button',{name:'生成新配图',exact:true}).focus();return visual(page,'generate-focus',['.ap-opt'])});
+ await test('adopted prompt / reload preserves result and allows manual editing',async()=>{
+  await page.getByRole('button',{name:'关闭弹窗'}).click();await page.reload();await page.getByRole('tab',{name:'编辑',exact:true}).click();await openPicker(page);
+  assert.equal(await page.getByLabel('配图提示词').inputValue(),candidate);
   await page.getByLabel('配图提示词').fill('用户人工确认后的配图要求');
  });
- await page.getByRole('dialog').getByRole('button',{name:'生成新配图',exact:true}).click();
- await test('confirmation / actual portal contrast',()=>visual(page,'confirmation',['.ap-confirm','.ap-preview']));
- await test('confirmation / no generation before approval, cancel preserves text',async()=>{
-  assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate').length,0);
-  await page.locator('.ap-confirm').getByRole('button',{name:'取消',exact:true}).click();assert.equal(await page.getByLabel('配图提示词').inputValue(),'用户人工确认后的配图要求');
-  await page.getByRole('dialog').getByRole('button',{name:'生成新配图',exact:true}).click();
+ await test('generate / one click submits immediately, double click creates only one request',async()=>{
+  await page.getByRole('button',{name:'生成新配图',exact:true}).evaluate(el=>{el.click();el.click()});
+  await page.getByText('配图生成中，完成后回填正文；关闭后可重新打开核查原任务。',{exact:true}).waitFor();
+  assert.equal(await page.locator('.ap-confirm').count(),0);assert.equal(await page.getByRole('button',{name:'确认生成配图',exact:true}).count(),0);
+  const drafts=fixture.requests.filter(x=>x.path==='/studio/drafts'),calls=fixture.requests.filter(x=>x.path==='/studio/generate');
+  assert.equal(drafts.length,1);assert.equal(calls.length,1);assert.equal(drafts[0].body.input.prompt,'用户人工确认后的配图要求');assert.equal(calls[0].body.confirmed,true);
+  assert.equal(await page.getByLabel('配图模型').isDisabled(),true);
  });
- await page.getByRole('button',{name:'确认生成配图',exact:true}).evaluate(el=>{el.click();el.click()});
- await page.getByText('配图生成中，完成后回填正文；关闭后可重新打开核查原任务。',{exact:true}).waitFor();
  await test('running / disabled fields and actual portal contrast',()=>visual(page,'running',['.ap-generate [role=status]','.ap-preview','select:disabled']));
  await test('running / title and scroll at 1366x768',()=>geometry(page,'running-scroll'));
  await test('running / close, reload, recover same request and original bookmark',async()=>{
@@ -215,7 +221,7 @@ try{
  await test('interrupted response / retry reuses idempotency key and draft',async()=>{
   const {context,page,fixture}=await open();try{
    fixture.failGenerate=true;await openPicker(page);await page.getByLabel('配图提示词').fill('隔离失败恢复测试');
-   await page.getByRole('dialog').getByRole('button',{name:'生成新配图',exact:true}).click();await page.getByRole('button',{name:'确认生成配图'}).click();
+   await page.getByRole('dialog').getByRole('button',{name:'生成新配图',exact:true}).click();
    await page.getByRole('button',{name:'重新提交原请求'}).waitFor();
    await visual(page,'uncertain-error',['.ap-error','[role=alert]']);
    await page.getByRole('button',{name:'关闭弹窗'}).click();await openPicker(page);
@@ -294,12 +300,11 @@ try{
     assert.equal(await page.getByRole('button',{name:'重新提交原请求'}).count(),0);
     assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).pending,pictureKey),null);
     await page.getByLabel('配图画面想法').fill('明确失败后的新画面想法');await page.getByLabel('配图风格').fill('保留原画风的新风格细节');
-    await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.getByRole('button',{name:'采用 AI 提示词'}).click();
+    await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.waitForFunction(value=>document.querySelector('[aria-label="配图提示词"]').value===value,candidate);
     const prompt='明确失败后用户确认的新要求';await page.getByLabel('配图提示词',{exact:true}).fill(prompt);
     await page.getByLabel('配图参数 quality',{exact:true}).selectOption(JSON.stringify('standard'));
     assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate'||x.path==='/studio/drafts').length,0,'Failure must not automatically create a new paid request');
-    await page.getByRole('button',{name:'生成新配图',exact:true}).click();
-    fixture.generateStatus='running';await page.getByRole('button',{name:'确认生成配图',exact:true}).click();
+    fixture.generateStatus='running';await page.getByRole('button',{name:'生成新配图',exact:true}).click();
     await page.getByText('配图生成中，完成后回填正文；关闭后可重新打开核查原任务。',{exact:true}).waitFor();
     const drafts=fixture.requests.filter(x=>x.path==='/studio/drafts'),calls=fixture.requests.filter(x=>x.path==='/studio/generate');
     assert.equal(drafts.length,1);assert.equal(drafts[0].body.input.prompt,prompt);assert.equal(drafts[0].body.options.quality,'standard');assert.equal(calls.length,1);
@@ -308,17 +313,45 @@ try{
    }finally{await context.close()}
   });
  }
- await test('unknown / candidate prompt cannot overwrite the saved original requirements',async()=>{
+ await test('prompt / queued result auto-adopts, optimization and generation cannot race',async()=>{
   const {context,page,fixture}=await open();try{
-   await openPicker(page);await page.getByLabel('配图提示词',{exact:true}).fill('生成原请求要求');
-   await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.locator('.ap-candidate').waitFor();
-   fixture.generateStatus='unknown';await page.getByRole('button',{name:'生成新配图',exact:true}).click();await page.getByRole('button',{name:'确认生成配图',exact:true}).click();
-   await page.getByRole('button',{name:'重新提交原请求'}).waitFor();
-   const adopt=page.getByRole('button',{name:'采用 AI 提示词',exact:true});assert.equal(await adopt.isDisabled(),true);
-   await adopt.evaluate(el=>el.click());assert.equal(await page.getByLabel('配图提示词',{exact:true}).inputValue(),'生成原请求要求');
-   await visual(page,'unknown-candidate-locked',['.ap-candidate','.ap-run-status']);
-   const saved=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),pictureKey);assert.equal(saved.prompt,'生成原请求要求');
-   assert.equal(fixture.requests.filter(x=>x.path==='/studio/drafts').length,1);assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate').length,1);
+   fixture.promptStatus='queued';fixture.promptJobStatus='running';
+   await openPicker(page);await page.getByLabel('配图提示词').fill('整理前的原始要求');
+   await page.evaluate(()=>{
+    const buttons=[...document.querySelectorAll('.ap-generate button')];
+    const optimize=buttons.find(el=>el.textContent==='AI 整理画面提示词');
+    optimize.click();optimize.click();buttons.find(el=>el.textContent==='生成新配图').click();
+   });
+   await page.waitForFunction(()=>document.querySelector('.ap-opt button')?.textContent==='正在准备…');
+   assert.equal(await page.getByRole('button',{name:'生成新配图',exact:true}).isDisabled(),true);
+   await page.getByLabel('配图提示词').press('Enter');
+   assert.equal(fixture.requests.filter(x=>x.path.includes('article-illustration-prompt')).length,1);
+   assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate'||x.path==='/studio/drafts').length,0);
+   assert.equal(await page.getByLabel('配图提示词').inputValue(),'整理前的原始要求');
+   fixture.promptJobStatus='done';
+   await page.waitForFunction(value=>document.querySelector('[aria-label="配图提示词"]').value===value,candidate);
+   assert.equal(await page.getByRole('button',{name:'生成新配图',exact:true}).isEnabled(),true);
+   assert.equal(await page.getByRole('button',{name:'采用 AI 提示词'}).count(),0);
+   assert(fixture.requests.some(x=>x.path==='/jobs/fixture-prompt'));
+   const prompt=page.getByLabel('配图提示词');await prompt.fill('回车一次生成');await prompt.press('Control+Enter');
+   assert.equal(await prompt.inputValue(),'回车一次生成\n');assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate').length,0);
+   await prompt.evaluate(el=>{el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));});
+   await page.getByText('配图生成中，完成后回填正文；关闭后可重新打开核查原任务。',{exact:true}).waitFor();
+   const drafts=fixture.requests.filter(x=>x.path==='/studio/drafts');assert.equal(drafts.length,1);assert.equal(drafts[0].body.input.prompt,'回车一次生成\n');assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate').length,1);
+   return {queuedPrompt:true,autoAdopted:true,enterRequests:1,paidCalls:0};
+  }finally{await context.close()}
+ });
+ for(const mode of ['empty','failed','queued-failed'])await test('prompt / '+mode+' preserves original requirements and permits retry',async()=>{
+  const {context,page,fixture}=await open();try{
+   fixture.promptStatus=mode==='queued-failed'?'queued':mode==='failed'?'failed':'done';fixture.promptJobStatus='failed';fixture.promptResult={suggested_prompt:'  '};
+   await openPicker(page);await page.getByLabel('配图提示词').fill('需要保留的原要求');
+   await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.locator('.ap-error').waitFor();
+   assert.equal(await page.getByLabel('配图提示词').inputValue(),'需要保留的原要求');
+   assert.equal(await page.getByRole('button',{name:'AI 整理画面提示词'}).isEnabled(),true);
+   assert.equal(await page.getByRole('button',{name:'生成新配图',exact:true}).isEnabled(),true);
+   fixture.promptStatus='done';fixture.promptResult={optimized_prompt:candidate};
+   await page.getByRole('button',{name:'AI 整理画面提示词'}).click();await page.waitForFunction(value=>document.querySelector('[aria-label="配图提示词"]').value===value,candidate);
+   assert.equal(fixture.requests.filter(x=>x.path==='/studio/generate'||x.path==='/studio/drafts').length,0);
   }finally{await context.close()}
  });
  await test('insert failure / keep selected picture, draft and retry',async()=>{

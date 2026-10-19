@@ -4,6 +4,7 @@ import re
 from fastapi import Depends
 from . import store as s, jobs, gateway as g, capabilities, library, retrieval, product_guide, agent
 from .writing_methods import publish_body, writing_request, word_requirement
+from .ip_questionnaire import profile_snapshot
 
 PLATFORMS = {'wechat':'公众号', 'moments':'朋友圈', 'xiaohongshu':'小红书', 'channels':'视频号', 'douyin':'抖音'}
 ROUTER = '''你是梯世界需求识别器，只返回JSON，不执行工具。
@@ -231,6 +232,7 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
     model=g.select(owner,'profile' if profile_only else 'qa',model_id)
     # Freeze before enqueueing, including the classifier and every permitted branch.
     methods={purpose:capabilities.snapshot(purpose,owner) for purpose in ('agent','qa','daily','profile','writing','topics')}
+    identity_snapshot=profile_snapshot(s.get(owner,profile_id)) if profile_id else None
     short_skip=bool(task.get('pending_creation') and re.fullmatch(r'(?:不需要|不用|暂时不需要)[，。！!\s]*',text))
     skipped=skip_profile is True or _skip_requested(text) or short_skip or task.get('identity_skipped',False)
     task=s.put(owner,'task',{**task,'mode':'profile' if profile_only else 'auto','agent_proposal':None,'topic_proposal':None,'profile_id':profile_id,'source_ids':source_ids,
@@ -252,7 +254,7 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
         retrieved=retrieval.retrieve(owner,query,scope,profile_id,task_id) if retrieval.needs_knowledge(query) else {'excerpts':[],'method':'日常交流，无需检索资料'}
         refs=list(dict.fromkeys(x['id'] for x in retrieved['excerpts']))
         ctx=retrieval.context_text(retrieved)
-        if profile_id:ctx+='\n用户已确认的身份：'+json.dumps(s.get(owner,profile_id),ensure_ascii=False)
+        if identity_snapshot:ctx+='\n用户已确认的身份：'+json.dumps(identity_snapshot,ensure_ascii=False)
         if task.get('upstream_body'):ctx+='\n前序成果：'+task['upstream_body'][:15000]
         if route['action']=='profile':
             binding=profile_binding(owner,task)
@@ -417,11 +419,12 @@ def register(app,user):
         task=s.get(u['id'],id);old=s.get(u['id'],content_id)
         if task['kind']!='task' or old['kind']!='content' or old.get('task_id')!=id or task.get('archived') or old.get('archived'):
             raise ValueError('请选择本次会话的有效成果')
-        allowed={'version','title','body','summary','cover_brief','cover_asset_id','caption','script','shotlist','tags','wechat_style'}
+        allowed={'version','title','author','body','summary','cover_brief','cover_asset_id','caption','script','shotlist','tags','wechat_style'}
         if set(data)-allowed or type(data.get('version')) is not int:raise ValueError('成果保存字段无效')
         changes={k:v for k,v in data.items() if k not in {'version','wechat_style'}}
         if any(not isinstance(v,str) or len(v)>30000 for v in changes.values()):raise ValueError('成果栏目格式或长度无效')
         if len(changes.get('title',''))>160 or len(changes.get('summary',''))>120:raise ValueError('标题或摘要过长')
+        if len(changes.get('author',''))>64:raise ValueError('作者不能超过 64 字，可留空')
         if changes.get('cover_asset_id'):
             from . import media_studio
             media_studio._asset(u['id'],changes['cover_asset_id'],'image','text_image')

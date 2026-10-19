@@ -1,3 +1,4 @@
+import IPStartupReminder from './IPStartupReminder';
 import GlobalSearch from './GlobalSearch';
 import CurrentActivity from './CurrentActivity';
 import {sendKey} from './inputKeys';
@@ -133,6 +134,7 @@ export default function App(){
  <OperationFeedback route={route} jobs={jobs} userId={state.user.id} onJob={job=>setState(previous=>{if(!previous)return previous;const objects=mergeObjects(previous.objects,[job],true);return objects===previous.objects?previous:{...previous,objects}})} onComplete={()=>void refresh()}/>
  {!state.workspace&&<div className="onboarding-strip"><FolderOpen/><div><strong>先为资料选择一个家</strong><p>创建本地目录，保存品牌资料、草稿与创作作品。</p></div><button className="primary" onClick={()=>setForm({title:'初始化工作区',fields:[{key:'path',label:'本地目录',hint:'留空使用当前用户专属目录；指定目录必须为空。'}],submit:'创建工作区',action:d=>api('/workspace',d)})}>设置工作区<ArrowRight size={16}/></button></div>}
  {state.complete===false&&page!=='studio'&&page!=='settings'?<section className="surface" role="status"><LoaderCircle className="spin" size={18}/> 正在载入本页资料{error&&<button onClick={()=>void refresh()}>重试加载</button>}</section>:<>
+ <IPStartupReminder key={profileScope(state)} t={tools}/>
  {page==='home'&&<Today {...tools}/>}
  {page==='radar'&&<RadarPage {...tools}/>}
  {page==='benchmark'&&<BenchmarkStudio t={tools}/>}

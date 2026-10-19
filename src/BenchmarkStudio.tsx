@@ -1,6 +1,8 @@
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
 import {api, type Item} from './api';
 import './benchmark-studio.css';
+import {BenchmarkTechnicalSettings, type BenchmarkPreferences} from './BenchmarkSettings';
+import {IndustryDiscovery} from './RadarSources';
 
 // Mount user view in discovery; mount the two named exports ONLY in admin.html.
 const root:CSSProperties={maxWidth:1400,margin:'0 auto',padding:'24px 24px 80px',color:'var(--ts-text, #23302e)'};
@@ -14,11 +16,12 @@ const platforms:Record<string,string>={douyin:'抖音',channels:'视频号',wech
 const kinds:Record<string,string>={article_text:'已取得正文文字',published_caption:'发布文案（非口播）',catalogue_only:'仅目录'};
 const missingNames:Record<string,string>={published:'发布日期',text:'文字',article_body:'文章正文',transcript:'口播转写',visual_analysis:'画面分析'};
 type Provider={id:string;configured:boolean;status:string;docs_url:string;signup_url:string;pricing_url:string};
-type Tools={state?:{user?:{id?:string}};refresh?:()=>Promise<unknown>};
+type Tools={state?:{user?:{id?:string}};refresh?:()=>Promise<unknown>;[key:string]:any};
 const requestId=()=>crypto.randomUUID();
 const message=(e:unknown)=>e instanceof Error?e.message:'操作失败，请检查输入';
 
 export default function BenchmarkStudio({t}:{t:Tools}){
+ const [section,setSection]=useState<'peers'|'industry'>('peers'),[settingsOpen,setSettingsOpen]=useState(false),[bindConfirmed,setBindConfirmed]=useState(false);
  const returnTo=new URLSearchParams(location.hash.split('?')[1]||'').get('return')||'';
  const [accounts,setAccounts]=useState<Item[]>([]),[items,setItems]=useState<Item[]>([]),[providers,setProviders]=useState<Provider[]>([]);
  const [accountId,setAccountId]=useState(''),[platform,setPlatform]=useState('douyin'),[provider,setProvider]=useState('tikhub');
@@ -42,8 +45,8 @@ export default function BenchmarkStudio({t}:{t:Tools}){
  const shown=items.filter(x=>(!accountId||x.account_id===accountId)&&(!filter||`${x.title} ${x.body}`.includes(filter))&&(!from||(x.published&&x.published>=from))&&(!to||(x.published&&x.published<=to)));
  const chosen=shown.filter(x=>selected.includes(x.id));
  const analyzeSelected=()=>run(async()=>{if(!owner)throw Error('请登录后再分析样本');const ids=chosen.map(x=>x.id),key=[...ids].sort().join(',');const attempt=analysisAttempt.current?.items===key?analysisAttempt.current:{id:requestId(),items:key};analysisAttempt.current=attempt;try{localStorage.setItem('benchmark-v2-analysis-request:'+owner,JSON.stringify(attempt))}catch{/* The server still blocks concurrent analysis. */}let job:Item;try{job=await api<Item>('/benchmark-api/analyze',{item_ids:ids,request_id:attempt.id})}catch(e){const latest=await api<{job:Item|null}>('/benchmark-api/analyze/job').catch(()=>({job:null}));if(latest.job?.input?.request_id!==attempt.id)throw e;job=latest.job}setAnalysisJob(job);if(job.input?.request_id!==attempt.id){analysisAttempt.current=null;try{localStorage.removeItem('benchmark-v2-analysis-request:'+owner)}catch{}}if(job.status==='done'&&job.result?.kind==='benchmark_api_analysis')setAnalysis(job.result);setNotice('分析任务已提交；进度会自动更新，离开本页后也可恢复。')});
- const bind=()=>run(async()=>{const a=await api('/benchmark-api/accounts',{platform,provider,title,url,account_key:accountKey,ghid,confirmed,max_calls:maxCalls,request_id:requestId()});await load();setAccountId(a.id);setSelected([]);setConfirmed(false);setNotice('账号绑定已保存。手工标识需由后续目录逐条核对。');});
- const fetchItems=()=>run(async()=>{const result=await api('/benchmark-api/fetch',{account_id:accountId,limit,date_from:from,date_to:to,max_calls:maxCalls,confirmed,request_id:requestId()});setConfirmed(false);await load();setNotice(`本次取得 ${result.count} 条，新增 ${result.added} 条，发出 ${result.calls} 次请求。${result.reason}。覆盖：部分。`);});
+ const bind=()=>run(async()=>{if(url&&(!bindConfirmed||!ready(provider)))throw Error('请先确认本次链接识别费用并配置服务');setBindConfirmed(false);const a=await api('/benchmark-api/accounts',{platform,provider,title,url,account_key:accountKey,ghid,confirmed:bindConfirmed,max_calls:maxCalls,request_id:requestId()});await load();setAccountId(a.id);setSelected([]);setConfirmed(false);setNotice('账号已保存，可以获取最近作品。');});
+ const fetchItems=()=>run(async()=>{if(!confirmed||!account||!ready(account.provider))throw Error('请先确认本次获取费用并选择已配置的账号');setConfirmed(false);const result=await api('/benchmark-api/fetch',{account_id:accountId,limit,date_from:from,date_to:to,max_calls:maxCalls,confirmed,request_id:requestId()});setConfirmed(false);await load();setNotice(`本次取得 ${result.count} 条，新增 ${result.added} 条，发出 ${result.calls} 次请求。${result.reason}。覆盖：部分。`);});
  const useItem=(x:Item)=>run(async()=>{
   if(!owner)throw new Error('请登录后再将参考资料带入创作。');
   const result=await api('/benchmark-api/items',{item_id:x.id});
@@ -62,23 +65,27 @@ export default function BenchmarkStudio({t}:{t:Tools}){
  });
  return <main className="benchmark-studio-v2" style={root}>
   {returnTo.startsWith('studio/flow?')&&<div className="bv-flow-return"><span>一站式创作 · 找方向</span><a href={'#'+returnTo}>← 返回一站式创作，继续当前作品</a></div>}
-  <header className="bv-header"><div><span>DISCOVER / BENCHMARK</span><h1>灵感与对标</h1><p>先从行业线索和真实账号中找方向，再把可用样本带入自己的创作。</p></div><div className="bv-head-count"><strong>{accounts.length}</strong><span>已添加账号</span><i/><strong>{items.length}</strong><span>已保存样本</span></div></header>
-  <div className="bv-paths"><a href="#radar"><span>01 · 看行业</span><strong>行业资讯与平台热点</strong><small>查看已获取的真实线索，发现值得写的问题。</small><b>打开行业雷达 ↗</b></a><div className="active"><span>02 · 看同行</span><strong>对标账号与作品样本</strong><small>绑定账号，按需获取目录和可用文字。</small><b>在本页操作 ↓</b></div><a href="#studio/text"><span>03 · 做自己的内容</span><strong>从参考走向创作</strong><small>引用来源，保留事实边界，写出自己的表达。</small><b>进入文案创作 ↗</b></a></div>
+  <header className="bv-header"><div><span>DISCOVER / BENCHMARK</span><h1>灵感与对标</h1><p>看同行、看行业，找到值得讲给客户的内容。</p></div><div className="bv-head-count"><strong>{accounts.length}</strong><span>已添加账号</span><i/><strong>{items.length}</strong><span>已保存样本</span></div></header>
+  <nav className="bv-paths" aria-label="发现内容"><button type="button" className={section==='peers'?'active':''} aria-pressed={section==='peers'} onClick={()=>setSection('peers')}><span>01 · 看同行</span><strong>同行账号与最近作品</strong><small>粘贴账号链接，获取作品，找到自己的创作角度。</small></button><button type="button" className={section==='industry'?'active':''} aria-pressed={section==='industry'} onClick={()=>setSection('industry')}><span>02 · 看行业</span><strong>行业资讯与平台热点</strong><small>关注信源、阅读资讯，都在本页完成。</small></button></nav>
+  <div hidden={section!=='peers'}>
   <div role="status" aria-live="polite" style={{...subtle,marginBottom:14}}>{busy?'正在处理，请勿重复提交付费请求。':notice}</div>
   {failure&&<p role="alert" style={{...panel,color:'#982f2f'}}>{failure}</p>}
   <div className="bv-section-head"><div><h2>对标账号</h2><p>选择已保存账号继续研究，或添加一个新账号。</p></div><span>{accounts.length} 个账号</span></div>
   {!!accounts.length&&<div className="bv-accounts">{accounts.map(a=><button key={a.id} className={accountId===a.id?'selected':''} onClick={()=>{setAccountId(a.id);setSelected([]);setConfirmed(false)}}><span className="bv-platform">{platforms[a.platform]?.slice(0,1)||'号'}</span><span><strong>{a.title||'未命名账号'}</strong><small>{platforms[a.platform]||a.platform} · {a.last_fetch?`上次取得 ${a.last_fetch.count} 条`:'尚未获取作品'}</small></span><b>{accountId===a.id?'当前选择':'选择 →'}</b></button>)}</div>}
-  <div className="bv-operations"><details className="benchmark-v2-bind" style={panel} open={!accounts.length}><summary style={{fontWeight:650,cursor:'pointer'}}>＋ 添加对标账号</summary><div style={{...row,marginTop:18}}>
-   <label style={field}>平台<select style={input} value={platform} onChange={e=>{setPlatform(e.target.value);setProvider('tikhub');setConfirmed(false);}}>{Object.entries(platforms).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
-   <label style={field}>获取服务<select style={input} value={provider} onChange={e=>{setProvider(e.target.value);setConfirmed(false);}}><option value="tikhub">TikHub</option>{platform==='wechat'&&<option value="cimidata">次幂</option>}</select></label>
-   <label style={field}>备注名称<input style={input} value={title} onChange={e=>setTitle(e.target.value)} maxLength={200}/></label>
-  </div><div style={{...row,marginTop:12}}><label style={field}>原始 HTTPS 分享链接（可选）<input style={input} value={url} onChange={e=>{setUrl(e.target.value);setConfirmed(false);}} placeholder="链接识别可能产生费用"/></label><label style={field}>{platform==='douyin'?'sec_user_id':platform==='channels'?'username':'公众号 biz'}（无链接时必填）<input style={input} value={accountKey} onChange={e=>setAccountKey(e.target.value)}/></label>{platform==='wechat'&&<label style={field}>公众号原始ID gh_…<input style={input} value={ghid} onChange={e=>setGhid(e.target.value)}/></label>}</div>
-  <p style={subtle}>直接填写真实账号标识可先保存；链接识别需下方确认费用。昵称不能唯一识别账号，视频号链接须包含 id 或 exportId。</p><button style={button} disabled={busy||(!url&&!accountKey)||(!!url&&(!confirmed||!ready(provider)))} onClick={bind}>保存绑定 / 识别链接</button></details>
-  <section className="benchmark-v2-fetch" style={panel}><div className="bv-section-head"><div><h2>获取账号作品</h2><p>{account?`当前账号：${account.title} · ${platforms[account.platform]||account.platform}`:'先从上方选择或添加对标账号'}</p></div></div><div style={row}><label style={field}>获取最多多少条<input style={input} type="number" min={1} max={500} value={limit} onChange={e=>{setLimit(Number(e.target.value));setConfirmed(false);}}/></label></div>
-   <details className="bv-options"><summary>日期范围与费用上限</summary><div style={{...row,marginTop:12}}><label style={field}>起始日期<input style={input} type="date" value={from} onChange={e=>{setFrom(e.target.value);setConfirmed(false);}}/></label><label style={field}>截止日期<input style={input} type="date" value={to} onChange={e=>{setTo(e.target.value);setConfirmed(false);}}/></label><label style={field}>最多付费请求次数<input style={input} type="number" min={1} max={50} value={maxCalls} onChange={e=>{setMaxCalls(Number(e.target.value));setConfirmed(false);}}/></label></div><p style={subtle}>日期先筛选本地记录，点击获取才会重新查询。无发布日期的记录不纳入日期范围。</p></details>
-   <p style={subtle}>仅按需调用已配置服务。实际费用按供应商套餐结算；目录、正文和视频画面覆盖情况分别显示。</p>
-   <label style={{...row,fontSize:13,margin:'16px 0'}}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>我确认本次链接识别或获取最多 {maxCalls} 次付费请求；失败或超时可能计费，不自动重试。</label>
-   <button style={button} disabled={busy||!account||!confirmed||!ready(account?.provider||'')} onClick={fetchItems}>付费获取并保存</button>{account&&!ready(account.provider)&&<span style={{...subtle,marginLeft:12}}>尚未配置服务，请联系管理员。</span>}
+  <div className="bv-operations"><details className="benchmark-v2-bind" style={panel} open={!accounts.length}><summary style={{fontWeight:650,cursor:'pointer'}}>＋ 添加同行账号</summary><fieldset disabled={busy} className="bv-simple-fields"><div style={{...row,marginTop:18}}>
+   <label style={field}>平台<select aria-label="平台" style={input} value={platform} onChange={e=>{setPlatform(e.target.value);setProvider('tikhub');setBindConfirmed(false);setAccountKey('');setGhid('')}}>{Object.entries(platforms).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+   <label style={field}>备注名称（可选）<input style={input} value={title} onChange={e=>setTitle(e.target.value)} maxLength={200}/></label>
+  </div><label style={{...field,marginTop:12}}>账号 / 作品分享链接<input style={input} value={url} onChange={e=>{setUrl(e.target.value);setBindConfirmed(false)}} placeholder="粘贴完整 HTTPS 链接"/></label>
+  <p style={subtle}>抖音可用主页或作品链接；公众号请用文章链接；视频号请用作品分享链接。</p>
+  {!url&&accountKey&&<p style={subtle}>将使用设置中保存的账号标识绑定。</p>}
+  {!!url&&<label className="bv-fee-consent"><input type="checkbox" checked={bindConfirmed} onChange={e=>setBindConfirmed(e.target.checked)}/>同意本次链接识别最多 {maxCalls} 次付费请求；失败或超时可能计费，不自动重试。</label>}
+  <div className="button-row"><button style={button} disabled={(!url&&!accountKey)||(!!url&&(!bindConfirmed||!ready(provider)))} onClick={bind}>添加账号</button><button type="button" className="bv-settings-trigger" onClick={()=>setSettingsOpen(true)}>获取设置</button></div>
+  {!!url&&!ready(provider)&&<p style={subtle}>获取服务尚未配置，请联系管理员；链接会保留。</p>}
+  </fieldset></details>
+  <section className="benchmark-v2-fetch" style={panel}><div className="bv-section-head"><div><h2>获取最近作品</h2><p>{account?`当前账号：${account.title} · ${platforms[account.platform]||account.platform}`:'选择或添加同行账号后，获取最近作品'}</p></div></div>
+   <p style={subtle}>本次最多 {limit} 条{from||to?` · 日期范围：${from||'不限'} 至 ${to||'不限'}`:''}。仅保存实际取得的目录与文字。</p>
+   <label className="bv-fee-consent"><input type="checkbox" disabled={busy} checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>同意本次获取最多 {maxCalls} 次付费请求；失败或超时可能计费，不自动重试。</label>
+   <div className="button-row"><button style={button} disabled={busy||!account||!confirmed||!ready(account?.provider||'')} onClick={fetchItems}>获取最近作品</button><button type="button" disabled={busy} className="bv-settings-trigger" onClick={()=>setSettingsOpen(true)}>获取设置</button></div>{account&&!ready(account.provider)&&<p style={subtle}>尚未配置该账号的获取服务，请联系管理员。</p>}
    {account?.last_fetch&&<p style={subtle}>上次：{account.last_fetch.count} 条 / {account.last_fetch.calls} 次请求 · 部分覆盖 · {account.last_fetch.reason}</p>}
   </section>
   </div><section className="benchmark-v2-items" style={panel}><div style={{...row,justifyContent:'space-between'}}><h2 style={{fontSize:19}}>账号作品 · {shown.length}</h2><label style={field}>搜索已保存样本<input style={input} placeholder="标题或关键词" value={filter} onChange={e=>setFilter(e.target.value)}/></label><button style={button} disabled={busy||analysisRunning||!chosen.length||chosen.length>50} onClick={analyzeSelected}>{analysisRunning?'分析进行中…':`分析已选 ${chosen.length} 条`}</button></div><p style={subtle}>选择有文字的样本进行分析；模型服务可能计费。仅有作品目录时无法分析内容。</p>
@@ -88,6 +95,9 @@ export default function BenchmarkStudio({t}:{t:Tools}){
   </section>
   {analysis&&<section className="benchmark-v2-analysis" style={{...panel,borderTop:'3px solid #20574b'}}><h2 style={{fontSize:19}}>样本分析</h2><p style={subtle}>{analysis.sample_count} 份有文字的样本 · 日期 {analysis.dates?.join('、')||'缺失'} · 部分覆盖</p><div style={{whiteSpace:'pre-wrap',lineHeight:1.85,overflowWrap:'anywhere'}}>{analysis.body}</div></section>}
   <details className="bv-service-detail"><summary>数据来源与服务状态</summary><div>{providers.map(p=><span key={p.id}>{p.id==='tikhub'?'TikHub':'次幂'}：{p.configured?'已配置，实际覆盖以查询结果为准':'未配置，请联系管理员'}</span>)}</div><p>仅保存服务返回的真实目录与文字；未取得的口播、画面与视频内容会明确标记，不自动补造。</p></details>
+  </div>
+  <div hidden={section!=='industry'}><IndustryDiscovery t={t}/></div>
+  {settingsOpen&&<div className="bv-settings-overlay" onKeyDown={e=>{if(e.key==='Escape'&&!busy)setSettingsOpen(false)}}><section className="bv-settings-dialog" role="dialog" aria-modal="true" aria-label="对标获取设置"><div className="bv-section-head"><h2>获取设置</h2><button autoFocus type="button" disabled={busy} onClick={()=>setSettingsOpen(false)}>完成</button></div><BenchmarkTechnicalSettings platform={platform} disabled={busy} value={{provider,accountKey,ghid,limit,maxCalls,from,to}} onChange={(v:BenchmarkPreferences)=>{setProvider(v.provider);setAccountKey(v.accountKey);setGhid(v.ghid);setLimit(v.limit);setMaxCalls(v.maxCalls);setFrom(v.from);setTo(v.to);setConfirmed(false);setBindConfirmed(false)}}/><p style={subtle}>服务密钥仍由管理员在后台管理。以上设置暂存本机，关闭后继续使用。</p></section></div>}
  </main>;
 }
 

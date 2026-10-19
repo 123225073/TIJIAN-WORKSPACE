@@ -249,7 +249,7 @@ def _delivery(owner, delivery_id):
 
 
 def _snapshot(delivery):
-    fields = ('title', 'summary', 'body', 'cover_asset_id')
+    fields = ('title', 'author', 'summary', 'body', 'cover_asset_id')
     return hashlib.sha256(repr((tuple(delivery.get(k, '') for k in fields),
                                wechat_layout.style(delivery.get('wechat_style')))).encode()).hexdigest()
 
@@ -344,6 +344,8 @@ def register(app, user):
                 raise ValueError('请填写正文并选择封面图片')
             if len(delivery.get('summary', '')) > 120:
                 raise ValueError('摘要不能超过 120 字')
+            if not isinstance(delivery.get('author', ''), str) or len(delivery.get('author', '')) > 64:
+                raise ValueError('作者须为不超过 64 字的文本，可留空')
             old = _record(owner, delivery_id, account['id'])
             if old and old.get('status') in ('publishing', 'published', 'uncertain', 'removed'):
                 raise ValueError('此稿件已提交发布或结果待核查，不能重复同步草稿')
@@ -364,7 +366,7 @@ def register(app, user):
                 media_id = cover_result.get('media_id')
                 if not isinstance(media_id, str) or not media_id:
                     raise ValueError('公众号封面上传失败：微信未返回永久素材编号 media_id')
-            article = {'title': delivery['title'].strip(), 'digest': delivery.get('summary', '').strip(),
+            article = {'title': delivery['title'].strip(), 'author': delivery.get('author', ''), 'digest': delivery.get('summary', '').strip(),
                        'content': _article_html(owner, account, delivery['body'], delivery.get('wechat_style')), 'thumb_media_id': media_id,
                        'need_open_comment': 0, 'only_fans_can_comment': 0}
             try:

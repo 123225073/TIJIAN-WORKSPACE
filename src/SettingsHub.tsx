@@ -1,3 +1,4 @@
+import {BenchmarkSettingsPanel} from './BenchmarkSettings';
 import {RadarSources} from './RadarSources';
 import {MemorySettings} from './MemorySettings';
 import {SystemCapabilities} from './SystemCapabilities';
@@ -20,7 +21,7 @@ export function SettingsHub({t,renderPreferences}:any){
  {module==='memory'&&<MemorySettings {...t}/>}
  {module==='system'&&t.state.user?.role==='admin'&&<SystemCapabilities/>}
  {module==='cimi'&&<WechatSettings/>}
- {module==='benchmark'&&<><label className="field"><span>要配置的对标账号</span><select aria-label="配置对标账号" value={account?.id||''} onChange={e=>{location.hash='settings/benchmark/'+e.target.value+'/'+returnTab}}>{accounts.map((x:any)=><option key={x.id} value={x.id}>{x.title}</option>)}</select></label>{account?<><section className="surface"><div className="block-heading"><h3>{account.title}</h3><button onClick={()=>t.editItem(account,benchmarkFields.filter((f:any)=>!['抖音','douyin'].includes(account.platform)||f.key!=='feed_url'))}>编辑账号资料</button></div><p>{account.platform} · {account.reason||'未填写关注理由'}</p><p className="path">{account.url||'未填写代表作品链接'}</p><DeleteRecord item={account} t={t}/></section>{['公众号','wechat','微信公众号'].includes(account.platform)?<WechatLibrary key={account.id} account={account} t={t} mode="settings"/>:<p>{['抖音','douyin'].includes(account.platform)?'抖音无需填写 RSS。回到对标研究获取作品、下载媒体及开启订阅通知。':'此平台使用手动作品发现或链接采集。订阅地址可在“编辑账号资料”维护。'}</p>}</>:<p>请先在<a href="#benchmark">对标研究</a>添加账号。</p>}</>}
+ {module==='benchmark'&&<><BenchmarkSettingsPanel key={t.state.user.id} owner={t.state.user.id}/><label className="field"><span>要配置的对标账号</span><select aria-label="配置对标账号" value={account?.id||''} onChange={e=>{location.hash='settings/benchmark/'+e.target.value+'/'+returnTab}}>{accounts.map((x:any)=><option key={x.id} value={x.id}>{x.title}</option>)}</select></label>{account?<><section className="surface"><div className="block-heading"><h3>{account.title}</h3><button onClick={()=>t.editItem(account,benchmarkFields.filter((f:any)=>!['抖音','douyin'].includes(account.platform)||f.key!=='feed_url'))}>编辑账号资料</button></div><p>{account.platform} · {account.reason||'未填写关注理由'}</p><p className="path">{account.url||'未填写代表作品链接'}</p><DeleteRecord item={account} t={t}/></section>{['公众号','wechat','微信公众号'].includes(account.platform)?<WechatLibrary key={account.id} account={account} t={t} mode="settings"/>:<p>{['抖音','douyin'].includes(account.platform)?'抖音无需填写 RSS。回到对标研究获取作品、下载媒体及开启订阅通知。':'此平台使用手动作品发现或链接采集。订阅地址可在“编辑账号资料”维护。'}</p>}</>:<p>请先在<a href="#benchmark">对标研究</a>添加账号。</p>}</>}
  {module==='radar'&&<RadarSources {...t}/>}
  {module==='accounts'&&<PlatformAccounts {...t} embedded/>}
  </div></div>{sourceEdit&&<SourceWizard t={t} item={sourceEdit.id?sourceEdit:null} onClose={()=>setSourceEdit(null)}/>}</div>

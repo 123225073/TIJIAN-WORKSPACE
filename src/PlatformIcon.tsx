@@ -1,6 +1,6 @@
 import type {SVGProps} from 'react';
 
-export type PlatformName = 'wechat' | 'channels' | 'douyin' | 'xiaohongshu' | 'moments';
+export type PlatformName = 'wechat' | 'channels' | 'douyin' | 'xiaohongshu' | 'moments' | 'avatar';
 export type PlatformIconProps = Omit<SVGProps<SVGSVGElement>, 'children'> & {
   platform: PlatformName | string;
   size?: number | string;
@@ -14,6 +14,7 @@ const aliases: Record<string, PlatformName> = {
   douyin: 'douyin', '抖音': 'douyin',
   xiaohongshu: 'xiaohongshu', rednote: 'xiaohongshu', xhs: 'xiaohongshu', '小红书': 'xiaohongshu',
   moments: 'moments', wechat_moments: 'moments', '朋友圈': 'moments',
+  avatar: 'avatar', '数字人口播': 'avatar',
 };
 
 /** Self-contained vector marks: no font, image URL or remote dependency. */
@@ -52,6 +53,7 @@ export function PlatformIcon({platform, size = 24, title, ...props}: PlatformIco
         <path key={color} d="m16 5 6 3-6 7-4-4Z" fill={color} transform={`rotate(${i * 45} 16 16)`}/>) }
       <circle cx="16" cy="16" r="3" fill="#FAFCFF"/>
     </>}
+    {name === 'avatar' && <><rect width="32" height="32" rx="8" fill="#3268CC"/><circle cx="12" cy="11" r="4" fill="white"/><path d="M5 25v-3a7 7 0 0 1 14 0v3" fill="white"/><g stroke="white" strokeWidth="1.6" strokeLinecap="round"><rect x="23" y="12" width="4" height="8" rx="2"/><path d="M21 17v1a4 4 0 0 0 8 0v-1m-4 5v4m-2 0h4"/></g></>}
     {!name && <g stroke="currentColor" strokeWidth="1.8"><circle cx="16" cy="16" r="11"/><ellipse cx="16" cy="16" rx="5" ry="11"/><path d="M5 16h22M7 10h18M7 22h18"/></g>}
   </svg>;
 }

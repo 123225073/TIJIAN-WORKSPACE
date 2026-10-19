@@ -235,7 +235,21 @@ def _install_flow_routes(app, user):
                 raise ValueError('不能修改草稿归属')
             if any(key in data and data[key] != task_id for key in ('origin_task_id', 'task_id')):
                 raise ValueError('不能修改任务草稿归属')
-            payload = {k: v for k, v in data.items() if k not in {'flow_id', 'origin_task_id', 'task_id'}}
+            binding = {key: old[key] for key in ('topic_id', 'creation_channel') if old and key in old}
+            if any(key in data for key in ('topic_id', 'creation_channel')):
+                if not flow_id:
+                    raise ValueError('选题与创作渠道绑定须使用作品草稿接口')
+                if binding and any(key in data and data[key] != binding.get(key) for key in ('topic_id', 'creation_channel')):
+                    raise s.Conflict('草稿已绑定选题和创作渠道，请新建草稿以切换')
+                candidate = {**binding, **{key: data[key] for key in ('topic_id', 'creation_channel') if key in data}}
+                topic_id, channel = candidate.get('topic_id'), candidate.get('creation_channel')
+                if not isinstance(topic_id, str) or not topic_id or len(topic_id) > 128:
+                    raise ValueError('请同时提供有效选题和创作渠道')
+                if not isinstance(channel, str) or channel not in {'wechat', 'xiaohongshu', 'moments', 'video', 'avatar'}:
+                    raise ValueError('请同时提供有效选题和创作渠道')
+                _live(owner, topic_id, {'studio_topic'})
+                binding = candidate
+            payload = {k: v for k, v in data.items() if k not in {'flow_id', 'origin_task_id', 'task_id', 'topic_id', 'creation_channel'}}
             # Only a new, exact source-body transfer is normalized. Draft edits
             # and custom speech inputs are authoritative and remain untouched.
             if not old and flow_id and data.get('tool') in {'text_avatar', 'tts'}:
@@ -257,7 +271,7 @@ def _install_flow_routes(app, user):
             call = (text_patch if is_text else media_patch) if old else (text_create if is_text else media_create)
             result = call(**({'id': ident} if old else {}), data=payload, u={'id': owner})
             if flow_id or task_id:
-                result = s.put(owner, result['kind'], {**result, **({'flow_id': flow_id} if flow_id else {'origin_task_id': task_id}),
+                result = s.put(owner, result['kind'], {**result, **binding, **({'flow_id': flow_id} if flow_id else {'origin_task_id': task_id}),
                                **{k: old[k] for k in ('imported_from', 'imported_version') if old and k in old}},
                                result['id'], result['version'])
             return result

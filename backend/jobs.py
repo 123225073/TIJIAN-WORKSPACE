@@ -2,6 +2,7 @@ from __future__ import annotations
 import concurrent.futures, threading, re, json, time
 from functools import wraps
 from . import store as s, gateway as g, upstream, resources, capabilities, library, retrieval, product_guide, system_library
+from .ip_questionnaire import profile_snapshot
 
 POOL=concurrent.futures.ThreadPoolExecutor(max_workers=3,thread_name_prefix='tijian')
 CANCEL={}
@@ -105,7 +106,7 @@ def context(owner,source_ids,profile_id=None,query="",allow_modules=False):
         x=s.get(owner,id)
         if not library.usable(x,profile_id) or library.freshness(x,{v['id']:v for v in s.list_(owner)}):continue
         sources.append(x)
-    profile=s.get(owner,profile_id) if profile_id else None
+    profile=profile_snapshot(s.get(owner,profile_id)) if profile_id else None
     if profile and profile.get('archived'):profile=None
     memories=[x for x in s.list_(owner,'memory') if x.get('status')=='accepted' and not x.get('exclude_ai') and not x.get('archived') and (not x.get('profile_id') or x['profile_id']==profile_id)]
     return '\n'.join([f'用户确认的定位：{json.dumps(profile,ensure_ascii=False) if profile else "未设置，不要编造身份"}',f'已确认偏好：{json.dumps([{k:x.get(k) for k in ["title","body","valid_from","valid_to","region"]} for x in memories[:15]],ensure_ascii=False)}']+[f'\n<资料 id="{x["id"]}" title="{x.get("title","")}" valid_from="{x.get("valid_from","")}" valid_to="{x.get("valid_to","")}" region="{x.get("region","")}">\n{s.object_body(x)[:15000]}\n</资料>' for x in sources])
@@ -126,6 +127,7 @@ def task_turn(owner,task_id,text,source_ids=None,profile_id=None,mode='writing',
         scope={**scope,'modules':['source','wiki','topics'],'folder_ids':[],'item_ids':[],'excluded_ids':[]}
     model=g.select(owner,mode,model_id)
     configuration=capabilities.snapshot(mode,owner)
+    identity_snapshot=profile_snapshot(s.get(owner,profile_id)) if profile_id else None
     messages=task.get('messages',[])+[{'role':'user','text':text,'at':s.now()}]
     task=s.put(owner,'task',{**task,'messages':messages,'agent_proposal':None,'source_ids':source_ids,'reference_scope':scope,'profile_id':profile_id,'mode':mode},task_id)
     s.export_object(owner,task)
@@ -152,7 +154,7 @@ def task_turn(owner,task_id,text,source_ids=None,profile_id=None,mode='writing',
                 ctx+='\n当前工作成果（含用户人工修改，是继续修改的基准；保留未被本次要求改变的部分和图片链接）：\n'+baseline.get('body','')
         if profile_id:
             identity=s.get(owner,profile_id)
-            if library.usable(identity,profile_id):ctx+='\n本次选择的运营身份（用户设定，勿当作外部事实）：'+(s.object_body(identity)+'\n'+identity.get('body',''))[:3000]
+            if library.usable(identity,profile_id):ctx+='\n本次选择的运营身份（用户设定，勿当作外部事实）：'+json.dumps(identity_snapshot,ensure_ascii=False)
         request=[{'role':'system','content':POLICY+'\n'+configuration['text']}, {'role':'user','content':'本次上下文：\n'+ctx}]
         history=[];history_size=0
         for m in reversed(messages[-20:]):

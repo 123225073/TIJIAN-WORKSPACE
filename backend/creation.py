@@ -6,6 +6,7 @@ from collections import Counter
 from fastapi import Depends
 from . import store as s, gateway as g, jobs, capabilities
 from .writing_methods import writing_request, word_requirement
+from .ip_questionnaire import profile_snapshot
 
 BRAND_FIELDS={'title','industry','products','audience','facts','style','contact','restrictions','body'}
 PROFILE_FIELDS={'title','position','audience','style','views','channels','agency_brands','brand_id'}
@@ -82,7 +83,7 @@ def context(owner,data):
     sources=[owned(owner,x,['source','content']) for x in dict.fromkeys(ids)]
     if any(x.get('exclude_ai') for x in sources):raise ValueError('所选资料已设置为不用于 AI，请调整资料范围')
     snapshots={'brand':{k:brand.get(k) for k in BRAND_FIELDS|{'id','version'}} if brand else None,
-               'profile':{k:profile.get(k) for k in PROFILE_FIELDS|{'id','version'}} if profile else None,
+               'profile':profile_snapshot(profile,PROFILE_FIELDS|{'id','version'}),
                'sources':[{'id':x['id'],'version':x['version'],'title':x.get('title'),'body':x.get('body',''),'url':x.get('url','')} for x in sources]}
     if len(json.dumps(snapshots,ensure_ascii=False))>120000:raise ValueError('参考资料过长，请缩小范围')
     return snapshots
@@ -240,7 +241,12 @@ def register(app,user,admin,error):
                     return {'proposal_id':result['id']}
                 from .writing_methods import publish_body
                 text=publish_body(text)
-                item=s.put(owner,'content',{**(old or {}),**common,'title':old['title'] if old else brief[:60],'body':text,'status':'draft','format':content_format,'target_words':target_words or None,'outcome_type':'writing'},old['id'] if old else None,expected=old['version'] if old else None)
+                title=old['title'] if old else brief[:60]
+                heading=re.match(r'\A(?:[ \t]*\r?\n)*# [ \t]*(\S[^\r\n]*)(?:\r?\n|\Z)',text) if content_format=='公众号文章' else None
+                if heading:
+                    title=heading.group(1).strip()
+                    text=text[heading.end():]
+                item=s.put(owner,'content',{**(old or {}),**common,'title':title,'body':text,'status':'draft','format':content_format,'target_words':target_words or None,'outcome_type':'writing'},old['id'] if old else None,expected=old['version'] if old else None)
                 s.export_object(owner,item)
                 return {'content_id':item['id'],'version':item['version']}
             return jobs.start(owner,'生成 IP 定位方案' if proposal else '生成创作文案',work,{'action':'studio_profile' if proposal else 'studio_text','draft_id':draft['id'] if draft else None,'draft_version':draft['version'] if draft else None,'creation_request':request,'request_data':s.digest(json.dumps(data,sort_keys=True)),'snapshot_hash':fingerprint,'configuration':method['metadata'],'request_snapshot':prepared['snapshot']})

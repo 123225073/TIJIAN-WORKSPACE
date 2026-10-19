@@ -12,7 +12,6 @@ const tools=[
  {name:'AI 视频',description:'从画面想法到镜头，讲好行业故事',href:'#studio/video',Icon:Film},
  {name:'数字人视频',description:'用已授权的形象，表达你的专业观点',href:'#studio/avatar/text',Icon:UserRound},
 ];
-const starters=['电梯报价为什么差这么多？写成公众号文章','把维保服务价值写成朋友圈文案','给老旧电梯更新构思一条视频号脚本'];
 const categories=[['all','全部'],['image','图片'],['video','视频']] as const;
 
 function VideoThumb({asset}:{asset:any}){
@@ -53,16 +52,15 @@ export default function TishijieHome({drafts,t}:{drafts:any[];t:any}){
   await t.refresh();location.hash='task/'+task.id;
  }catch(e){setError(e instanceof Error?e.message:'对话未能开始')}finally{setBusy(false)}};
  return <div className="tw-home"><section className="tw-hero" aria-labelledby="tw-title">
-  <header className="tw-hero-title"><span>电梯行业 AI 内容工作台</span><h1 id="tw-title">梯世界</h1><h2>抢占线上曝光，用户一搜即见。</h2><p>找选题、写文章、做图片和视频，把行业经验变成客户看得见的内容。</p></header>
+  <header className="tw-hero-title"><span>电梯行业 AI 内容工作台</span><h1 id="tw-title">梯世界</h1><p>找选题、写文章、做图片和视频，把行业经验变成客户看得见的内容。</p></header>
   <section className="tw-chat" aria-labelledby="tw-chat-title" aria-busy={busy}>
    <div className="tw-chat-head"><span className="tw-chat-icon"><MessageCircleMore size={20} aria-hidden="true"/></span><div><strong id="tw-chat-title">AI 对话</strong><span>说说你想完成什么</span></div><span className="tw-chat-label">从一句灵感开始</span></div>
-   <textarea ref={input} aria-label="向梯世界提问" aria-describedby="tw-chat-hint" value={question} disabled={busy} onChange={e=>{setQuestion(e.target.value);setError('')}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.nativeEvent.isComposing&&e.keyCode!==229){e.preventDefault();if(!e.repeat)void start()}}} placeholder="例如：帮我写一篇面向物业经理的公众号文章，讲清电梯维保为什么不能只看价格。"/>
+   <textarea ref={input} aria-label="向梯世界提问" aria-describedby="tw-chat-hint" value={question} disabled={busy} onChange={e=>{setQuestion(e.target.value);setError('')}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.nativeEvent.isComposing&&e.keyCode!==229){e.preventDefault();if(!e.repeat)void start()}}} placeholder="写下你今天想做的内容…"/>
    <div className="tw-chat-foot"><span id="tw-chat-hint">{!t.state?'正在读取工作区…':ready?<>成果保留在对话中 <span className="tw-key-hint">· Enter 发送 / Shift + Enter 换行</span></>:'对话模型尚未配置，请联系管理员。'}</span><button type="button" className="tw-send" disabled={!ready||!question.trim()||busy} onClick={()=>void start()}>{busy?'正在打开…':'开始对话'}<Send size={15} aria-hidden="true"/></button></div>
    {error&&<p className="tw-chat-error" role="alert">{error}</p>}
   </section>
-  <div className="tw-starters" aria-label="试试这些创作话题">{starters.map(x=><button type="button" key={x} disabled={busy} onClick={()=>{setQuestion(x);setError('');input.current?.focus()}}>{x}<ArrowRight size={13} aria-hidden="true"/></button>)}</div>
-  <a className="tw-flow-entry" href="#studio/flow"><span className="tw-flow-icon"><Layers3 size={22} aria-hidden="true"/></span><div><strong>一站式创作</strong><span>按步骤完成一件作品：选题 → 内容 → 素材 → 交付</span></div><span className="tw-flow-action">进入工作流 <ArrowRight size={17} aria-hidden="true"/></span></a>
-  <nav className="tw-tools" aria-label="直接打开创作工具">{tools.map(({name,description,href,Icon},i)=><a href={href} key={name} className={'tw-tool tw-tool-'+i}><span className="tw-tool-icon"><Icon size={23} strokeWidth={1.6} aria-hidden="true"/></span><strong>{name}</strong><p>{description}</p><ArrowRight className="tw-tool-arrow" size={16} aria-hidden="true"/></a>)}</nav>
+  <a className="tw-flow-entry" href="#studio/flow"><span className="tw-flow-icon"><Layers3 size={22} aria-hidden="true"/></span><div><strong>一站式创作</strong><span>选一个主题，做成适合各个平台的内容</span></div><span className="tw-flow-action">开始创作 <ArrowRight size={17} aria-hidden="true"/></span></a>
+  <details className="tw-extra-tools"><summary>直接使用单项工具</summary><nav className="tw-tools" aria-label="直接打开创作工具">{tools.map(({name,description,href,Icon},i)=><a href={href} key={name} className={'tw-tool tw-tool-'+i}><span className="tw-tool-icon"><Icon size={23} strokeWidth={1.6} aria-hidden="true"/></span><strong>{name}</strong><p>{description}</p><ArrowRight className="tw-tool-arrow" size={16} aria-hidden="true"/></a>)}</nav></details>
   <small className="tw-concept-credit">背景为 AI 建筑概念图</small>
  </section><section className="tw-materials" aria-labelledby="tw-materials-title">
   <div className="tw-section-head"><div><span>你的创作资产</span><h2 id="tw-materials-title">图片与视频素材</h2></div><a href="#studio/assets">查看全部素材 <ArrowRight size={15} aria-hidden="true"/></a></div>

@@ -1,0 +1,16 @@
+.st-interview.ip-questionnaire-dialog{background:var(--ts-panel,#181f2a);color:var(--ts-text,#edf2fb);border:1px solid var(--ts-line,#344153);box-sizing:border-box;outline:none}
+.st-interview.ip-questionnaire-dialog>header{position:sticky;top:-28px;padding:16px 0;background:var(--ts-panel,#181f2a);z-index:2;gap:16px;border-bottom:1px solid var(--ts-line,#344153)}
+.st-interview.ip-questionnaire-dialog>header h2{margin:4px 0}.st-interview.ip-questionnaire-dialog>header button{flex:none}
+.st-interview.ip-questionnaire-dialog input,.st-interview.ip-questionnaire-dialog textarea{box-sizing:border-box;background:var(--ts-input,#101722);color:var(--ts-text,#edf2fb);border:1px solid var(--ts-line,#344153);width:100%;padding:12px;border-radius:8px}
+.st-interview.ip-questionnaire-dialog textarea:focus-visible,.st-interview.ip-questionnaire-dialog input:focus-visible{outline:2px solid var(--ts-accent,#9abaff);outline-offset:2px}
+.ip-questionnaire-list{display:grid;gap:24px;margin:24px 0}.ip-questionnaire-list label{display:grid;gap:8px}.ip-questionnaire-list small,.st-interview.ip-questionnaire-dialog>p{color:var(--ts-muted,#b6c4d8);line-height:1.7}
+.st-interview.ip-questionnaire-dialog button{background:var(--ts-elevated,#222d3c);color:var(--ts-text,#edf2fb);border:1px solid var(--ts-line,#344153);padding:10px 14px;border-radius:8px;cursor:pointer}
+.st-interview.ip-questionnaire-dialog button.st-primary{background:var(--ts-primary,#3068d6);color:#fff}.st-interview.ip-questionnaire-dialog button:disabled{opacity:.6;cursor:not-allowed}
+.st-interview.ip-questionnaire-dialog>footer{position:sticky;bottom:-28px;padding:16px 0;background:var(--ts-panel,#181f2a);display:flex;gap:10px;align-items:center;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--ts-line,#344153)}
+.st-interview.ip-questionnaire-dialog>footer>span{margin-right:auto}.st-interview.ip-questionnaire-dialog .st-interview-chat article{background:var(--ts-elevated,#222d3c);color:var(--ts-text,#edf2fb)}
+.st-interview.ip-questionnaire-dialog .st-interview-fields{grid-template-columns:1fr}.st-interview.ip-questionnaire-dialog .st-interview-fields textarea{min-height:80px}.st-interview.ip-questionnaire-dialog .st-interview-fields .ip-report-field textarea{min-height:360px}
+.st-interview.ip-questionnaire-dialog .ip-current-question{padding:18px;background:var(--ts-elevated,#222d3c);border-radius:10px;white-space:pre-wrap;line-height:1.8}
+.st-interview.ip-questionnaire-dialog .ip-interview-progress{font-weight:700;color:var(--ts-accent,#9abaff)}
+@media(max-width:600px){.st-interview.ip-questionnaire-dialog{padding:18px}.st-interview.ip-questionnaire-dialog>header{top:-18px}.st-interview.ip-questionnaire-dialog>footer{bottom:-18px}.st-interview.ip-questionnaire-dialog>footer button{flex:1}}
+
+.st-interview.ip-questionnaire-dialog :is(h2,h3,label,strong,footer>span){color:var(--ts-text,#edf2fb)}

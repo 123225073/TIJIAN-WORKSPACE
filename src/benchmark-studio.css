@@ -10,6 +10,29 @@
   line-height: 1.65;
 }
 .benchmark-studio-v2 *, .benchmark-studio-v2 *::before, .benchmark-studio-v2 *::after { box-sizing: border-box; }
+.benchmark-studio-v2 [hidden] { display: none !important; }
+.benchmark-studio-v2 .bv-paths { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.benchmark-studio-v2 .bv-paths > button { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 17px 18px; border: 1px solid var(--bv-line); border-radius: 11px; background: var(--ts-panel, #171d28); color: var(--ts-text, #edf2fb); text-align: left; cursor: pointer; }
+.benchmark-studio-v2 .bv-paths > button.active { background: var(--ts-elevated, #222b3a); border-color: var(--ts-accent, #9abbff); box-shadow: inset 0 2px 0 var(--ts-accent, #9abbff); }
+.benchmark-studio-v2 .bv-simple-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.benchmark-studio-v2 .bv-fee-consent { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; font-size: 12px; }
+.benchmark-studio-v2 .bv-fee-consent input { margin-top: 4px; }
+.benchmark-studio-v2 .bv-settings-trigger { background: var(--ts-elevated, #222b3a) !important; border-color: var(--bv-line) !important; color: var(--ts-text, #edf2fb) !important; }
+.benchmark-studio-v2 .bv-settings-overlay { position: fixed; inset: 0; background: #070c15bb; z-index: 100; display: grid; place-items: center; padding: 20px; }
+.benchmark-studio-v2 .bv-settings-dialog { width: min(600px, 100%); max-height: 85vh; overflow: auto; padding: 24px; border: 1px solid var(--bv-line); border-radius: 14px; background: var(--ts-panel, #171d28); color: var(--ts-text, #edf2fb); }
+.bv-technical-settings { display: grid; gap: 12px; border: 0; padding: 0; min-width: 0; }
+.bv-technical-settings legend { font-weight: 650; }
+.bv-technical-settings label { display: grid; gap: 6px; }
+.benchmark-studio-v2 .bv-industry { padding: 22px; background: var(--ts-panel, #171d28); border: 1px solid var(--bv-line); border-radius: 12px; }
+.benchmark-studio-v2 .bv-industry-news article { padding: 18px 0; border-bottom: 1px solid var(--bv-line); }
+.benchmark-studio-v2 .bv-industry-news h3 { margin: 0; font-size: 16px; }
+.benchmark-studio-v2 .bv-industry .filter-search { background: var(--bv-input-bg); border: 1px solid var(--bv-line); border-radius: 8px; color: var(--ts-muted, #b1bed1); }
+.benchmark-studio-v2 .bv-industry .filter-search input { flex: 1; width: 100%; border: 0 !important; background: transparent !important; }
+.benchmark-studio-v2 .bv-industry .work-tabs { border-color: var(--bv-line); }
+.benchmark-studio-v2 .bv-industry .work-tabs button { color: var(--ts-muted, #b1bed1); }
+.benchmark-studio-v2 .bv-industry .work-tabs button.active { color: var(--ts-accent, #9abbff); border-color: var(--ts-accent, #9abbff); }
+.bv-source-options { margin: 16px 0; }
+.bv-source-options > summary { cursor: pointer; margin-bottom: 12px; }
 .benchmark-studio-v2 :is(h1, h2, h3, strong) { color: var(--ts-text, #edf2fb); }
 .benchmark-studio-v2 :is(p, small) { color: var(--ts-muted, #b1bed1); }
 .benchmark-studio-v2 a { color: var(--ts-accent, #9abbff); text-underline-offset: 4px; }
@@ -27,7 +50,7 @@
 .benchmark-studio-v2 .bv-header .bv-head-count span { font-size: 11px; color: var(--ts-muted, #b1bed1); }
 .benchmark-studio-v2 .bv-head-count i { grid-column: 1 / -1; height: 1px; background: var(--bv-line); }
 
-.benchmark-studio-v2 .bv-paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 26px; }
+.benchmark-studio-v2 .bv-paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0 0 26px; }
 .benchmark-studio-v2 .bv-paths > :is(a, div) { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; padding: 17px 18px; border: 1px solid var(--bv-line); border-radius: 11px; background: var(--ts-panel, #171d28); color: var(--ts-text, #edf2fb); text-decoration: none; }
 .benchmark-studio-v2 .bv-paths > div.active { background: var(--ts-elevated, #222b3a) !important; border-color: var(--ts-accent, #9abbff) !important; box-shadow: inset 0 2px 0 var(--ts-accent, #9abbff); color: var(--ts-text, #edf2fb); }
 .benchmark-studio-v2 .bv-paths > a:hover { background: var(--ts-elevated, #222b3a); border-color: var(--ts-accent, #9abbff); }
@@ -64,6 +87,7 @@
 .benchmark-studio-v2 input[type=checkbox]:disabled { cursor: not-allowed; opacity: .55; }
 .benchmark-studio-v2 :is(.benchmark-v2-bind, .benchmark-v2-fetch, .benchmark-v2-items) button { min-height: 38px; padding: 9px 15px !important; border: 1px solid var(--bv-primary) !important; border-radius: 8px !important; background: var(--bv-primary) !important; color: #fff !important; font-size: 12px; font-weight: 600; line-height: 1.6; }
 .benchmark-studio-v2 :is(.benchmark-v2-bind, .benchmark-v2-fetch, .benchmark-v2-items) button:hover:not(:disabled) { background: #2454b0 !important; border-color: #2454b0 !important; }
+.benchmark-studio-v2 :is(.benchmark-v2-bind, .benchmark-v2-fetch) button.bv-settings-trigger { background: var(--ts-elevated, #222b3a) !important; border-color: var(--bv-line) !important; color: var(--ts-text, #edf2fb) !important; }
 .benchmark-studio-v2 :is(.benchmark-v2-bind, .benchmark-v2-fetch, .benchmark-v2-items) button:disabled { background: var(--ts-elevated, #222b3a) !important; color: var(--ts-muted, #b1bed1) !important; border-color: var(--bv-line) !important; cursor: not-allowed; opacity: 1 !important; box-shadow: none !important; }
 .benchmark-studio-v2 .benchmark-v2-fetch > label { align-items: flex-start !important; flex-wrap: nowrap !important; font-size: 12px !important; }
 .benchmark-studio-v2 .benchmark-v2-fetch > label input { margin-top: 3px; }

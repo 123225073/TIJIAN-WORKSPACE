@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.24.2','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.25.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -264,6 +264,7 @@ PUBLIC_KINDS={'profile','source','content','task','benchmark','feed','publicatio
 @app.post('/api/objects/{kind}')
 def create(kind:str,data:dict,u=Depends(user)):
     validate_subscription(data)
+    if kind=='content' and 'author' in data and (not isinstance(data['author'],str) or len(data['author'])>64):error(400,'作者须为不超过 64 字的文本，可留空')
     if kind not in PUBLIC_KINDS:error(400,'不支持此对象类型')
     if kind=='profile' and data.get('brand_id'):creation.owned(u['id'],data['brand_id'],'studio_brand')
     if not str(data.get('title','')).strip():error(400,'请填写名称或标题')
@@ -296,7 +297,8 @@ def update(id:str,data:dict,u=Depends(user)):
     clean={k:v for k,v in data.items() if k not in forbidden}
     expected=clean.pop('version',None)
     if old['kind']=='content':
-        if any(clean.get(k,old.get(k))!=old.get(k) for k in ['body','source_ids','profile_id']):clean['check']=None;clean['status']='draft'
+        if 'author' in clean and (not isinstance(clean['author'],str) or len(clean['author'])>64):error(400,'作者须为不超过 64 字的文本，可留空')
+        if any(clean.get(k,old.get(k))!=old.get(k) for k in ['title','author','body','source_ids','profile_id']):clean['check']=None;clean['status']='draft'
         if clean.get('status')=='final' and not clean.get('body',old.get('body','')).strip():error(400,'请先填写工作成果，再确认定稿')
     obj=s.put(u['id'],old['kind'],{**old,**clean},id,expected)
     return s.export_object(u['id'],obj)
@@ -524,7 +526,7 @@ def retry(id:str,u=Depends(user)):
     error(400,'此步骤请从原页面重新发起')
 
 @app.get('/api/content/{id}/export')
-def export(id:str,format:str='md',u=Depends(user)):
+def export(id:str,format:str='md',include_metadata:bool=False,u=Depends(user)):
     obj=s.get(u['id'],id)
     if obj['kind']!='content':error(400,'请选择稿件')
     from .article_production import reader_article_body
@@ -534,7 +536,17 @@ def export(id:str,format:str='md',u=Depends(user)):
         body=re.sub(r'<[^>]*>','',body)
         from . import wechat_layout
         html=wechat_layout.render(body,obj.get('wechat_style'))
+        if include_metadata:
+            from html import escape
+            title=escape(str(obj.get('title') or ''))
+            author=escape(str(obj.get('author') or ''))
+            html=f'<header><h1>{title}</h1>'+ (f'<p>作者：{author}</p>' if author else '') +'</header>'+html
         return Response(html,media_type='text/html',headers={'Content-Disposition':'attachment; filename="article.html"','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:"})
+    if include_metadata:
+        def literal(value):
+            return re.sub(r'([\\`*_{}\[\]<>#!|])',r'\\\1',' '.join(str(value or '').splitlines()))
+        title=literal(obj.get('title'));author=literal(obj.get('author'))
+        body='# '+title+'\n\n'+('作者：'+author+'\n\n' if author else '')+body
     return Response(body,media_type='text/markdown',headers={'Content-Disposition':'attachment; filename="article.md"'})
 
 @app.post('/api/settings')

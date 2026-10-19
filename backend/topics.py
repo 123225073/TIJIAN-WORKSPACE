@@ -8,10 +8,11 @@ from fastapi import Depends
 from . import capabilities, gateway as g, jobs, store as s, wechat_layout
 from .creation import model
 from .writing_methods import writing_request
+from .ip_questionnaire import profile_snapshot
 
 TOPIC_FIELDS = {'title', 'angle', 'rationale', 'audience', 'source_ids', 'profile_id', 'origin', 'origin_ref', 'status', 'next_action'}
 DELIVERY_FIELDS = {
-    'wechat': ('title', 'summary', 'body', 'cover_brief', 'keywords', 'publishing_notes'),
+    'wechat': ('title', 'author', 'summary', 'body', 'cover_brief', 'keywords', 'publishing_notes'),
     'channels': ('title', 'caption', 'script', 'shotlist', 'cover_brief', 'tags'),
     'douyin': ('title', 'caption', 'script', 'shotlist', 'cover_brief', 'tags'),
 }
@@ -136,6 +137,8 @@ def _delivery_payload(platform, data, old=None, owner=None):
     if any(not isinstance(value, str) or len(value) > (200000 if key == 'body' and platform == 'wechat' else 30000 if key in {'body', 'script', 'shotlist'} else 3000) for key, value in values.items()):
         raise ValueError('交付内容格式或长度不正确')
     if platform == 'wechat':
+        if len(values['author']) > 64:
+            raise ValueError('作者不能超过 64 字，可留空')
         values['target_words'] = _target_words(data.get('target_words', (old or {}).get('target_words', 1200)))
         values['wechat_style'] = wechat_layout.style(data.get('wechat_style', (old or {}).get('wechat_style')))
     if old is not None or 'bundle_order' in data or 'bundle_hidden' in data:
@@ -277,7 +280,7 @@ def register(app, user, error):
         owner = u['id']
         def work(progress, event):
             progress('正在结合已选资料生成选题')
-            payload = {'方向': brief, 'IP定位': {k: profile.get(k, '') for k in ('title', 'position', 'audience')} if profile else None,
+            payload = {'方向': brief, 'IP定位': profile_snapshot(profile),
                        '资料': [{'id': x['id'], 'title': x.get('title'), 'body': x.get('body', '')[:6000], 'url': x.get('url'), 'published': x.get('published')} for x in sources]}
             text = g.generate(model_id, [{'role': 'system', 'content': jobs.POLICY + '\n' + method['text'] + f'\n只返回 JSON 对象，格式为 {{"topics":[{{"title":"","angle":"","rationale":"","audience":""}}]}}，按推荐顺序最多给出{count}个选题。rationale 要包含依据资料 ID、是否属常青问题或近期信息、资料日期或缺口，以及选择理由；没有资料时明确写“仅为方向建议，待查证”。禁止编造热点、数据、业绩、政策与资料 ID。'}, {'role': 'user', 'content': json.dumps(payload, ensure_ascii=False)}])
             result = g.json_result(text)
@@ -388,7 +391,7 @@ def register(app, user, error):
         if not isinstance(scope, str) or scope not in OPTIMIZE_SCOPES or not isinstance(instruction, str) or len(instruction) > 4000 or not isinstance(request_id, str) or len(request_id) > 100:
             raise ValueError('请选择优化范围，并填写4000字以内的优化方向')
         instruction = instruction.strip() or '请根据选题和现有内容优化表达，补全缺失信息；已有内容准确时保持原意，不无故扩写或删减。'
-        fields = DELIVERY_FIELDS['wechat'] if scope == 'all' else (scope,)
+        fields = tuple(k for k in DELIVERY_FIELDS['wechat'] if k != 'author') if scope == 'all' else (scope,)
         topic = _owned(u['id'], delivery['topic_id'], 'studio_topic')
         sources = _sources(u['id'], topic.get('source_ids', []))
         profile = _owned(u['id'], topic['profile_id'], 'profile') if topic.get('profile_id') else None
@@ -415,7 +418,7 @@ def register(app, user, error):
             payload = {
                 '平台': '公众号', '优化范围': scope, '用户优化方向': instruction,
                 '选题': {key: topic.get(key, '') for key in ('title', 'angle', 'rationale', 'audience')},
-                'IP': {key: profile.get(key, '') for key in ('title', 'position', 'audience', 'style')} if profile else None,
+                'IP': profile_snapshot(profile),
                 '资料': [{'id': item['id'], 'title': item.get('title'), 'body': item.get('body', '')[:8000], 'url': item.get('url')} for item in sources],
                 '当前发布稿': current_fields,
             }
@@ -506,7 +509,7 @@ def register(app, user, error):
             raise ValueError('请选择当前发布稿已完成的 AI 优化结果')
         fields = result.get('changed_fields')
         edits = data.get('changes', {})
-        if not isinstance(fields, list) or not fields or not isinstance(edits, dict) or set(edits) - set(fields):
+        if not isinstance(fields, list) or not fields or 'author' in fields or not isinstance(edits, dict) or set(edits) - set(fields):
             raise ValueError('只能修改本次优化范围内的字段')
         with s.LOCK:
             current = _delivery(u['id'], id)
@@ -548,12 +551,12 @@ def register(app, user, error):
         owner = u['id']
         def work(progress, event):
             progress('已读取选题与已选资料，正在生成' + PLATFORM_NAMES[delivery['platform']] + '交付稿')
-            fields = DELIVERY_FIELDS[delivery['platform']]
+            fields = tuple(k for k in DELIVERY_FIELDS[delivery['platform']] if k != 'author')
             instructions = '只返回 JSON 对象，字段为 ' + '、'.join(fields) + '，全部为非空字符串。' + DELIVERY_GUIDES[delivery['platform']] + '把用户已有交付稿作为可保留的素材，除明显错误外不要无故覆盖其意思。缺失事实在对应字段标记“待补充”，不得虚构行业法规、资质、报价、案例、已有画面或已发布状态。生成的是可编辑草稿。'
             if target_words is not None:
                 instructions += f'正文目标约{target_words}字，最多允许超过目标20%；图片标记和 Markdown 标记不计入正文长度。请自行核对长度，超限结果不会保存。'
             payload = {'平台': PLATFORM_NAMES[delivery['platform']], '选题': {k: topic.get(k) for k in ('title', 'angle', 'rationale', 'audience')},
-                       'IP': {k: profile.get(k, '') for k in ('title', 'position', 'audience', 'style')} if profile else None,
+                       'IP': profile_snapshot(profile),
                        '资料': [{'id': x['id'], 'title': x.get('title'), 'body': x.get('body', '')[:8000], 'url': x.get('url')} for x in sources],
                        '已有交付稿': {k: delivery.get(k, '') for k in fields}}
             if target_words is not None:
@@ -571,6 +574,8 @@ def register(app, user, error):
             progress('模型已返回，正在校验字段并保留正文图片')
             result = g.json_result(text)
             values = _delivery_payload(delivery['platform'], {k: result.get(k, '') for k in fields})
+            if delivery['platform'] == 'wechat':
+                values['author'] = delivery.get('author', '')
             from .writing_methods import publish_body
             if 'body' in values:values['body']=publish_body(values['body'])
             if delivery['platform'] == 'wechat':
