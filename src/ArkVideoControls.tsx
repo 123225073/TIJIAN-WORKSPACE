@@ -5,7 +5,7 @@ export default function ArkVideoControls({draft,model,update,changeOptions,busy,
  const mode=draft.inputs.reference_mode||'reference',opts=draft.options||{},latest=model?.family==='seedance-2.5';
  const locked=latest&&['first_frame','first_last_frame','edit','extend'].includes(mode);
  const available=model?.options||{},supported=model?.modes||['text','reference','first_frame','first_last_frame'];
- const setMode=(next:string)=>{update({reference_mode:next});if(latest&&['first_frame','first_last_frame','edit','extend'].includes(next))changeOptions('ratio','adaptive');if(next==='edit')changeOptions('duration',-1)};
+ const setMode=(next:string)=>{update({reference_mode:next,...(next!==mode&&!(['first_frame','first_last_frame'].includes(mode)&&['first_frame','first_last_frame'].includes(next))?{frame_slots:undefined}:{})});if(latest&&['first_frame','first_last_frame','edit','extend'].includes(next))changeOptions('ratio','adaptive');if(next==='edit')changeOptions('duration',-1)};
  const toggle=(key:string,label:string,defaultValue=false)=><label className="ark-toggle"><input type="checkbox" disabled={busy} checked={opts[key]??defaultValue} onChange={e=>changeOptions(key,e.target.checked)}/>{label}</label>;
  const modeButton=(m:string)=><button key={m} type="button" disabled={busy} aria-pressed={m===mode} onClick={()=>setMode(m)}>{videoModes[m]?.label||m}</button>;
  if(section==='main')return <section className="ark-controls video-simple-controls" aria-label="视频创作方式与输出">

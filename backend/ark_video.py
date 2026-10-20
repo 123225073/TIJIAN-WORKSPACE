@@ -80,7 +80,24 @@ def references(inputs):
         if not isinstance(ref.get('title', ''), str) or len(ref.get('title', '')) > 200:
             raise ArkError('参考素材名称无效')
         result.append(ref)
+    slots = inputs.get('frame_slots')
+    if 'frame_slots' in inputs:
+        if not isinstance(slots, dict) or set(slots) - {'first_frame', 'last_frame'} or any(not isinstance(v, str) or len(v) > 8200 for v in slots.values()):
+            raise ArkError('首尾帧角色配置无效')
+        assigned = [v for v in slots.values() if v]
+        if len(assigned) != len(set(assigned)):
+            raise ArkError('首帧与尾帧不能重复指向同一张图片')
+        if inputs.get('reference_mode') in ('first_frame', 'first_last_frame'):
+            keys = [reference_key(ref) for ref in result if ref['kind'] == 'image']
+            if any(value not in keys for value in assigned):
+                raise ArkError('首尾帧图片已变化，请重新选择对应图片')
+            order = [slots.get('first_frame'), slots.get('last_frame')]
+            result.sort(key=lambda ref: order.index(reference_key(ref)) if ref['kind'] == 'image' and reference_key(ref) in order else 2)
     return result
+
+
+def reference_key(ref):
+    return 'id:' + ref['id'] if ref.get('id') else 'url:' + ref['url']
 
 
 def validate(model, inputs, opts, asset_lookup, *, complete=False, service=None):
@@ -127,6 +144,10 @@ def validate(model, inputs, opts, asset_lookup, *, complete=False, service=None)
     if mode == 'text' and (refs or not str(inputs.get('prompt') or '').strip()):
         raise ArkError('文字生视频需要提示词；有素材时请选择参考生视频')
     if mode in ('first_frame', 'first_last_frame'):
+        if 'frame_slots' in inputs:
+            slots = inputs['frame_slots']
+            if not slots.get('first_frame') or (mode == 'first_last_frame' and not slots.get('last_frame')):
+                raise ArkError('请分别添加所需的首帧和尾帧图片；未选择的画面不会由另一张图片替代')
         if counts['image'] != (1 if mode == 'first_frame' else 2) or counts['video'] or counts['audio']:
             raise ArkError('首帧模式需要1张图片，首尾帧需要2张图片，不能混用其他参考素材')
     if mode in ('edit', 'extend') and not counts['video']:

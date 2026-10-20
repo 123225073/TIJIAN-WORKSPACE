@@ -60,6 +60,7 @@ export default function MediaWorkbench(p:any){
  const latestEditResults=[...compositeResultIds.map(id=>assets.find((asset:any)=>asset.id===id)).filter(Boolean),...recentEditRuns.flatMap((run:any)=>p.outputs(run).filter((asset:any)=>asset.asset_type==='image'))].filter((asset:any,index:number,all:any[])=>all.findIndex(item=>item.id===asset.id)===index).slice(0,24);
  return <div className={'studio-v2 media-workbench'+(draft.tool==='image_edit'?' image-edit-mode':'')+(imageTool?' image-workbench':' video-workbench')} style={{'--mw-panel-width':panelWidth+'px'} as React.CSSProperties}> {!video&&<div className="mw-mode-bar"><nav className="mw-mode-switch" aria-label="图片创作方式"><a aria-current={draft.tool==='text_image'?'page':undefined} href={'#studio/image?mode=text_image'+(p.returnTo?'&return='+encodeURIComponent(p.returnTo):'')+(p.coverReturn?'&cover=1':'')}>图片生成</a><a aria-current={draft.tool==='image_edit'?'page':undefined} href={'#studio/image?mode=image_edit'+(p.returnTo?'&return='+encodeURIComponent(p.returnTo):'')+(p.coverReturn?'&cover=1':'')}>图片编辑</a></nav><button type="button" className="mw-mode-parameters" onClick={()=>setModal('parameters')}><SlidersHorizontal size={15}/>模型与参数</button></div>}<aside className="mw-panel"><header className="mw-heading"><span>TIJIAN / CREATE</span><h1>{video?'视频创作':'图片创作'}</h1></header><div className="mw-panel-scroll">
  {video&&selectedModel?.provider==='ark'&&<ArkVideoControls draft={draft} model={selectedModel} update={update} changeOptions={changeOptions} busy={busy}/>}
+ {video&&selectedModel?.provider==='ark'&&['first_frame','first_last_frame'].includes(draft.inputs.reference_mode)&&<VideoReferences draft={draft} model={selectedModel} assets={assets} update={update} reload={p.reloadAssets} busy={busy}/>}
 
  <section className="mw-prompt" hidden={video&&!!draft.inputs.draft_run}>
   <div className="mw-label"><strong>{draft.tool==='image_edit'?'整图补充要求（可选）':video?'描述画面与动作':'输入你的要求'}</strong><div><button onClick={()=>setModal('rules')}>优化规则</button><button onClick={()=>setModal('prompt')}><Expand size={13}/>放大编辑</button></div></div>
@@ -73,7 +74,7 @@ export default function MediaWorkbench(p:any){
  {video&&!draft.inputs.draft_run&&p.scenario&&<details className="ark-scenario"><summary>用场景模板整理要求</summary>{p.scenario}</details>}
  {video&&videoIssue&&<p className="video-input-issue" role="status">{videoIssue}</p>}
 
- {video&&!draft.inputs.draft_run&&<VideoReferences draft={draft} model={selectedModel} assets={assets} update={update} reload={p.reloadAssets} busy={busy}/>}
+ {video&&!draft.inputs.draft_run&&!(selectedModel?.provider==='ark'&&['first_frame','first_last_frame'].includes(draft.inputs.reference_mode))&&<VideoReferences draft={draft} model={selectedModel} assets={assets} update={update} reload={p.reloadAssets} busy={busy}/>}
  {draft.tool==='text_image'&&<MediaReferences draft={draft} model={selectedModel?.reference_limits?.image?selectedModel:p.imageReferenceModel||{reference_limits:{image:0}}} assets={assets} update={(values:any)=>p.onImageReferences(values.image_ids||[])} reload={p.reloadAssets} busy={busy}/>}
 
  <details className="mw-context"><summary>我的 IP <ChevronRight size={14}/></summary>{context}</details></div>

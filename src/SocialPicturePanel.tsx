@@ -3,6 +3,7 @@ import ArticleImagePicker from './ArticleImagePicker';
 import {AssetThumbnail} from './AssetPicker';
 import {api,download} from './api';
 import './social-picture-panel.css';
+import SocialPictureBatch from './SocialPictureBatch';
 
 type Props={content:any;owner:string;ids:string[];onChange:(ids:string[])=>void|Promise<void>;disabled?:boolean};
 
@@ -47,7 +48,7 @@ function PicturePanel({content,owner,ids,onChange,disabled=false}:Props){
  const blocked=disabled||busy;
  return <section className="social-picture-panel" aria-label="社交配图">
   <header><div><h3>配图素材 <small>{ids.length} 张</small></h3><p>图片与正文分别保存，可调整顺序、单独下载。</p></div>
-   <div className="spp-actions"><button type="button" disabled={blocked||!content.id} onClick={()=>setTab('library')}>选择图片</button><button type="button" disabled={blocked||!content.id} onClick={()=>setTab('generate')}>生成配图</button></div>
+   <div className="spp-actions"><button type="button" disabled={blocked||!content.id} onClick={()=>setTab('library')}>选择图片</button><button type="button" disabled={blocked||!content.id} onClick={()=>setTab('generate')}>生成配图</button><SocialPictureBatch content={content} owner={owner} disabled={blocked} onImages={async newIds=>{await change([...new Set([...current.current.ids,...newIds])]);setReload(n=>n+1)}}/></div>
   </header>
   {!content.id&&<p>保存文稿后即可添加配图。</p>}
   {loadError&&<p role="alert">{loadError}；已保留图片引用。<button type="button" disabled={loading} onClick={()=>setReload(n=>n+1)}>重新读取图片</button></p>}
@@ -58,6 +59,6 @@ function PicturePanel({content,owner,ids,onChange,disabled=false}:Props){
    <strong title={asset?.title||id}>{asset?.title||'待找回的图片'}</strong>
    <div className="spp-card-actions"><button type="button" aria-label={`图片 ${index+1} 移前`} disabled={blocked||index===0} onClick={()=>move(index,-1)}>移前</button><button type="button" aria-label={`图片 ${index+1} 移后`} disabled={blocked||index===ids.length-1} onClick={()=>move(index,1)}>移后</button><button type="button" aria-label={`移除图片 ${index+1}`} disabled={blocked} onClick={()=>void act(()=>change(current.current.ids.filter((_,i)=>i!==index)))}>移除</button><button type="button" aria-label={`下载图片 ${index+1}`} disabled={blocked||!asset} onClick={()=>void act(()=>saveImage(asset))}>下载</button></div>
   </li>})}</ol>
-  {tab&&!disabled&&<ArticleImagePicker content={content} owner={owner} initialTab={tab} onClose={()=>setTab('')} onInsert={insert}/>}
+  {tab&&!disabled&&<ArticleImagePicker content={content} owner={owner} standalone context={{body:String(content.body||content.text||''),start:0,end:Array.from(String(content.body||content.text||'')).slice(0,1000).join('').length,text:Array.from(String(content.body||content.text||'')).slice(0,1000).join('')}} initialTab={tab} onClose={()=>setTab('')} onInsert={insert}/>}
  </section>;
 }

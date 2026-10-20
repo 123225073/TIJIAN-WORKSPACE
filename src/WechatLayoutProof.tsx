@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import DOMPurify from 'dompurify';
 import {api,getToken} from './api';
+import {linkScroll} from './usePairedScroll';
 
 export type WechatStyle={font_size:string;line_height:string;paragraph_gap:string;accent:string};
 export const defaultWechatStyle:WechatStyle={font_size:'16',line_height:'1.8',paragraph_gap:'12',accent:'forest'};
@@ -8,8 +9,10 @@ export const defaultWechatStyle:WechatStyle={font_size:'16',line_height:'1.8',pa
 const LOCAL_SRC=/src="(\/api\/(?:studio\/assets\/[a-f0-9]{32,64}\/file|illustrations\/[a-f0-9]{32}\/file))"/g;
 const imageData=async(blob:Blob)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(Error('正文图片预览失败'));reader.readAsDataURL(blob)});
 
-export default function WechatLayoutProof({body,settings}:{body:string;settings:WechatStyle}){
+export default function WechatLayoutProof({body,settings,editorScroll}:{body:string;settings:WechatStyle;editorScroll?:{current:HTMLElement|null}}){
  const [html,setHtml]=useState(''),[status,setStatus]=useState('正在准备公众号排版…'),[error,setError]=useState('');
+ const stopScroll=useRef<(()=>void)|undefined>(undefined);
+ useEffect(()=>()=>stopScroll.current?.(),[]);
  const images=useRef(new Map<string,string>());
  useEffect(()=>{
   let live=true;
@@ -36,7 +39,7 @@ export default function WechatLayoutProof({body,settings}:{body:string;settings:
  return <div className="wa-layout-proof">
   <div className="wa-proof-head"><strong>公众号排版预览</strong><small>在左侧直接编辑，保存后用于草稿同步</small></div>
   <p className="wa-proof-status" role="status">{error||status}</p>
-  <iframe title="公众号排版预览" className="wa-proof-frame" sandbox="" srcDoc={document}/>
+  <iframe title="公众号排版预览" className="wa-proof-frame" sandbox="allow-same-origin" onLoad={e=>{stopScroll.current?.();const target=e.currentTarget.contentDocument?.scrollingElement;if(editorScroll?.current&&target)stopScroll.current=linkScroll(editorScroll.current,target as HTMLElement)}} srcDoc={document}/>
   <small className="wa-proof-note">预览与同步使用同一排版规则。微信编辑器仍可能调整个别样式；同步后请在公众号后台核对。</small>
  </div>;
 }

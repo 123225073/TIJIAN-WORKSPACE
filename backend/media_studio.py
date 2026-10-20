@@ -675,7 +675,7 @@ def _validate(owner, data, complete=False):
         model, _ = media_registry.choice(tool, chosen[6:], active=complete)
         limits = media_registry.REFERENCE_LIMITS.get(model['family'], {})
         allowed.update({'image_ids', 'video_ids', 'audio_ids'})
-        if model.get('provider_id') == 'ark':allowed.update({'reference_mode', 'remote_references', 'draft_run'})
+        if model.get('provider_id') == 'ark':allowed.update({'reference_mode', 'remote_references', 'draft_run', 'frame_slots'})
     if tool=='text_image' and bound_image(tool,chosen):
         allowed.update({'image_id','image_ids'})
         limits={'image': image_reference_limit(tool, chosen)}

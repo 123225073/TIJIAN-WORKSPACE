@@ -2,11 +2,21 @@
 export const videoModes:Record<string,{label:string;hint:string}>={
  text:{label:'文字生视频',hint:'只需描述画面、动作和镜头，不使用参考素材。'},
  first_frame:{label:'首帧生视频',hint:'需要 1 张图片作为开场画面，再描述画面如何运动。'},
- first_last_frame:{label:'首尾帧',hint:'需要 2 张图片：第 1 张是开场，第 2 张是结尾。描述中间如何过渡。'},
+ first_last_frame:{label:'首尾帧',hint:'分别选择首帧（开场画面）和尾帧（结束画面），再描述两张画面之间如何过渡。'},
  reference:{label:'多素材参考',hint:'组合图片、视频或音频，描述各素材的用途；也可以先用文字构思。'},
  edit:{label:'编辑视频',hint:'需要原视频，描述要修改的部分；保持原片比例与时长。'},
  extend:{label:'延长视频',hint:'需要原视频，描述接下来发生什么；保持原片比例。'},
 };
+export const videoFrameKey=(ref:any)=>ref.id?'id:'+ref.id:'url:'+ref.url;
+export function videoFrameRefs(inputs:any){
+ const ids=inputs.image_ids?.length?inputs.image_ids:inputs.image_id?[inputs.image_id]:[];
+ return [...ids.map((id:string)=>({id})),...(inputs.remote_references||[]).filter((r:any)=>r.kind==='image')];
+}
+export function videoFrameSlots(inputs:any):Record<string,string>{
+ if(inputs.frame_slots)return inputs.frame_slots;
+ const refs=videoFrameRefs(inputs);
+ return {first_frame:refs[0]?videoFrameKey(refs[0]):'',last_frame:refs[1]?videoFrameKey(refs[1]):''};
+}
 export function videoReferenceCounts(inputs:any){
  return Object.fromEntries(['image','video','audio'].map(kind=>[kind,
   (inputs[kind+'_ids']?.length||(kind==='image'&&inputs.image_id?1:0))+
@@ -23,6 +33,9 @@ export function videoInputIssue(draft:any,model:any):string {
  if(mode==='text'&&!input.prompt?.trim())return '请先描述你想做的画面。';
  if(['first_frame','first_last_frame'].includes(mode)){
   const required=mode==='first_frame'?1:2;
+  const slots=videoFrameSlots(input),keys=videoFrameRefs(input).map(videoFrameKey);
+  if(!slots.first_frame||!keys.includes(slots.first_frame))return '请添加首帧图片，作为视频的开场画面。';
+  if(required===2&&(!slots.last_frame||!keys.includes(slots.last_frame)))return '请添加尾帧图片，作为视频的结束画面。';
   if(n.image!==required||n.video||n.audio)return `此方式需要 ${required} 张图片${required===2?'（按首帧、尾帧排列）':''}，不能混用视频或音频。已有素材保留，可在下方调整。`;
  }
  if(['edit','extend'].includes(mode)&&!n.video)return '请先加入需要编辑或延长的原视频。';

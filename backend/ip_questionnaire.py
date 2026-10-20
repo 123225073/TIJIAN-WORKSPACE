@@ -18,7 +18,9 @@ QUESTIONS = [
     ('boundaries', '有没有绝对不能碰的？比如不能露品牌名、不能露价格、公司不允许。', '参考：不能公开价格、不能露客户姓名住址、品牌名需审批。没有确认的规定写“待确认”，不要默认已获授权。', '不能碰的线', '公司、品牌或客户授权负责人'),
 ]
 REPORT_SECTIONS = ['一、一句话定位', '二、客户决策链', '三、三个内容支柱', '四、人设三件套', '五、不该发的内容', '六、平台与节奏', '七、变现漏斗', '八、30 天冷启动表']
-REPORT_RULES = '''按以下八段输出完整定位策划报告，不跳段、不合并，body 使用 Markdown，段落标题必须逐字使用：
+REPORT_RULES = '按以下八段输出完整定位策划报告，不跳段、不合并，body 使用 Markdown。只把以下八行作为段落标题，每行标题后换行写正文，不要把后面的内容要求复制进标题：\n' + '\n'.join('## ' + heading for heading in REPORT_SECTIONS) + '''
+
+各段内容要求（这些是写作要求，不是标题的一部分）：
 一、一句话定位：用“我是【谁】，专帮【哪类人】解决【什么具体问题】，凭【什么证据】”给出3个版本，每版注明适用平台、吸引谁、指向的变现方式。
 二、客户决策链：拆成掏钱的、反对的、使用的三种角色，写各自最怕什么，指出要说服谁、谁不必作为说服重点。
 三、三个内容支柱：必须有“报价与避坑”和“现场实拍”。每根给支柱名、解决哪种心理、10条具体选题；每条包含20字以内标题、前3秒画面、拍摄地点、信任/线索/转发目的、评论区可能有争议的一句话。选题要能在真实工地、展厅或获授权客户家中拍摄。
@@ -76,13 +78,32 @@ def interview_messages(answers, index):
 def validate_report(body):
     if not isinstance(body, str) or not body.strip() or len(body) > 30000:
         raise ValueError('定位报告为空或过长，请重新整理')
-    headings = list(re.finditer(r'^\s*(?:#{1,4}\s*)?([一二三四五六七八]、[^\n]+)\s*$', body, re.M))
-    if [m.group(1).strip() for m in headings] != REPORT_SECTIONS:
+    headings = list(re.finditer(r'^[ \t]*(?:#{1,4}[ \t]*)?(?P<bold>\*\*)?(?P<heading>[一二三四五六七八]、[^\n]+?)[ \t]*$', body, re.M))
+    titles = []
+    annotations = []
+    for match in headings:
+        # Some models copy the content requirements after the heading's colon.
+        # Normalize presentation only; never invent a section or its content.
+        heading = re.sub(r'[ \t]+#+$', '', match.group('heading')).strip()
+        if match.group('bold') and heading.endswith('**'):
+            heading = heading[:-2].rstrip()
+        title, *annotation = re.split(r'[：:]', heading, maxsplit=1)
+        if match.group('bold') and title.endswith('**'):
+            title = title[:-2].rstrip()
+        titles.append(re.sub(r'\s+', '', title))
+        annotations.append(annotation[0].strip() if annotation else '')
+    if titles != [re.sub(r'\s+', '', title) for title in REPORT_SECTIONS]:
         raise ValueError('定位报告未完整包含约定的八段，请重新整理；十二题回答已保留')
     for index, match in enumerate(headings):
         end = headings[index + 1].start() if index + 1 < len(headings) else len(body)
         if not body[match.end():end].strip():
             raise ValueError('定位报告存在空段，请重新整理；十二题回答已保留')
+    for index in reversed(range(len(headings))):
+        match = headings[index]
+        replacement = '## ' + REPORT_SECTIONS[index]
+        if annotations[index]:
+            replacement += '\n\n' + annotations[index]
+        body = body[:match.start()] + replacement + body[match.end():]
     return body.strip()
 
 

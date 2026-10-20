@@ -94,6 +94,40 @@ def test_content_roles_and_defaults(mode,refs,opts,roles):
     assert result['model']=='doubao-seedance-2-5-260628'
 
 
+def test_explicit_frame_slots_reorder_mixed_sources_and_never_promote_tail():
+    inputs = {'prompt': 'test', 'reference_mode': 'first_last_frame', 'image_ids': ['local-tail'],
+              'remote_references': [{'kind': 'image', 'url': 'asset://remote-first'}],
+              'frame_slots': {'first_frame': 'url:asset://remote-first', 'last_frame': 'id:local-tail'}}
+    local = {'local_file': 'tail.png', 'size': 100, 'width': 640, 'height': 640}
+    refs = ark.validate(model(), inputs, {}, lambda *_: local, complete=True)
+    out = ark.payload('alice', model(), inputs, {}, refs, lambda ref: 'data:local-tail')
+    assert [(v['role'], v['image_url']['url']) for v in out['content'] if 'role' in v] == [
+        ('first_frame', 'asset://remote-first'), ('last_frame', 'data:local-tail')]
+    inputs['frame_slots']['first_frame'] = ''
+    inputs['remote_references'] = []
+    ark.validate(model(), inputs, {}, lambda *_: local, complete=False)  # Incomplete drafts are preserved.
+    with pytest.raises(ark.ArkError, match='分别添加'):
+        ark.validate(model(), inputs, {}, lambda *_: local, complete=True)
+
+
+@pytest.mark.parametrize('slots', [None, [], {'unexpected': 'id:x'}, {'first_frame': 4},
+    {'first_frame': 'id:x', 'last_frame': 'id:x'}, {'first_frame': 'id:missing'}])
+def test_invalid_explicit_frame_slots_are_rejected(slots):
+    with pytest.raises(ark.ArkError):
+        ark.validate(model(), {'reference_mode': 'first_last_frame', 'image_ids': ['x'], 'frame_slots': slots}, {}, None)
+
+
+def test_frame_slots_roundtrip_and_asset_ownership(studio):
+    image = picture(studio)
+    value = {'reference_mode': 'first_last_frame', 'image_ids': [image['id']],
+             'frame_slots': {'first_frame': '', 'last_frame': 'id:' + image['id']}}
+    saved = save(studio, value)
+    assert saved['input']['frame_slots'] == value['frame_slots']
+    response = studio.post('/api/studio/drafts', json={'tool': 'text_video', 'model_id': ark.DEFAULT_MODEL,
+        'input': {**value, 'image_ids': ['nonexistent'], 'frame_slots': {'last_frame': 'id:nonexistent'}}})
+    assert response.status_code != 200
+
+
 @pytest.mark.parametrize('inputs,opts',[
  ({'prompt':'test','reference_mode':'first_last_frame','remote_references':[{'kind':'image','url':'asset://img'}]},{}),
  ({'prompt':'test','reference_mode':'edit','remote_references':[{'kind':'video','url':'asset://vid'}]},{'duration':5}),

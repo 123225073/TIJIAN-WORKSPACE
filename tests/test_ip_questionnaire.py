@@ -109,6 +109,57 @@ def test_failed_report_keeps_all_answers_for_retry(client,monkeypatch):
     assert finish(client,r.json())['status']=='done'
 
 
+def test_report_headings_with_copied_requirements_are_normalized_without_another_call(client,monkeypatch):
+    owner=account(client)['user']['id'];calls=[]
+    returned=report()
+    requirements=[line for line in ipq.REPORT_RULES.splitlines() if line.startswith(tuple('一二三四五六七八'))]
+    assert len(requirements)==8
+    returned['body']='\n\n'.join('## '+heading+'\n第'+str(index+1)+'段实际建议；未知【待确认】。'
+                                  for index,heading in enumerate(requirements))
+    fake_model(monkeypatch,lambda *args:(calls.append(args) or json.dumps(returned,ensure_ascii=False)))
+    row=all_answers(client,owner,create(client));before=row['answers'].copy()
+    job,row=generate_report(client,owner,row)
+    assert job['status']=='done',job
+    assert len(calls)==1 and row['status']=='review' and row['answers']==before
+    body=row['fields']['body']
+    assert [line for line in body.splitlines() if line.startswith('## ')]==['## '+h for h in ipq.REPORT_SECTIONS]
+    assert all('第'+str(index+1)+'段实际建议' in body for index in range(8))
+    # An annotation may contain useful information: preserve it as normal text.
+    assert all(line.split('：',1)[1] in body for line in requirements)
+    assert row['topic_candidates']==returned['topic_candidates']
+    assert ipq.validate_report(body)==body
+
+
+@pytest.mark.parametrize('heading',[
+    lambda h:'## '+h+'：具体建议',
+    lambda h:'## **'+h+'**',
+    lambda h:'## **'+h+'**：具体建议',
+    lambda h:h.replace('30 天','30天')+':',
+])
+def test_report_heading_format_variants_preserve_content(heading):
+    body='\n\n'.join(heading(h)+'\n已知事实与待确认建议。' for h in ipq.REPORT_SECTIONS)
+    normalized=ipq.validate_report(body)
+    assert [line for line in normalized.splitlines() if line.startswith('## ')]==['## '+h for h in ipq.REPORT_SECTIONS]
+    assert normalized.count('已知事实与待确认建议。')==8
+
+
+def test_report_heading_annotation_keeps_its_original_emphasis():
+    body='\n\n'.join('## '+h+'：请保留**用户原始边界**\n实际建议。' for h in ipq.REPORT_SECTIONS)
+    assert ipq.validate_report(body).count('请保留**用户原始边界**')==8
+
+
+@pytest.mark.parametrize('defect',['missing','duplicate','out_of_order','empty','annotation_only','renamed'])
+def test_report_normalization_never_masks_missing_or_invalid_sections(defect):
+    sections=['## '+h+'\n实际建议。' for h in ipq.REPORT_SECTIONS]
+    if defect=='missing':sections.pop(3)
+    elif defect=='duplicate':sections.insert(2,sections[1])
+    elif defect=='out_of_order':sections[0],sections[1]=sections[1],sections[0]
+    elif defect=='empty':sections[3]='## '+ipq.REPORT_SECTIONS[3]
+    elif defect=='annotation_only':sections[3]='## '+ipq.REPORT_SECTIONS[3]+'：这是写作要求，不是正文'
+    elif defect=='renamed':sections[3]='## 四、其他身份\n实际建议。'
+    with pytest.raises(ValueError):ipq.validate_report('\n\n'.join(sections))
+
+
 def test_manual_draft_confirm_version_and_user_isolation(client):
     owner=account(client)['user']['id'];url='/api/studio/ip-questionnaire/profile'
     questions=client.get('/api/studio/ip-questionnaire').json()['questions']

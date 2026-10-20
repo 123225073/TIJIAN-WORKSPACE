@@ -1,8 +1,9 @@
 import {api,getToken} from './api';
+import {pictureStyles} from './picture-styles';
 import {parseArticleProduction,productionBookmark,replaceProductionInstructions} from './article-production';
 
 export type PictureSlot={id:string;label:string;synthetic:boolean;status:string;prompt?:string;job_id?:string;draft_id?:string;version?:number;request_id:string;run_id?:string;asset_id?:string;error?:string;attempt:number};
-export type PictureBatch={id:string;owner?:string;content_id:string;content_version:number;flow_id?:string;source_ids?:string[];base:string;planned:string;expected:string;model_id:string;brand_id:string;profile_id:string;status:'saving'|'ready'|'setup_failed';slots:PictureSlot[];error?:string;applied:string[]};
+export type PictureBatch={style_id?:string;style_prompt?:string;id:string;owner?:string;content_id:string;content_version:number;flow_id?:string;source_ids?:string[];base:string;planned:string;expected:string;model_id:string;brand_id:string;profile_id:string;status:'saving'|'ready'|'setup_failed';slots:PictureSlot[];error?:string;applied:string[]};
 export type BatchSession={owner:string;token:string};
 // Never persist credentials. Capture once when the owning editor mounts, not at
 // the start of each poll (a poll may race logout/login before React unmounts).
@@ -71,11 +72,12 @@ export function batchResult(batch:PictureBatch){
  return result;
 }
 
-export function startBatch(key:string,content:any,save:()=>Promise<any>,session:BatchSession){return exclusive(key,'start',async()=>{
+export function startBatch(key:string,content:any,save:()=>Promise<any>,session:BatchSession,styleId=pictureStyles[0].id){return exclusive(key,'start',async()=>{
  accountCheck(key,session);const call=sessionAPI(key,session);
  assertSingleClear(key);
  const previous=readBatch(key);accountCheck(key,session,previous);if(previous&&previous.status==='ready')return previous;
- const b:PictureBatch={id:crypto.randomUUID(),owner:session.owner,content_id:content.id,content_version:0,base:'',planned:'',expected:'',model_id:'',brand_id:'',profile_id:'',status:'saving',slots:[],applied:[]};
+ const style=pictureStyles.find(s=>s.id===styleId)||pictureStyles[0];
+ const b:PictureBatch={style_id:style.id,style_prompt:style.prompt,id:crypto.randomUUID(),owner:session.owner,content_id:content.id,content_version:0,base:'',planned:'',expected:'',model_id:'',brand_id:'',profile_id:'',status:'saving',slots:[],applied:[]};
  write(key,b); // A remount cannot start another save/draft while this request is in flight.
  try{
   accountCheck(key,session);const saved=await save();accountCheck(key,session);if(saved.id!==content.id)throw Error('保存结果与当前文章不一致。');
@@ -121,7 +123,7 @@ export function advanceBatch(key:string,session:BatchSession){return exclusive(k
     assertSingleClear(key);const target=productionBookmark(b.planned,s.id);
     s.status='prompt_submitting';write(key,b);
     const selection=Array.from(target.raw).slice(0,1000).join('');
-    const job=await call('/studio/text/article-illustration-prompt',{content_id:b.content_id,body:b.planned,start:target.start,end:target.start+selection.length,instruction_id:s.id,idea:`文章${s.label}配图，三张保持一致的插画风格`,style:'简洁行业插画，信息清楚，不虚构品牌、价格或数据'},undefined,job=>{acceptJob(s,job);write(key,b)});
+    const job=await call('/studio/text/article-illustration-prompt',{content_id:b.content_id,body:b.planned,start:target.start,end:target.start+selection.length,instruction_id:s.id,idea:`文章${s.label}配图，三张保持一致的插画风格`,style:(b.style_prompt||pictureStyles[0].prompt)+' 不虚构品牌、价格或数据。三张配图保持统一风格。'},undefined,job=>{acceptJob(s,job);write(key,b)});
     acceptJob(s,job);write(key,b);
    }else if(s.status==='prompt_pending'&&s.job_id){acceptJob(s,await call('/jobs/'+s.job_id));write(key,b)}
    else if(s.status==='prompt_submitting'){s.status='prompt_unknown';s.error='提示词请求响应丢失，暂不重复提交；请先核查任务记录。';write(key,b)}

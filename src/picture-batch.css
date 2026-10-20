@@ -1,0 +1,16 @@
+.picture-batch-body{padding:24px;overflow:auto;color:var(--ts-text,#eaf0fa);display:grid;gap:16px}
+.picture-batch-body p{margin:0;line-height:1.75;color:var(--ts-text,#eaf0fa)}
+.picture-batch-body .picture-batch-note{font-size:13px;color:var(--ts-muted,#b2bfd1)}
+.picture-style-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.picture-style-grid button{display:grid;gap:6px;text-align:left;padding:16px;border:1px solid var(--ts-line,#3b4a60);border-radius:10px;background:var(--ts-elevated,#222c3b);color:var(--ts-text,#edf2fb);cursor:pointer}
+.picture-style-grid button[aria-checked=true]{border-color:#98baff;background:#263c5b;box-shadow:inset 3px 0 #98baff}
+.picture-style-grid strong{font-size:15px}.picture-style-grid span{font-size:13px;line-height:1.6;color:var(--ts-muted,#c0ccdc)}
+.picture-batch-body>button{justify-self:start;padding:11px 18px;border:1px solid var(--ts-line,#3b4a60);border-radius:8px;background:var(--ts-elevated,#222c3b);color:var(--ts-text,#edf2fb);font:inherit;cursor:pointer}
+.picture-batch-body>button.st-primary{background:#306bdc;color:white;border-color:#5685e5;font-weight:600}
+.picture-batch-body button:disabled{opacity:.55;cursor:default}
+.picture-batch-body .ap-run-status{border:1px solid var(--ts-line,#3b4a60);background:var(--ts-elevated,#222c3b);color:var(--ts-text,#edf2fb);border-radius:10px;padding:16px;display:grid;gap:10px}
+.picture-batch-preview{height:160px;max-width:280px;position:relative;overflow:hidden;border-radius:8px;background:#111722}.picture-batch-preview img{width:100%;height:100%;object-fit:contain}
+.picture-batch-parameters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.picture-batch-parameters label{display:grid;gap:8px;color:var(--ts-text,#eaf0fa);font-size:14px}
+.picture-batch-parameters select{padding:12px;border:1px solid var(--ts-line,#3b4a60);border-radius:8px;background:var(--ts-elevated,#222c3b);color:var(--ts-text,#edf2fb);font:inherit;width:100%}
+@media(max-width:600px){.picture-style-grid,.picture-batch-parameters{grid-template-columns:1fr}.picture-batch-body{padding:16px}}

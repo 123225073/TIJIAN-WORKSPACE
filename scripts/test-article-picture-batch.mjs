@@ -78,13 +78,13 @@ const open=async(options={})=>{
  });
  await page.goto(base);return {page,context,f};
 };
-const start=async p=>{await p.getByRole('button',{name:'一键配图 · 3张',exact:true}).click();await p.getByRole('dialog').waitFor();assert.equal(await p.locator('body > dialog[open]').count(),1)};
+const start=async p=>{await p.getByRole('button',{name:'一键配图 · 3张',exact:true}).click();await p.getByRole('dialog').waitFor();await p.getByRole('button',{name:'使用所选风格，生成 3 张配图',exact:true}).click();assert.equal(await p.locator('body > dialog[open]').count(),1)};
 const close=async p=>p.getByRole('button',{name:'关闭弹窗',exact:true}).click();
 const state=p=>p.evaluate(k=>JSON.parse(localStorage.getItem(k)||'null'),key);
-const wait=async(p,predicate)=>p.waitForFunction(({key,code})=>{const b=JSON.parse(localStorage.getItem(key)||'null');return b&&new Function('b','return '+code)(b)},{key,code:predicate});
+const wait=async(p,predicate)=>p.waitForFunction(({key,code})=>{const b=JSON.parse(localStorage.getItem(key)||'null');return b&&(!code.includes('b.slots')||b.slots.length>0)&&new Function('b','return '+code)(b)},{key,code:predicate});
 const posts=(f,p)=>f.requests.filter(r=>r.p===p&&r.method==='POST');
 const editor=async p=>{await p.getByRole('tab',{name:'编辑',exact:true}).click();return p.getByLabel('编辑生成文稿')};
-const check=async p=>{if(!await p.getByRole('dialog').count())await p.getByRole('button',{name:'查看三图进度',exact:true}).click();await p.getByRole('button',{name:'核查任务',exact:true}).click()};
+const check=async p=>{if(!await p.getByRole('dialog').count())await p.getByRole('button',{name:'查看三图进度',exact:true}).click();await p.getByRole('button',{name:'刷新生成进度',exact:true}).click()};
 const held=async(f,stage)=>{const end=Date.now()+8000;while(f.held!==stage&&Date.now()<end)await new Promise(r=>setTimeout(r,20));assert.equal(f.held,stage)};
 
 try{
@@ -135,7 +135,7 @@ try{
   const {page,context,f}=await open({flow_id:'flow-fixture',loseDraft:true,loseGenerate:true});await start(page);await wait(page,'b.applied.length===3');assert.equal(posts(f,'/studio/drafts').length,0);assert.equal(posts(f,'/studio/flows/flow-fixture/drafts').length,3);assert(f.drafts.every(d=>d.flow_id==='flow-fixture'&&d.source_ids.includes(id)));assert(posts(f,'/studio/generate').every(r=>r.body.flow_id==='flow-fixture'&&r.body.version===2));assert(f.assets.every(a=>a.flow_id==='flow-fixture'));assert.equal(f.row.cover_asset_id,'existing-cover');assert(!f.requests.some(r=>r.p==='/studio/flow'&&r.method==='POST'));assert.equal(f.runs.length,3);await context.close();return {drafts:3,flowAssets:3,coverUnchanged:true};
  });
  for(const fixture of [{promptStatus:'failed'},{emptyPrompt:true}])await test('提示词失败或为空不调用生图 '+JSON.stringify(fixture),async()=>{const {page,context,f}=await open(fixture);await start(page);await wait(page,"b.slots.every(s=>s.status==='failed')");assert.equal(f.runs.length,0);assert.equal(f.drafts.length,0);assert.equal((await state(page)).expected,original);await context.close()});
- await test('同一事件双击：仅三次生图',async()=>{const {page,context,f}=await open({delayDraft:200});await page.getByRole('button',{name:'一键配图 · 3张',exact:true}).evaluate(b=>{b.click();b.click()});await wait(page,'b.applied.length===3');assert.equal(f.runs.length,3);assert.equal(f.drafts.length,3);await context.close()});
+ await test('同一事件双击：仅三次生图',async()=>{const {page,context,f}=await open({delayDraft:200});await page.getByRole('button',{name:'一键配图 · 3张',exact:true}).evaluate(b=>{b.click();b.click()});await page.getByRole('button',{name:'使用所选风格，生成 3 张配图',exact:true}).evaluate(b=>{b.click();b.click()});await wait(page,'b.applied.length===3');assert.equal(f.runs.length,3);assert.equal(f.drafts.length,3);await context.close()});
  await test('提示词处理中关闭重开，轮询原job，自动采用',async()=>{const {page,context,f}=await open({promptStatus:'running'});await start(page);await wait(page,"b.slots.every(s=>s.status==='prompt_pending')");await close(page);f.finishPrompts=true;await page.getByRole('button',{name:'查看三图进度',exact:true}).click();await wait(page,'b.applied.length===3');assert.equal(f.jobs.length,3);assert.equal(f.runs.length,3);await context.close()});
  await test('草稿POST未响应时切走再返回，不创建重复请求、不串文章B',async()=>{
   const {page,context,f}=await open({delayDraft:500});await start(page);await wait(page,"b.slots.some(s=>s.status==='draft_submitting')");await page.evaluate(()=>window.navigateArticle('b'));await page.waitForFunction(()=>document.body.textContent.includes('文章B自己的正文'));await page.evaluate(()=>window.navigateArticle('a'));await check(page);await wait(page,'b.applied.length===3');assert.equal(f.drafts.length,3);assert.equal(f.runs.length,3);assert.equal(await page.evaluate(o=>localStorage.getItem('article-picture-batch:'+o+':batch-article-b'),owner),null);await context.close();
@@ -166,7 +166,7 @@ try{
   const {page,context,f}=await open({statuses:['succeeded','failed','succeeded']});const body=['开头正文','中间正文','结尾正文'].map((s,i)=>s+'\n\n:::article-production illustration pic-'+i+'\n图片内容建议：画面'+i+'\n:::end-article-production').join('\n\n');await (await editor(page)).fill(body);await start(page);await wait(page,'b.applied.length===2');const partial=await state(page);assert(partial.expected.includes('illustration pic-1'));assert(!partial.expected.includes('illustration pic-0'));assert(!partial.expected.includes('illustration pic-2'));await page.getByRole('button',{name:'重试失败项 · 按用量计费',exact:true}).click();await wait(page,'b.applied.length===3');assert(!(await state(page)).expected.includes('图片内容建议'));assert.equal(f.runs.length,4);await context.close();
  });
  await test('同源两窗口同时启动：仅一批三图',async()=>{
-  const {page,context,f}=await open({delayDraft:150});const other=await context.newPage();await other.goto(base);await Promise.all([page.getByRole('button',{name:'一键配图 · 3张',exact:true}).click(),other.getByRole('button',{name:'一键配图 · 3张',exact:true}).click()]);await wait(page,'b.applied.length===3');assert.equal(f.runs.length,3);assert.equal(f.drafts.length,3);await context.close();
+  const {page,context,f}=await open({delayDraft:150});const other=await context.newPage();await other.goto(base);await Promise.all([page.getByRole('button',{name:'一键配图 · 3张',exact:true}).click(),other.getByRole('button',{name:'一键配图 · 3张',exact:true}).click()]);await Promise.all([page.getByRole('button',{name:'使用所选风格，生成 3 张配图',exact:true}).click(),other.getByRole('button',{name:'使用所选风格，生成 3 张配图',exact:true}).click()]);await wait(page,'b.applied.length===3');assert.equal(f.runs.length,3);assert.equal(f.drafts.length,3);await context.close();
  });
 }finally{
  await browser?.close();await new Promise(r=>server.close(r));
