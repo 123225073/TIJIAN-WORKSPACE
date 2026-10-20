@@ -42,14 +42,17 @@ export default function CreationFlow({t,route='flow',embeddedRoute='',editor}:{t
   const local=flowRef.current,restored=local.id===r.id&&local.version===r.version&&local.local_updated_at&&new Date(local.local_updated_at)>new Date(r.updated||0)?{...r,...local,id:r.id||local.id}:r;
   version.current=r.version||0;savedSignature.current=flowSignature(r);dirty.current=restored!==r;flowRef.current=restored;setFlow(restored);setLoaded(true);void t.refreshItems?.([r.id,...flowFields.filter(key=>key.endsWith('_id')).map(key=>r[key])].filter(Boolean));
  }).catch((e:Error)=>{if(live)setError(e.message)});return()=>{live=false}},[workId,embeddedRoute]);
- useEffect(()=>{if(!loaded)return;let live=true;const draftsAtRead=draftsRef.current;const reads=[
+ // An explicit work ID is already enough to start owned supporting reads. Do
+ // not serialize the asset shelf and topic list behind the flow restore trip.
+ const relatedReady=!!workId||loaded;
+ useEffect(()=>{if(!relatedReady)return;let live=true;const draftsAtRead=draftsRef.current;const reads=[
   api('/studio/flows').then(r=>{if(live)setWorks(r.items||[])}),
   api('/studio/assets').then(r=>{if(live)setAssets(r.items||[])}),
   api('/studio/catalog').then(r=>{if(live)setCatalog(r.tools||[])}),
   api('/studio/topics').then(r=>{if(live){setTopics(r.items||[]);setTopicsLoaded(true)}}),
   api('/studio/deliveries'+(workId?'?flow_id='+encodeURIComponent(workId):'')).then(r=>{if(live)setDeliveries(r.items||[])}),
   ...(workId?[api('/studio/flows/'+encodeURIComponent(workId)+'/drafts').then(r=>{if(live){draftsRef.current=mergeFlowDrafts(r.items||[],draftsRef.current,draftsAtRead);draftsReady.current=true;setDrafts(draftsRef.current)}})]:[]),
- ];void Promise.allSettled(reads).then(results=>{if(!live)return;const failed=results.find(r=>r.status==='rejected');if(failed?.status==='rejected')setError('部分资料读取失败，请刷新后重试：'+String(failed.reason));setDataLoaded(true)});return()=>{live=false}},[workId,loaded,embeddedRoute]);
+ ];void Promise.allSettled(reads).then(results=>{if(!live)return;const failed=results.find(r=>r.status==='rejected');if(failed?.status==='rejected')setError('部分资料读取失败，请刷新后重试：'+String(failed.reason));setDataLoaded(true)});return()=>{live=false}},[workId,relatedReady,embeddedRoute]);
  useEffect(()=>{if(!loaded||!dirty.current)return;clearTimeout(saveTimer.current);saveTimer.current=setTimeout(()=>{
   dirty.current=false;const snapshot=flowRef.current;
   queue.current=queue.current.catch(()=>{}).then(async()=>{saving.current++;revision.current++;try{const saved=await api('/studio/flow',{...snapshot,version:version.current});const explicit=readProfileChoice(profileKey);if(explicit!==undefined)writeProfileChoice(profileChoiceKey(profileScope(t.state),'flow:'+saved.id),explicit);version.current=saved.version;savedSignature.current=flowSignature(snapshot);if(flowRef.current.local_updated_at===snapshot.local_updated_at){flowRef.current={...flowRef.current,id:saved.id,version:saved.version,local_updated_at:saved.updated};localStorage.setItem(storage,JSON.stringify(flowRef.current));setFlow(flowRef.current)}setWorks(v=>[saved,...v.filter(x=>x.id!==saved.id)])}catch(e:any){dirty.current=true;setError('流程已暂存本机，服务端保存失败：'+e.message)}finally{saving.current--;revision.current++}});

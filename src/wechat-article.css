@@ -20,3 +20,9 @@
 .wa-style-details{margin-bottom:12px;border:1px solid #e0eae2;border-radius:9px;background:#f8fbf9}.wa-style-details>summary{cursor:pointer;padding:10px 13px;color:#52715e;font-size:12px;font-weight:700}.wa-style-details .wa-base-style{margin:0;border:0;border-top:1px solid #e0eae2;border-radius:0;background:transparent}
 .wa-selection-toolbar{position:fixed;z-index:10000;display:flex;align-items:center;gap:4px;max-width:calc(100vw - 24px);padding:6px;border:1px solid #dce5df;border-radius:12px;background:#fff;box-shadow:0 14px 36px #123b2d30;white-space:nowrap}.wa-selection-toolbar button,.wa-selection-toolbar select{min-height:31px;border:0;border-radius:6px;background:transparent;color:#245040;padding:5px 8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}.wa-selection-toolbar button:hover,.wa-selection-toolbar select:hover{background:#eaf5ed}.wa-selection-toolbar button:focus-visible,.wa-selection-toolbar select:focus-visible{outline:2px solid #8bc7a4}
 @media(max-width:700px){.wa-selection-toolbar{flex-wrap:wrap;min-width:240px;justify-content:center}.wa-selection-toolbar button,.wa-selection-toolbar select{font-size:11px}}
+.wa-form .wa-save-actions{bottom:0;gap:10px 14px;padding:14px 0;z-index:3}
+.wa-save-feedback{flex:1;min-width:180px;margin:0;font-size:13px;line-height:1.6;color:var(--ts-muted,#62796b)}
+.wa-save-feedback.saved{color:var(--ts-accent,#167d56)}
+.wa-save-feedback.changed{color:var(--ts-gold,#9d6a27)}
+.wa-save-feedback.error{color:#ffb7a6;font-weight:600}
+@media(max-width:700px){.wa-save-feedback{flex-basis:100%;min-width:0}}

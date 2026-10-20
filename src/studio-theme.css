@@ -9,6 +9,12 @@
   --ts-accent: #9abbff;
   --ts-gold: #e4c891;
   --ts-line: #3b485c;
+  --ts-control: #222b3a;
+  --ts-control-ink: #edf2fb;
+  --ts-hover: #2b4161;
+  --ts-hover-ink: #edf2fb;
+  --ts-disabled: #232b38;
+  --ts-disabled-ink: #b1bed1;
   --ink: var(--ts-text);
   --muted: var(--ts-muted);
   --nav: #17263d;
@@ -34,7 +40,10 @@
 .ts-theme :where(h1,h2,h3,h4) {font-family:'Bahnschrift','Microsoft YaHei UI',sans-serif;letter-spacing:.01em;line-height:1.4}
 .ts-theme :where(button,input,textarea,select) {font-family:inherit}
 .ts-theme :where(button,.button) {font-size:13px;min-height:38px;border-radius:9px;border-color:var(--ts-line);background:var(--ts-elevated);color:var(--ts-text)}
-.ts-theme :is(button:hover,.button:hover):not(:where(.tw-home *,.wa-rich-editor *,.wa-preview *,.md-rendered *,.st-paper *,.document-editor *,.article-preview *,.ae-document *)) {background:var(--ts-elevated);border-color:var(--ts-line)}
+/* Interface controls carry a surface/ink pair. :where() used here previously
+   let old white component surfaces win while inheriting the new pale ink. */
+.ts-theme :is(button,.button):not(:where(.sidebar *,.topbar *,.tw-home *,.wa-rich-editor *,.wa-preview *,.md-rendered *,.st-paper *,.document-editor *,.article-preview *,.ae-document *,.ie-workspace *,.ie-lightbox *)) {border-color:var(--ts-line);background:var(--ts-control);color:var(--ts-control-ink)}
+.ts-theme :is(button:hover,.button:hover):not(:where(.sidebar *,.topbar *,.tw-home *,.wa-rich-editor *,.wa-preview *,.md-rendered *,.st-paper *,.document-editor *,.article-preview *,.ae-document *,.ie-workspace *,.ie-lightbox *)):not(:disabled) {background:var(--ts-hover);color:var(--ts-hover-ink);border-color:var(--ts-line)}
 .ts-theme :where(a) {color:var(--ts-accent)}
 .ts-theme :where(button,a,input,select,textarea,[tabindex]):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
 .ts-theme :where(input,select,textarea) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);font-size:14px;border-radius:9px;line-height:1.65}
@@ -42,7 +51,7 @@
 .ts-theme :where(input,select,textarea):focus {border-color:var(--ts-accent);box-shadow:0 0 0 3px #75bfff16}
 .ts-theme option {background:var(--ts-panel);color:var(--ts-text)}
 .ts-theme input[type=checkbox],.ts-theme input[type=radio] {accent-color:var(--ts-accent)}
-.ts-theme button:disabled {opacity:1;color:#b1bed1;background:#232b38;border-color:var(--ts-line);box-shadow:none;cursor:not-allowed}
+.ts-theme :is(button,.button):disabled:not(:where(.sidebar *,.topbar *,.tw-home *,.wa-rich-editor *,.wa-preview *,.md-rendered *,.st-paper *,.document-editor *,.article-preview *,.ae-document *,.ie-workspace *,.ie-lightbox *)) {opacity:1!important;color:var(--ts-disabled-ink)!important;background:var(--ts-disabled)!important;border-color:var(--ts-line)!important;box-shadow:none!important;cursor:not-allowed}
 
 /* Shell: crisp contrast and a narrow illuminated active rail. */
 .ts-theme .shell {background:var(--ts-bg)}
@@ -127,6 +136,12 @@
 .ts-theme :is(.st-work-card,.st-asset-card,.content-card,.knowledge-item,.td-topic-card) h3 {font-size:16px;color:var(--ts-text)}
 .ts-theme :is(.st-work-card,.st-asset-card,.content-card,.knowledge-item,.td-topic-card) p {color:var(--ts-muted);font-size:13px}
 .ts-theme :is(.asset-picker-tools,.asset-picker-grid article,.studio-modal,.st-dialog,.image-lightbox,.ie-lightbox,.wo-dialog,.td-dialog,.wa-dialog,.choice-menu,.choice-menu-options,.search-dialog,.modal) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+/* Drawers and their overlays retain their palette outside any page namespace. */
+.ts-theme .detail-drawer {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
+.ts-theme .detail-drawer :is(h1,h2,h3,h4,strong,label,summary) {color:var(--ts-text)}
+.ts-theme .detail-drawer :is(p,small,.muted,.section-number,.path) {color:var(--ts-muted)}
+.ts-theme .detail-drawer :is(input:not([type=checkbox]):not([type=radio]),textarea,select) {background:#111722;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.reader-overlay,.modal-backdrop,.reference-overlay,.st-modal-backdrop) {background:#080d16b8}
 .ts-theme :is(.st-work-record,.st-work-group,.st-work-record-body,.st-work-group-head,.st-work-search,.tlc-table,.tlc-editor,.tlc-empty,.sl-tree,.sl-detail,.sl-main,.sl-toolbar,.sl-folder,.sl-create,.sl-maintenance,.sl-create-modal,.sl-progress,.capability-layout,.capability-list,.capability-editor,.capability-preview,.capability-history) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
 .ts-theme :is(.st-work-group-head,.st-work-record-main,.tlc-table,.sl-row) :is(strong,h2,h3) {color:var(--ts-text)}
 .ts-theme :is(.st-work-record-main,.st-work-record-body,.sl-row,.sl-stats,.sl-meta) :is(small,span,p) {color:var(--ts-muted)}
@@ -604,69 +619,69 @@
 .ts-theme :is(.knowledge-select,.folder-item,.sl-folder,.sl-row,.reference-modes button,.reference-modules button,.reference-actions button,.ie-source-list button,.st-work-record>summary):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
 
 /* Radar/admin colour repairs. Keep homepage, other front pages and paper isolated. */
-.ts-theme :is(.radar-page,.radar-source-manager) {color:var(--ts-text)}
-.ts-theme .radar-page :is(.work-block,.radar-welcome,.hotlist-board,.detail-drawer),
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) {color:var(--ts-text)}
+.ts-theme :is(.radar-page,.bv-industry) :is(.work-block,.radar-welcome,.hotlist-board,.detail-drawer),
 .ts-theme .radar-source-manager :is(.source-card,.detail-drawer) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line);box-shadow:0 10px 28px #0002}
-.ts-theme .radar-page :is(.work-page-title,.block-heading,.hotlist-board) :is(h1,h2,strong),
+.ts-theme :is(.radar-page,.bv-industry) :is(.work-page-title,.block-heading,.hotlist-board) :is(h1,h2,strong),
 .ts-theme .radar-source-manager .source-card h3 {color:var(--ts-text)}
-.ts-theme .radar-page :is(.work-page-title p,.block-heading>span,.radar-status-line,.radar-explanation,.industry-filter,.radar-welcome p,.inline-empty),
+.ts-theme :is(.radar-page,.bv-industry) :is(.work-page-title p,.block-heading>span,.radar-status-line,.radar-explanation,.industry-filter,.radar-welcome p,.inline-empty),
 .ts-theme .radar-source-manager :is(.source-manager-tools,.source-facts,.source-note,.source-url) {color:var(--ts-muted)}
-.ts-theme .radar-page .work-tabs {border-color:var(--ts-line)}
-.ts-theme .radar-page .work-tabs button {background:transparent;color:var(--ts-muted);border-color:transparent}
-.ts-theme .radar-page .work-tabs button.active {background:#263b59;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
-.ts-theme .radar-page .work-tabs button span {color:inherit}
-.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) {background:transparent;color:var(--ts-text);border-color:var(--ts-line)}
-.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) strong {color:var(--ts-text)}
-.ts-theme .radar-page :is(.news-row,.hotlist-rows>button) small {color:var(--ts-muted)}
-.ts-theme .radar-page :is(.news-category,.platform-mark),
+.ts-theme :is(.radar-page,.bv-industry) .work-tabs {border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.bv-industry) .work-tabs button {background:transparent;color:var(--ts-muted);border-color:transparent}
+.ts-theme :is(.radar-page,.bv-industry) .work-tabs button.active {background:#263b59;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.bv-industry) .work-tabs button span {color:inherit}
+.ts-theme :is(.radar-page,.bv-industry) :is(.news-row,.hotlist-rows>button) {background:transparent;color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.bv-industry) :is(.news-row,.hotlist-rows>button) strong {color:var(--ts-text)}
+.ts-theme :is(.radar-page,.bv-industry) :is(.news-row,.hotlist-rows>button) small {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.bv-industry) :is(.news-category,.platform-mark),
 .ts-theme .radar-source-manager :is(.source-card-icon,.source-status) {background:var(--ts-elevated);color:var(--ts-accent);border-color:var(--ts-line)}
-.ts-theme .radar-page .hotlist-board>header {background:var(--ts-elevated);border-color:var(--ts-line)}
-.ts-theme .radar-page .hotlist-board>header :is(small,span:last-child) {color:var(--ts-muted)}
-.ts-theme .radar-page .hotlist-rows>button>b {color:var(--ts-muted)}
-.ts-theme .radar-page .hotlist-rows>button>b.top-rank {color:var(--ts-gold)}
-.ts-theme .radar-page .radar-welcome>svg {color:var(--ts-accent)}
-.ts-theme .radar-page .scoped-progress {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
-.ts-theme .radar-page .scoped-progress span:not(.progress-symbol) {color:var(--ts-muted)}
-.ts-theme .radar-page .scoped-progress.has-error,
+.ts-theme :is(.radar-page,.bv-industry) .hotlist-board>header {background:var(--ts-elevated);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.bv-industry) .hotlist-board>header :is(small,span:last-child) {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.bv-industry) .hotlist-rows>button>b {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.bv-industry) .hotlist-rows>button>b.top-rank {color:var(--ts-gold)}
+.ts-theme :is(.radar-page,.bv-industry) .radar-welcome>svg {color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.bv-industry) .scoped-progress {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.bv-industry) .scoped-progress span:not(.progress-symbol) {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.bv-industry) .scoped-progress.has-error,
 .ts-theme .radar-source-manager .source-status.warning {background:#382c21;color:#f0cc9b;border-color:#806344}
-.ts-theme .radar-page .scoped-progress.has-error .progress-symbol,
+.ts-theme :is(.radar-page,.bv-industry) .scoped-progress.has-error .progress-symbol,
 .ts-theme .radar-source-manager .source-note.warning {color:#f0cc9b}
-.ts-theme :is(.radar-page,.radar-source-manager) .filter-search {background:#111722;color:var(--ts-muted);border-radius:9px;box-shadow:inset 0 0 0 1px var(--ts-line)}
-.ts-theme :is(.radar-page,.radar-source-manager) .filter-search:focus-within {box-shadow:inset 0 0 0 1px var(--ts-accent),0 0 0 3px #9abbff20}
-.ts-theme :is(.radar-page,.radar-source-manager) .reader-overlay {background:#080d18b8;backdrop-filter:none}
-.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer :is(h2,strong,label,summary) {color:var(--ts-text)}
-.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer :is(p,small,.section-number,.path) {color:var(--ts-muted)}
-.ts-theme :is(.radar-page,.radar-source-manager) :is(.discovery-result,.discovery-browser-controls) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
-.ts-theme :is(.radar-page,.radar-source-manager) .discovery-result {border-left-color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager) :is(.discovery-list,.discovery-entry,.browser-leads label,.drawer-actions) {border-color:var(--ts-line)}
-.ts-theme :is(.radar-page,.radar-source-manager) .discovery-entry:has(input:checked) {background:#263b59}
-.ts-theme :is(.radar-page,.radar-source-manager) .discovery-entry small {color:var(--ts-muted)}
-.ts-theme :is(.radar-page,.radar-source-manager) .detail-drawer .form-error {color:#ffb7a6}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .filter-search {background:#111722;color:var(--ts-muted);border-radius:9px;box-shadow:inset 0 0 0 1px var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .filter-search:focus-within {box-shadow:inset 0 0 0 1px var(--ts-accent),0 0 0 3px #9abbff20}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .reader-overlay {background:#080d18b8;backdrop-filter:none}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .detail-drawer :is(h2,strong,label,summary) {color:var(--ts-text)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .detail-drawer :is(p,small,.section-number,.path) {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) :is(.discovery-result,.discovery-browser-controls) {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .discovery-result {border-left-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) :is(.discovery-list,.discovery-entry,.browser-leads label,.drawer-actions) {border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .discovery-entry:has(input:checked) {background:#263b59}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .discovery-entry small {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .detail-drawer .form-error {color:#ffb7a6}
 
 /* Shared controls are scoped to these pages; selected, pressed and disabled win hover. */
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input:not([type=checkbox]):not([type=radio]),textarea,select) {background:#111722;color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea)::placeholder {color:var(--ts-muted);opacity:1}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):hover:not(:disabled) {border-color:#6e819c}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):focus {border-color:var(--ts-accent);box-shadow:0 0 0 3px #9abbff20}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input,textarea,select):disabled {background:#232b38;color:var(--ts-muted);border-color:var(--ts-line);opacity:1;-webkit-text-fill-color:var(--ts-muted);cursor:not-allowed}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(input[type=checkbox],input[type=radio]) {accent-color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option {background:var(--ts-panel);color:var(--ts-text)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option:checked {background:#263b59;color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) option:disabled {color:var(--ts-muted)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:not(:where(.primary,.text-button,.icon-button)) {color:var(--ts-text);border-color:var(--ts-line)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) a.button {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,.button):hover:where(:not(:disabled):not(.primary)) {background:var(--ts-elevated);color:var(--ts-text);border-color:#6e819c}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,.button):active:where(:not(:disabled):not(.primary)) {background:#263b59;color:var(--ts-accent);border-color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager) .work-tabs button.active:hover {background:#2b4161;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) :is(a:not(.button),.text-button) {color:var(--ts-accent)}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) a:not(.button):hover {color:#d0e0ff}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) .record-delete button {color:#ffb7a6}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:disabled,
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input:not([type=checkbox]):not([type=radio]),textarea,select) {background:#111722;color:var(--ts-text);border-color:var(--ts-line);color-scheme:dark}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input,textarea)::placeholder {color:var(--ts-muted);opacity:1}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input,textarea,select):hover:not(:disabled) {border-color:#6e819c}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input,textarea,select):focus {border-color:var(--ts-accent);box-shadow:0 0 0 3px #9abbff20}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input,textarea,select):disabled {background:#232b38;color:var(--ts-muted);border-color:var(--ts-line);opacity:1;-webkit-text-fill-color:var(--ts-muted);cursor:not-allowed}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(input[type=checkbox],input[type=radio]) {accent-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) option {background:var(--ts-panel);color:var(--ts-text)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) option:checked {background:#263b59;color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) option:disabled {color:var(--ts-muted)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) button:not(:where(.primary,.text-button,.icon-button)) {color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) a.button {background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(button,.button):hover:where(:not(:disabled):not(.primary)) {background:var(--ts-elevated);color:var(--ts-text);border-color:#6e819c}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(button,.button):active:where(:not(:disabled):not(.primary)) {background:#263b59;color:var(--ts-accent);border-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel) .work-tabs button.active:hover {background:#2b4161;color:var(--ts-accent);border-bottom-color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible {outline:2px solid var(--ts-accent);outline-offset:3px}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) :is(a:not(.button),.text-button) {color:var(--ts-accent)}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) a:not(.button):hover {color:#d0e0ff}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) .record-delete button {color:#ffb7a6}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) button:disabled,
 .ts-theme .admin-shell :is(.model-category,.provider-directory,.system-library) button:disabled,
 .ts-theme .admin-shell .system-library :is(.sl-folder,.sl-row):disabled {background:#232b38!important;color:var(--ts-muted)!important;border-color:var(--ts-line)!important;opacity:1!important;box-shadow:none!important;cursor:not-allowed}
-.ts-theme :is(.radar-page,.radar-source-manager,.admin-shell) button:disabled :is(strong,small,span) {color:inherit}
-.ts-theme .radar-page .radar-toolbar .filter-search {background:#111722}
+.ts-theme :is(.radar-page,.radar-source-manager,.bv-industry,.discovery-panel,.admin-shell) button:disabled :is(strong,small,span) {color:inherit}
+.ts-theme :is(.radar-page,.bv-industry) .radar-toolbar .filter-search {background:#111722}
 
 /* Real administrative selectors: model directories, media rows and knowledge chrome. */
 .ts-theme .admin-shell :is(.capability-empty,.capability-editor,.capability-preview pre) {background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}

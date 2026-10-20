@@ -21,22 +21,54 @@ def _flow(owner, ident):
 def _draft_flow_ids(owner, obj):
     """Legacy references count as ownership until their flow is upgraded."""
     ids = {obj['flow_id']} if obj.get('flow_id') else set()
-    ids.update(f['id'] for f in s.list_(owner, 'studio_flow') if f.get('last_draft') == obj['id'])
+    with s.conn() as c:
+        ids.update(row['id'] for row in c.execute(
+            "SELECT id FROM objects WHERE owner=? AND kind='studio_flow' AND json_extract(data,'$.last_draft')=?",
+            (owner, obj['id'])))
     return ids
 
 
 def _draft_task_ids(owner, obj):
     ids = {obj[key] for key in ('task_id', 'origin_task_id') if obj.get(key)}
-    ids.update(task['id'] for task in s.list_(owner, 'task')
-               if obj['id'] in (task.get('media_outcomes') or {}).values())
-    ids.update(j.get('task_id') or j.get('input', {}).get('task_id')
-               for j in s.list_(owner, 'job')
-               if (j.get('result') or {}).get('draft_id') == obj['id'])
+    # Scope checks need IDs, never complete conversation histories or generated
+    # output blobs. Filter in SQLite before crossing the Python boundary.
+    with s.conn() as c:
+        ids.update(row['id'] for row in c.execute(
+            "SELECT id FROM objects WHERE owner=? AND kind='task' AND EXISTS "
+            "(SELECT 1 FROM json_each(json_extract(objects.data,'$.media_outcomes')) WHERE value=?)",
+            (owner, obj['id'])))
+        for row in c.execute(
+                "SELECT json_extract(data,'$.task_id') AS task_id,json_extract(data,'$.input.task_id') AS input_task_id "
+                "FROM objects WHERE owner=? AND kind='job' AND json_extract(data,'$.result.draft_id')=?",
+                (owner, obj['id'])):
+            ids.add(row['task_id'] or row['input_task_id'])
     return ids - {None, ''}
 
 
 def _task_draft(owner, obj):
     return bool(_draft_task_ids(owner, obj))
+
+
+def _standalone_drafts(owner, kind):
+    # Resolve legacy links once for the whole list. Repeating a JSON projection
+    # of every completed job for every draft still scans large result records N
+    # times, even when their bodies never cross into Python.
+    with s.conn() as c:
+        rows = c.execute("SELECT id,kind,json_object('last_draft',json_extract(data,'$.last_draft'),"
+                         "'media_outcomes',json_extract(data,'$.media_outcomes'),"
+                         "'draft_id',json_extract(data,'$.result.draft_id'),"
+                         "'task_id',json_extract(data,'$.task_id'),"
+                         "'input_task_id',json_extract(data,'$.input.task_id')) AS data "
+                         "FROM objects WHERE owner=? AND kind IN ('studio_flow','task','job')", (owner,)).fetchall()
+        drafts = c.execute('SELECT * FROM objects WHERE owner=? AND kind=? ORDER BY updated DESC', (owner, kind)).fetchall()
+    linked = set()
+    for row in rows:
+        meta = json.loads(row['data'])
+        if row['kind'] == 'studio_flow':linked.add(meta['last_draft'])
+        elif row['kind'] == 'task':linked.update((meta['media_outcomes'] or {}).values())
+        elif meta['task_id'] or meta['input_task_id']:linked.add(meta['draft_id'])
+    return [obj for obj in map(s.unpack, drafts) if not obj.get('archived') and not obj.get('flow_id')
+            and not obj.get('origin_task_id') and not obj.get('task_id') and obj['id'] not in linked]
 
 
 def _scope_objects(owner):
@@ -189,6 +221,12 @@ def _display_draft(owner, obj):
     return obj
 
 
+def _display_drafts(owner, objects):
+    from .media_studio import MEDIA_CONFIG_KEYS
+    with s.config_snapshot(MEDIA_CONFIG_KEYS, locked=True):
+        return [_display_draft(owner, obj) for obj in objects]
+
+
 def _upgrade_flow(owner, row):
     """Copy only already-linked legacy objects, never select a latest object."""
     sources = {}
@@ -286,9 +324,7 @@ def _install_flow_routes(app, user):
             _live(u['id'], id, {_kind})
             return save_draft(u['id'], data, ident=id)
         def listing(u, _kind=kind):
-            return {'items': [_display_draft(u['id'], obj) for obj in s.list_(u['id'], _kind)
-                             if not obj.get('archived') and not _draft_flow_ids(u['id'], obj)
-                             and not _task_draft(u['id'], obj)]}
+            return {'items': _display_drafts(u['id'], _standalone_drafts(u['id'], _kind))}
         endpoint(path, 'POST').dependant.call = create
         endpoint(path + '/{id}', 'PATCH').dependant.call = patch
         endpoint(path, 'GET').dependant.call = listing
@@ -353,8 +389,8 @@ def _install_flow_routes(app, user):
                     + ("AND json_extract(data,'$.tool')=? " if tool else '')
                     + 'ORDER BY kind=? DESC,updated DESC',
                     [u['id'], *kinds, flow_id] + ([tool] if tool else []) + [kinds[0]]).fetchall()
-            return {'items': [_display_draft(u['id'], obj) for obj in map(s.unpack, rows)
-                             if not obj.get('archived')]}
+            return {'items': _display_drafts(u['id'], (obj for obj in map(s.unpack, rows)
+                             if not obj.get('archived')))}
 
     @app.get('/api/studio/tasks/{task_id}/drafts')
     def task_drafts(task_id: str, u=Depends(user)):

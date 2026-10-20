@@ -84,6 +84,7 @@ try{
  assert.equal((deliveries.items[0].body.match(/\/api\/studio\/assets\//g)||[]).length,2);
  assert(deliveries.items[0].body.includes(editedBody));
  assert.equal(deliveries.items[0].summary,'上传期间修改的摘要');
+ await page.getByRole('button',{name:'添加账号',exact:true}).click();
  await page.getByRole('textbox',{name:'账号备注名'}).fill('测试公众号');
  await page.getByRole('textbox',{name:'AppID'}).fill('wx'+'a'.repeat(16));
  await page.getByRole('textbox',{name:'AppSecret'}).fill('isolated-secret');

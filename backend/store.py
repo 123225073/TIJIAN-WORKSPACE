@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib, json, os, secrets, sqlite3, threading, uuid, sys
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +10,7 @@ DATA = Path(os.environ.get('TIJIAN_DATA', str(ROOT / '.runtime'))).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'workbench.sqlite'
 LOCK = threading.RLock()
+_CONFIG_READ = ContextVar('config_read_snapshot', default=None)
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def uid(): return uuid.uuid4().hex
@@ -47,11 +49,41 @@ def audit(actor,action,target=''):
     with conn() as c:c.execute('INSERT INTO audit VALUES (?,?,?,?,?)',(uid(),actor,action,target,now()))
 
 def config(key,default=None):
+    snapshot = _CONFIG_READ.get()
+    if snapshot is not None and key in snapshot[0]:
+        raw = snapshot[1].get(key)
+        return json.loads(raw) if raw is not None else default
     with conn() as c:r=c.execute('SELECT value FROM config WHERE key=?',(key,)).fetchone()
     return json.loads(r['value']) if r else default
 
 def set_config(key,value):
-    with conn() as c:c.execute('INSERT OR REPLACE INTO config VALUES (?,?)',(key,json.dumps(value,ensure_ascii=False)))
+    raw = json.dumps(value,ensure_ascii=False)
+    with conn() as c:c.execute('INSERT OR REPLACE INTO config VALUES (?,?)',(key,raw))
+    snapshot = _CONFIG_READ.get()
+    if snapshot is not None and key in snapshot[0]:snapshot[1][key] = raw
+
+
+@contextmanager
+def config_snapshot(keys, *, locked=False):
+    """Batch one operation's config reads; discard it when the operation ends.
+
+    Raw JSON preserves config()'s independent mutable return values. Writes in
+    this context update the snapshot, and other requests never share it.
+    """
+    # Callers with legacy read-modify-write migrations must keep the snapshot
+    # and migration in the same writer lock, preventing stale flags/config from
+    # overwriting an administrator's intervening update.
+    if locked:
+        with LOCK:
+            with config_snapshot(keys):yield
+        return
+    selected = frozenset(keys)
+    with conn() as c:
+        rows = c.execute('SELECT key,value FROM config WHERE key IN (' + ','.join('?' for _ in selected) + ')',
+                         list(selected)).fetchall() if selected else []
+    token = _CONFIG_READ.set((selected, {row['key']: row['value'] for row in rows}))
+    try:yield
+    finally:_CONFIG_READ.reset(token)
 
 class Conflict(Exception): pass
 class Missing(Exception): pass

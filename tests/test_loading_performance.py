@@ -166,3 +166,61 @@ def test_watcher_keeps_all_locking_reads_off_event_loop(monkeypatch):
     monkeypatch.setattr(backend.asyncio, 'sleep', one_cycle)
     with pytest.raises(asyncio.CancelledError):asyncio.run(backend.watcher())
     assert calls == ['media','users','config','files','config']
+
+
+def test_catalog_batches_config_per_request_and_does_not_cache_later_changes(isolated, monkeypatch):
+    from contextlib import contextmanager
+    client, _ = isolated
+    original = s.conn
+    connections = []
+    @contextmanager
+    def counted():
+        connections.append(True)
+        with original() as c:yield c
+    monkeypatch.setattr(s, 'conn', counted)
+    first = client.get('/api/studio/catalog')
+    assert first.status_code == 200
+    assert len(connections) < 8, 'Model choices must not reopen SQLite hundreds of times'
+    s.set_config('bindings', {'tts': ''})
+    second = client.get('/api/studio/catalog').json()
+    assert next(x for x in second['tools'] if x['id'] == 'tts')['binding'] == ''
+
+
+def test_config_snapshot_is_request_local_mutable_safe_and_write_aware(isolated):
+    s.set_config('snapshot-test', {'value': 1})
+    with s.config_snapshot(('snapshot-test', 'missing')):
+        value = s.config('snapshot-test')
+        value['value'] = 99
+        assert s.config('snapshot-test') == {'value': 1}
+        assert s.config('missing', 'fallback') == 'fallback'
+        s.set_config('snapshot-test', {'value': 2})
+        assert s.config('snapshot-test') == {'value': 2}
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(s.set_config, 'snapshot-test', {'value': 3}).result(timeout=2)
+            assert pool.submit(s.config, 'snapshot-test').result(timeout=2) == {'value': 3}
+        assert s.config('snapshot-test') == {'value': 2}
+    assert s.config('snapshot-test') == {'value': 3}
+
+
+def test_standalone_draft_listing_resolves_legacy_scope_once_without_history_bodies(isolated, monkeypatch):
+    client, owner = isolated
+    drafts = [s.put(owner, 'studio_draft', {'tool': 'text_image', 'input': {'prompt': str(n)}}) for n in range(10)]
+    # Preserve every legacy ownership path, including archived parents.
+    s.put(owner, 'studio_flow', {'last_draft': drafts[0]['id'], 'archived': True})
+    s.put(owner, 'task', {'media_outcomes': {'image': drafts[1]['id']}, 'messages': ['large ' * 20000]})
+    s.put(owner, 'job', {'task_id': 'task-parent', 'result': {'draft_id': drafts[2]['id']}, 'stream_text': 'large ' * 20000})
+    s.put(owner, 'job', {'input': {'task_id': 'input-parent'}, 'result': {'draft_id': drafts[3]['id']}})
+    s.put('foreign-owner', 'task', {'media_outcomes': {'image': drafts[4]['id']}})
+    for n, field in enumerate(('flow_id', 'origin_task_id', 'task_id'), 5):
+        d = drafts[n]
+        s.put(owner, d['kind'], {**d, field: 'parent'}, d['id'], d['version'])
+    decoded = []
+    original = s.unpack
+    def unpack(row):
+        decoded.append((row['kind'], len(row['data'])))
+        return original(row)
+    monkeypatch.setattr(s, 'unpack', unpack)
+    response = client.get('/api/studio/drafts')
+    assert response.status_code == 200
+    assert {x['id'] for x in response.json()['items']} == {drafts[n]['id'] for n in (4, 8, 9)}
+    assert all(kind == 'studio_draft' and size < 1000 for kind, size in decoded)

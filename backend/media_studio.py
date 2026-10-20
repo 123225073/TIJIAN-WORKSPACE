@@ -128,6 +128,11 @@ def _base(provider, value):
     return value.rstrip('/')
 
 
+MEDIA_CONFIG_KEYS = ('bindings', 'ark_video_migrated', 'hifly_digital_migrated',
+                     'media_registry_models', 'studio_services', 'models',
+                     'providers', 'media_registry_providers')
+
+
 def settings():
     saved = s.config(CONFIG, {})
     return {'providers': [{**preset, 'provider': name, 'base_url': saved.get(name, {}).get('base_url', preset['base_url']),
@@ -2167,6 +2172,7 @@ def register(app, user, admin, error):
             return error(400, '媒体请求失败，请检查字段、素材及服务配置')
 
     @app.get('/api/studio/catalog')
+    @s.config_snapshot(MEDIA_CONFIG_KEYS, locked=True)
     def catalog(u=Depends(user)):
         migrate_video_bindings()
         providers = settings()['providers']
