@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.26.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.27.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -868,6 +868,8 @@ media_studio.register(app,user,admin,error)
 benchmark_api.register(app,user,admin,error)
 from . import workflows
 WORKFLOWS=workflows.register(app,user,error)
+from . import flow_deliverables
+flow_deliverables.register(app,user)
 wechat.register(app,user,error)
 weread.register(app,user)
 from . import hotlists, discovery

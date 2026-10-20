@@ -222,22 +222,50 @@
 .cf-inline-editor{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;container-type:inline-size}
 .cf-inline-editor>.studio-v2{padding:14px;max-width:none}
 .cf-inline-editor .st-header,.cf-inline-editor .st-flow-context{display:none}
-.cf-inline-editor .media-workbench{height:100%;min-height:500px;grid-template-columns:minmax(270px,.8fr) minmax(0,1fr)}
-.cf-inline-editor .st-layout{grid-template-columns:minmax(250px,.75fr) 8px minmax(0,1fr);min-height:500px}
+.cf-inline-editor .media-workbench.studio-v2{height:100%;min-height:500px;grid-template-columns:minmax(280px,min(38%,var(--mw-panel-width,330px))) 8px minmax(0,1fr);gap:10px 8px}
+.cf-inline-editor .media-workbench.image-edit-mode{grid-template-columns:minmax(0,1fr)}
+.cf-inline-editor .studio-v2 .st-workspace.st-resizable{grid-template-columns:minmax(280px,min(48%,var(--st-editor-width,500px))) 8px minmax(0,1fr);gap:8px;min-height:500px}
+.cf-inline-editor .media-workbench .mw-mode-bar{min-width:0;grid-column:1/-1;flex-wrap:wrap}
+.cf-inline-editor .media-workbench .mw-mode-parameters{flex:none;white-space:nowrap}
+.cf-inline-editor .media-workbench .mw-heading{padding:16px 16px 0}
+.cf-inline-editor .media-workbench .mw-heading h1{font-size:19px;letter-spacing:0;margin:4px 0 12px}
+.cf-inline-editor .media-workbench .mw-label{flex-wrap:wrap;gap:8px}
+.cf-inline-editor .media-workbench .mw-label>strong{white-space:nowrap;flex:none}
+.cf-inline-editor .media-workbench .mw-label>div{flex:none;max-width:100%;flex-wrap:wrap}
+.cf-inline-editor .media-workbench .mw-label>div>button{white-space:nowrap}
+.cf-inline-editor .studio-v2 .st-panel-head{padding:14px 16px}
+.cf-inline-editor .studio-v2 .st-editor-body{padding:16px}
+.cf-inline-editor .studio-v2 .st-preview{position:static}
 .cf-inline-editor .topic-delivery{padding:14px}
 .cf-inline-editor .st-editor,.cf-inline-editor .st-preview{min-width:0}
 .cf-inline-editor .cf-page textarea{min-height:0}
-@container(max-width:750px){
- .cf-inline-editor .st-layout,.cf-inline-editor .media-workbench{display:flex;flex-direction:column;height:auto}
- .cf-inline-editor .st-pane-resizer{display:none}
+@container(max-width:640px){
+ .cf-inline-editor .studio-v2 .st-workspace.st-resizable,.cf-inline-editor .media-workbench.studio-v2{display:flex;flex-direction:column;height:auto}
+ .cf-inline-editor :is(.st-pane-resizer,.mw-pane-resizer){display:none}
  .cf-inline-editor .mw-panel{width:100%;max-height:none;min-height:420px}
  .cf-inline-editor .mw-panel-scroll{max-height:420px}
+ .cf-inline-editor .media-workbench.image-workbench .mw-mode-bar{display:flex;width:100%}
+ .cf-inline-editor .media-workbench .mw-results{min-height:260px;overflow:visible}
+ .cf-inline-editor .studio-v2 .st-workspace>.st-editor,.cf-inline-editor .studio-v2 .st-workspace>.st-preview{width:100%}
+}
+@container(max-width:780px){
+ .cf-inline-editor .media-workbench.image-edit-mode{height:auto}
+ .cf-inline-editor .media-workbench.image-edit-mode .mw-results{overflow:visible}
+ .cf-inline-editor .ie-workspace{height:auto;overflow:visible;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(300px,45dvh) auto auto auto}
+ .cf-inline-editor .ie-heading,.cf-inline-editor .ie-canvas-toolbar{grid-column:1}
+ .cf-inline-editor .ie-canvas-toolbar{align-items:flex-start;flex-direction:column}
+ .cf-inline-editor .ie-toolbar-actions{justify-content:flex-start}
+ .cf-inline-editor .ie-stage,.cf-inline-editor .ie-empty{grid-column:1;grid-row:3}
+ .cf-inline-editor .ie-bottom{grid-column:1;grid-row:4;overflow:visible}
+ .cf-inline-editor .ie-latest-result{grid-column:1;grid-row:5}
+ .cf-inline-editor .ie-submit-bar{grid-column:1;grid-row:6}
 }
 @media(max-width:1150px){
  .cf-continuous .cf-workspace{grid-template-columns:160px minmax(0,1fr)}
  .cf-continuous .cf-creation-workspace{grid-template-columns:160px minmax(0,1fr)}
  .cf-channels{grid-column:2;grid-row:1;display:flex;gap:6px;flex-wrap:wrap;padding:8px;overflow:visible}
- .cf-channels h2,.cf-channels>p,.cf-channels button small,.cf-channels details{display:none}
+ .cf-channels h2,.cf-channels>p,.cf-channels button small{display:none}
+ .cf-channels details{margin:0}
  .cf-channels>button{width:auto;margin:0;padding:8px;font-size:12px}
  .cf-creation-workspace .cf-timeline{grid-row:1/3}
  .cf-creation-workspace .cf-detail{grid-column:2;grid-row:2}

@@ -1,0 +1,14 @@
+/* Auxiliary tools use the same paired surface and ink as their surrounding UI. */
+.ts-theme .studio-v2 .st-scene{background:var(--ts-elevated);color:var(--ts-text);border-color:var(--ts-line);padding:16px;margin:14px 0;border-radius:10px}
+.ts-theme .studio-v2 .st-scenes>.st-section-head{gap:12px;flex-wrap:wrap;background:transparent!important}
+.ts-theme .studio-v2 .st-scene .st-section-head{background:transparent!important;color:var(--ts-text);border:0;box-shadow:none;gap:12px;flex-wrap:wrap}
+.ts-theme .studio-v2 .st-scene :is(label,strong,h3){color:var(--ts-text)}
+.ts-theme .studio-v2 .st-scene :is(input,textarea,select){background:var(--ts-panel);color:var(--ts-text);border-color:var(--ts-line)}
+.ts-theme .studio-v2 .st-scene .st-check-row{color:var(--ts-muted)}
+.st-compose-service{display:grid;gap:7px;margin:0 0 20px;padding:14px 16px;border:1px solid var(--st-line);border-radius:10px;background:var(--st-paper);color:var(--st-ink)}
+.st-compose-service strong{font-size:14px}.studio-v2 .st-compose-service p{font-size:13px;line-height:1.75;color:var(--st-ink)}
+.studio-v2 .st-compose-service small{font-size:12px;line-height:1.7;color:var(--st-muted)}
+.cf-inline-editor .studio-v2 .st-context{grid-template-columns:minmax(0,1fr);margin-bottom:16px;padding-bottom:16px}
+.cf-inline-editor .studio-v2 .st-context label{display:grid;gap:6px}
+.cf-inline-editor .studio-v2 .st-context select{margin-top:0}
+.cf-inline-editor .studio-v2 .st-source-detail[open]{max-height:none;overflow:visible}
