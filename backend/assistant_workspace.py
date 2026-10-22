@@ -140,19 +140,10 @@ def prepare_profile(owner,task_id,model_id=None,operation=None,target_id=None):
     if task['kind']!='task' or task.get('archived') or not task.get('messages'):raise ValueError('请先进行定位沟通')
     if any(j.get('task_id')==task_id and j.get('status') in {'queued','running'} for j in s.list_(owner,'job')):raise s.Conflict('请等待当前任务完成')
     binding=profile_binding(owner,task,operation,target_id)
-    model=g.select(owner,'profile',model_id);method=capabilities.snapshot('profile',owner)
-    def work(progress,event):
-        progress('正在整理'+('新增 IP' if binding['operation']=='create' else '更新 IP')+'的候选档案')
-        reply,proposal=plan_profile(owner,task,model,rules=jobs.POLICY+'\n'+method['text'],binding=binding)
-        if event.is_set():raise InterruptedError('已取消')
-        with s.LOCK:
-            current=s.get(owner,task_id)
-            if current.get('archived') or current['version']!=task['version'] or agent.fingerprint(current)!=agent.fingerprint(task):raise s.Conflict('对话已变化，请重新整理')
-            if not proposal:raise ValueError(reply or '定位信息不足，请继续沟通')
-            attach_proposal(owner,{**current,'profile_binding':binding},proposal)
-        return {'task_id':task_id,'proposal_id':proposal['id'],'operation':binding['operation']}
-    return jobs.start(owner,'整理 IP 身份',work,{'action':'prepare_profile','task_id':task_id,'model_id':model,
-                      'operation':binding['operation'],'target_id':binding['target_id'],'configuration':method['metadata']})
+    from .interviews import create_interview
+    row=create_interview(owner,{'type':'profile','source_task_id':task_id,'operation':binding['operation'],
+                               'target_id':binding['target_id'],'model_id':model_id})
+    return {'status':'done','result':{'task_id':task_id,'interview_id':row['id'],'action':'profile_interview'}}
 
 def _commit_rows(owner,rows):
     """Commit reviewed targets, history and task binding in the same transaction."""
@@ -229,7 +220,7 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
     jobs.contextual_ids(owner,source_ids,profile_id,text)
     if profile_id and s.get(owner,profile_id).get('archived'):raise ValueError('身份已归档，请重新选择')
     scope=library.normalize_scope(owner,reference_scope if reference_scope is not None else task.get('reference_scope'),source_ids)
-    model=g.select(owner,'profile' if profile_only else 'qa',model_id)
+    model=(g.select(owner,'profile',model_id) if model_id else None) if profile_only else g.select(owner,'qa',model_id)
     # Freeze before enqueueing, including the classifier and every permitted branch.
     methods={purpose:capabilities.snapshot(purpose,owner) for purpose in ('agent','qa','daily','profile','writing','topics')}
     identity_snapshot=profile_snapshot(s.get(owner,profile_id)) if profile_id else None
@@ -249,6 +240,15 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
             _append(owner,task_id,'创作前，先确定这篇内容代表谁、写给谁。你可以选择已有身份，或告诉我你的业务、目标读者和表达风格，我来帮你建立定位。也可以明确说“不需要身份，继续创作”。',
                     pending_creation=route,identity_required=True)
             return {'task_id':task_id,'identity_required':True}
+        if route['action']=='profile':
+            from .interviews import create_interview
+            with s.LOCK:
+                live=s.get(owner,task_id)
+                if live.get('archived') or live['version']!=task['version']:raise s.Conflict('对话已变化，请重新打开定位引导')
+                binding=profile_binding(owner,live)
+                row=create_interview(owner,{'type':'profile','source_task_id':task_id,'operation':binding['operation'],
+                                           'target_id':binding['target_id'],'model_id':model_id})
+            return {'task_id':task_id,'interview_id':row['id'],'action':'profile_interview'}
         progress('按需求查找已保存的资料')
         query=route['brief']
         retrieved=retrieval.retrieve(owner,query,scope,profile_id,task_id) if retrieval.needs_knowledge(query) else {'excerpts':[],'method':'日常交流，无需检索资料'}
@@ -256,16 +256,6 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
         ctx=retrieval.context_text(retrieved)
         if identity_snapshot:ctx+='\n用户已确认的身份：'+json.dumps(identity_snapshot,ensure_ascii=False)
         if task.get('upstream_body'):ctx+='\n前序成果：'+task['upstream_body'][:15000]
-        if route['action']=='profile':
-            binding=profile_binding(owner,task)
-            reply,proposal=plan_profile(owner,task,model,context=ctx,binding=binding,rules=jobs.POLICY+'\n'+methods['profile']['text'])
-            if event.is_set():raise InterruptedError('已取消')
-            with s.LOCK:
-                live=s.get(owner,task_id)
-                if live.get('archived') or live['version']!=task['version']:raise s.Conflict('对话已变化，请重新整理')
-                current=_append(owner,task_id,reply or '请告诉我你服务哪些客户、希望通过内容实现什么目标。',retrieval=retrieved,profile_binding=binding,agent_error=None)
-                attach_proposal(owner,current,proposal)
-            return {'task_id':task_id}
         if route['action']=='topics':
             from . import topics
             progress('正在整理待确认的选题建议')

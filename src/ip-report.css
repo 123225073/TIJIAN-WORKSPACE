@@ -1,0 +1,30 @@
+.ip-report{box-sizing:border-box;min-width:0;overflow-wrap:anywhere;border:1px solid var(--ts-line,#3b485c);border-radius:14px;background:var(--ts-panel,#171d28);color:var(--ts-text,#edf2fb)}
+.ip-report .ip-report-heading{display:block;position:static;padding:26px 30px 23px;border-bottom:1px solid var(--ts-line,#3b485c);background:transparent}
+.ip-report .ip-report-heading>span{font-size:10px;letter-spacing:.15em;font-weight:700;color:var(--ts-gold,#e4c891)}
+.ip-report .ip-report-heading>h2{margin:9px 0 11px;color:var(--ts-text,#edf2fb);font-size:clamp(25px,2.2vw,32px);line-height:1.45;letter-spacing:.015em}
+.ip-report .ip-report-heading>p{margin:0;color:var(--ts-muted,#b1bed1);font-size:13px;line-height:1.8}
+.ip-report .ip-report-body{padding:6px 30px 24px}
+.ip-report .ip-report-body .markdown{max-width:78ch;margin:0 auto;font-size:15px;line-height:1.95;color:var(--ts-text,#edf2fb)}
+.ip-report .ip-report-body .markdown :is(h1,h2,h3,h4){display:block;color:var(--ts-text,#edf2fb);line-height:1.55;letter-spacing:.015em;scroll-margin-top:24px}
+.ip-report .ip-report-body .markdown h1{margin:29px 0 17px;font-size:26px}
+.ip-report .ip-report-body .markdown h2{margin:32px 0 14px;padding-bottom:11px;border-bottom:1px solid var(--ts-line,#3b485c);font-size:21px}
+.ip-report .ip-report-body .markdown h3{margin:24px 0 10px;font-size:17px;color:#c7dbff}
+.ip-report .ip-report-body .markdown h4{font-size:15px;margin:20px 0 8px}
+.ip-report .ip-report-body .markdown :is(p,li){color:var(--ts-text,#edf2fb);font-size:inherit;line-height:inherit}
+.ip-report .ip-report-body .markdown p{margin:12px 0}.ip-report .ip-report-body .markdown :is(ul,ol){padding-left:1.6em;margin:14px 0}.ip-report .ip-report-body .markdown li+li{margin-top:7px}
+.ip-report .ip-report-body .markdown strong{color:#f4f7fc}.ip-report .ip-report-body .markdown a{color:var(--ts-accent,#9abbff);text-decoration:underline;text-underline-offset:3px}
+.ip-report .ip-report-body .markdown blockquote{margin:20px 0;padding:12px 17px;background:#202d40;border:1px solid #3e526f;border-left:3px solid var(--ts-accent,#9abbff);border-radius:0 8px 8px 0;color:#d2e0f6}
+.ip-report .ip-report-body .markdown :is(pre,code){background:#111722;color:#d5e4ff;border-radius:5px}.ip-report .ip-report-body .markdown pre{overflow:auto;padding:14px;max-width:100%}.ip-report .ip-report-body .markdown code{padding:2px 5px;white-space:pre-wrap}
+.ip-report .ip-report-body .markdown table{display:block;width:100%;overflow-x:auto;border-collapse:collapse;font-size:13px}.ip-report .ip-report-body .markdown :is(th,td){padding:10px 13px;border:1px solid var(--ts-line,#3b485c);text-align:left;min-width:100px}.ip-report .ip-report-body .markdown th{background:#222e40;color:#edf2fb}
+.ip-report .ip-report-empty{padding:20px 0;margin:0;color:var(--ts-muted,#b1bed1);font-size:14px;line-height:1.85}
+.ip-report .ip-report-adjustments{border-top:1px solid var(--ts-line,#3b485c);background:#131b27;border-radius:0 0 14px 14px;padding:0 22px}
+.ip-report .ip-report-adjustments details+details{border-top:1px solid var(--ts-line,#3b485c)}
+.ip-report .ip-report-adjustments summary{padding:17px 8px;cursor:pointer;color:#c5d9f8;font-size:13px;font-weight:650;line-height:1.6;border-radius:6px}
+.ip-report .ip-report-adjustments summary:hover{background:#243750;color:#fff}.ip-report .ip-report-adjustments summary:focus-visible{outline:2px solid var(--ts-accent,#9abbff);outline-offset:1px}
+.ip-report .ip-report-adjustments details>div{padding:2px 8px 22px}.ip-report .ip-report-adjustments :is(label,p){color:var(--ts-muted,#b1bed1);font-size:13px;line-height:1.75}.ip-report .ip-report-adjustments label{display:grid;gap:8px}
+.ip-report .ip-report-adjustments :is(textarea,input,select){box-sizing:border-box;width:100%;max-width:100%;border:1px solid #4b5e79;border-radius:8px;background:#101722;color:#edf2fb;font:inherit;font-size:14px;line-height:1.8;padding:12px;resize:vertical;color-scheme:dark}
+.ip-report .ip-report-adjustments :is(textarea,input,select):focus-visible{outline:2px solid var(--ts-accent,#9abbff);outline-offset:2px}.ip-report .ip-report-adjustments :is(textarea,input,select):disabled{background:#232b38;color:#b1bed1;opacity:1;cursor:not-allowed}
+.ip-report .ip-report-summary-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.ip-report .ip-report-editor textarea{min-height:320px}
+.ip-report .ip-report-summary-fields>div.st-interview-fields{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:0}
+@media(max-width:640px){.ip-report .ip-report-heading{padding:21px 18px}.ip-report .ip-report-body{padding:3px 18px 20px}.ip-report .ip-report-adjustments{padding:0 10px}.ip-report .ip-report-summary-fields{grid-template-columns:1fr}.ip-report .ip-report-body .markdown{font-size:14px}.ip-report .ip-report-body .markdown h2{font-size:19px}}
+@media(max-width:640px){.ip-report .ip-report-summary-fields>div.st-interview-fields{grid-template-columns:1fr}}

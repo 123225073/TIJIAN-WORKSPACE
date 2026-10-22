@@ -11,7 +11,7 @@ import os
 import pytest
 
 from test_workflows import client, account
-from test_ip_outcome_chain import setup, send, apply
+from test_ip_outcome_chain import setup, send, apply, review
 from test_streaming import configure
 from test_interaction_revision import wait
 from backend import store as s, gateway as g, hotlists, jobs
@@ -25,7 +25,8 @@ from backend import store as s, gateway as g, hotlists, jobs
 def test_additional_ip_never_overwrites_selected_reference(client, monkeypatch, user_text):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, user_text)
-    candidate = task['agent_proposal']
+    candidate = task['profile_binding']
+    review(client,owner,task)
     response = apply(client, task)
     assert response.status_code == 200, response.text
     assert s.get(owner, old['id']) == old, (
@@ -37,6 +38,7 @@ def test_additional_ip_never_overwrites_selected_reference(client, monkeypatch, 
 def test_same_confirmation_is_atomic_and_idempotent(client, monkeypatch):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '新建一个 IP，叫风沙讲电梯')
+    review(client,owner,task)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: apply(client, task), range(2)))
     assert [r.status_code for r in responses] == [200, 200]
@@ -48,6 +50,7 @@ def test_same_confirmation_is_atomic_and_idempotent(client, monkeypatch):
 def test_confirmation_after_target_edit_preserves_external_work(client, monkeypatch):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '更新当前 IP 的表达偏好')
+    review(client,owner,task)
     changed = s.put(owner, 'profile', {**old, 'style':'窗口二尚待保留的人工修改'}, old['id'])
     assert apply(client, task).status_code == 409
     assert s.get(owner, old['id']) == changed

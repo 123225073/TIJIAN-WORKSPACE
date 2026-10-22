@@ -18,7 +18,7 @@ QUESTIONS = [
     ('boundaries', '有没有绝对不能碰的？比如不能露品牌名、不能露价格、公司不允许。', '参考：不能公开价格、不能露客户姓名住址、品牌名需审批。没有确认的规定写“待确认”，不要默认已获授权。', '不能碰的线', '公司、品牌或客户授权负责人'),
 ]
 REPORT_SECTIONS = ['一、一句话定位', '二、客户决策链', '三、三个内容支柱', '四、人设三件套', '五、不该发的内容', '六、平台与节奏', '七、变现漏斗', '八、30 天冷启动表']
-REPORT_RULES = '按以下八段输出完整定位策划报告，不跳段、不合并，body 使用 Markdown。只把以下八行作为段落标题，每行标题后换行写正文，不要把后面的内容要求复制进标题：\n' + '\n'.join('## ' + heading for heading in REPORT_SECTIONS) + '''
+REPORT_RULES = '输出完整定位策划报告，body 使用 Markdown：先给一个 # 主标题，随后按以下八章展开，不跳章、不合并；这是完整策划正文，不是问答记录。只把以下八行作为章节标题，每行标题后换行写正文，不要把后面的内容要求复制进标题：\n' + '\n'.join('## ' + heading for heading in REPORT_SECTIONS) + '''
 
 各段内容要求（这些是写作要求，不是标题的一部分）：
 一、一句话定位：用“我是【谁】，专帮【哪类人】解决【什么具体问题】，凭【什么证据】”给出3个版本，每版注明适用平台、吸引谁、指向的变现方式。
@@ -109,6 +109,17 @@ def validate_report(body):
 
 def answer_context(answers):
     return [{'问题': q, '回答': answers[k], '未知时向谁核实': who} for k, q, _, _, who in QUESTIONS]
+
+
+def report_body(body, title):
+    """Normalize AI and reviewed reports alike, accepting old eight-section bodies."""
+    body=validate_report(body)
+    # The confirmed archive name owns the report heading. Keep all chapter text.
+    body=re.sub(r'^# [^\n]*\n*','',body,count=1).lstrip()
+    name=re.sub(r'\s+',' ',title).strip()
+    result='# '+name+' · IP 定位报告\n\n'+body
+    if len(result)>30000:raise ValueError('定位报告含主标题后过长，请缩短后重新整理')
+    return result
 
 
 def require_known_answer(answers):

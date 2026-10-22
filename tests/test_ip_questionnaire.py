@@ -87,7 +87,7 @@ def test_report_prompt_eight_sections_unknowns_and_confirm_only(client,monkeypat
     assert client.post(url,json={'version':row['version'],'fields':bad}).status_code==400
     applied=client.post(url,json={'version':row['version'],'fields':row['fields']})
     assert applied.status_code==200,applied.text
-    item=applied.json();assert item['status']=='accepted' and item['body']==report()['body']
+    item=applied.json();assert item['status']=='accepted' and item['body']==ipq.report_body(report()['body'],report()['title'])
     assert item['questionnaire_answers']==row['answers']
     topics=[s.get(owner,tid) for tid in item['positioning_topic_ids']]
     assert len(topics)==2 and all(t['profile_id']==item['id'] and t['status']=='idea' for t in topics)

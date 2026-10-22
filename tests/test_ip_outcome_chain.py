@@ -4,6 +4,7 @@ import pytest
 from test_workflows import client, account
 from test_interaction_revision import wait
 from backend import store as s, gateway as g, assistant_workspace as aw
+from test_ip_questionnaire import all_answers, generate_report, report
 
 FIELDS = {'title':'风沙讲电梯','position':'项目合作与销售获客','audience':'同行与物业',
           'style':'通俗务实','views':'先讲清项目','body':'延续小沙说电梯的定位，建立独立的新 IP。'}
@@ -15,12 +16,13 @@ def setup(client, monkeypatch):
     old = s.put(owner, 'profile', {**FIELDS, 'title':'小沙说电梯', 'body':'旧档案'})
     task = client.post('/api/tasks/open', json={'title':'IP 沟通','mode':'auto','profile_id':old['id']}).json()
     monkeypatch.setattr(g, 'select', lambda *a, **k:'isolated-ip-fixture')
+    s.set_config('bindings',{'profile':'isolated-ip-fixture','writing':'isolated-ip-fixture'})
     requests = []
     def generate(model, messages):
         requests.append(messages)
         if '需求识别器' in messages[0]['content']:
             return json.dumps({'action':'profile','platforms':[],'brief':'整理本次 IP 请求'})
-        return json.dumps({'reply':'已整理候选，请核对。','action':'profile','ready':True,'fields':FIELDS,'notes':[]}, ensure_ascii=False)
+        return json.dumps({**report(),**{k:v for k,v in FIELDS.items() if k!='body'}}, ensure_ascii=False)
     monkeypatch.setattr(g, 'generate', generate)
     return owner, old, task, requests
 
@@ -32,7 +34,18 @@ def send(client, owner, task, text):
     return s.get(owner, task['id'])
 
 def apply(client, task, **data):
+    if task.get('ip_interview_id'):
+        row=next(row for row in client.get('/api/studio/interviews').json()['items'] if row['id']==task['ip_interview_id'])
+        return client.post('/api/studio/interviews/'+row['id']+'/apply',json={'version':row['version'],'fields':{**row.get('fields',{}),**data.get('fields',{})}})
     return client.post('/api/tasks/'+task['id']+'/agent/apply', json={'proposal_id':task['agent_proposal']['id'], **data})
+
+
+def review(client, owner, task):
+    row=s.get(owner,task['ip_interview_id'])
+    if row['question_index']<12:row=all_answers(client,owner,row)
+    done,row=generate_report(client,owner,row)
+    assert done['status']=='done',done
+    return row
 
 @pytest.mark.parametrize('edited', [False, True])
 def test_new_ip_reuses_positioning_without_updating_old_after_file_sync(client, monkeypatch, edited):
@@ -43,43 +56,45 @@ def test_new_ip_reuses_positioning_without_updating_old_after_file_sync(client, 
     assert s.sync_files(owner) == 0
     task = s.get(owner, task['id'])
     assert task['messages'] == before_sync
-    p = task['agent_proposal']
+    p = task['profile_binding']
     assert p['operation'] == 'create' and p['target_id'] is None
     assert p['reference_profile_id'] == old['id']
-    assert p['task_version'] == task['version']
+    assert not task.get('agent_proposal')
+    row=review(client,owner,task)
     response = apply(client, task, **({'fields':{'style':'简洁、具体'}} if edited else {}))
     assert response.status_code == 200, response.text
     saved = response.json()
     assert saved['id'] != old['id'] and saved['title'] == '风沙讲电梯'
-    assert saved['id'] == p['new_profile_id']
     assert s.get(owner, old['id']) == old
     assert len(s.list_(owner, 'profile')) == 2
     assert s.get(owner, task['id'])['profile_id'] == saved['id']
-    assert s.get(owner, task['id'])['agent_proposal']['status'] == 'applied'
+    assert s.get(owner,row['id'])['status']=='applied'
     assert apply(client, task, **({'fields':{'style':'简洁、具体'}} if edited else {})).json()['id'] == saved['id']
     assert s.get(owner, saved['id'])['version'] == saved['version']
     with s.conn() as c:
         row = c.execute('SELECT data FROM objects WHERE id=? AND owner=?', (saved['id'],owner)).fetchone()
-    assert json.loads(row['data'])['body'] == FIELDS['body']
+    assert json.loads(row['data'])['body'].startswith('# 风沙讲电梯 · IP 定位报告')
 
 def test_create_binding_survives_followup_and_reprepare(client, monkeypatch):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '请新建一个 IP，名叫风沙讲电梯')
-    first = task['agent_proposal']['id']
+    first = task['ip_interview_id']
     task = send(client, owner, task, '目标受众选 B，表达再简洁一些')
-    assert task['agent_proposal']['id'] != first
-    assert task['agent_proposal']['operation'] == 'create'
+    assert task['ip_interview_id'] == first
+    assert task['profile_binding']['operation'] == 'create'
     job = client.post('/api/tasks/'+task['id']+'/agent/prepare-profile', json={})
-    assert wait(owner, job.json())['status'] == 'done'
+    assert job.json()['status'] == 'done'
     task = s.get(owner, task['id'])
-    assert task['agent_proposal']['operation'] == 'create'
+    assert task['profile_binding']['operation'] == 'create'
+    review(client,owner,task)
     assert apply(client, task).json()['id'] != old['id']
 
 def test_explicit_update_and_changed_target_protection(client, monkeypatch):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '把当前小沙说电梯改名为风沙讲电梯，更新原 IP')
-    p = task['agent_proposal']
+    p = task['profile_binding']
     assert p['operation'] == 'update' and p['target_id'] == old['id']
+    review(client,owner,task)
     changed = s.put(owner, 'profile', {**old,'style':'另一个窗口的修改'}, old['id'])
     assert apply(client, task).status_code == 409
     assert s.get(owner, old['id']) == changed
@@ -88,16 +103,19 @@ def test_stale_candidate_id_and_changed_conversation_cannot_write(client, monkey
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '新建一个 IP 风沙讲电梯')
     original = task
+    row=review(client,owner,task)
+    stale={'version':row['version'],'fields':row['fields']}
     task = s.put(owner, 'task', {**task,'messages':task['messages']+[{'role':'user','text':'先别保存，我要改定位'}]},task['id'])
     assert apply(client, original).status_code == 409
     assert s.list_(owner, 'profile') == [old]
     task = send(client, owner, task, '改为面向物业')
-    assert apply(client, original).status_code == 409
+    assert client.post('/api/studio/interviews/'+row['id']+'/apply',json=stale).status_code==409
     assert len(s.list_(owner, 'profile')) == 1
 
 def test_metadata_version_does_not_silently_rebind_candidate(client, monkeypatch):
     owner, old, task, _ = setup(client, monkeypatch)
     task = send(client, owner, task, '更新当前 IP 的定位')
+    review(client,owner,task)
     s.put(owner, 'task', {**task,'profile_id':''},task['id'])
     assert apply(client, task).status_code == 409
     assert s.list_(owner, 'profile') == [old]
@@ -182,17 +200,18 @@ def test_readonly_demo_copy_recovers_real_historical_candidate(client,monkeypatc
     monkeypatch.setattr(g,'select',lambda *a,**k:'local-demo-fixture')
     def generate(model,messages):
         if '需求识别器' in messages[0]['content']:return json.dumps({'action':'profile','platforms':[],'brief':'新建风沙讲电梯'})
-        return json.dumps({'reply':'已重新整理新增候选。','action':'profile','ready':True,'fields':FIELDS,'notes':['隔离测试结果，不代表付费模型质量']},ensure_ascii=False)
+        return json.dumps({**report(),**{k:v for k,v in FIELDS.items() if k!='body'}},ensure_ascii=False)
     monkeypatch.setattr(g,'generate',generate)
     assert apply(client,task).status_code==409
     if recovery.startswith('prepare'):
         response=client.post('/api/tasks/'+task['id']+'/agent/prepare-profile',json={'operation':'create'} if recovery=='prepare' else {})
         assert response.status_code==200,response.text
-        assert wait(owner,response.json())['status']=='done'
+        assert response.json()['status']=='done'
         task=s.get(owner,task['id'])
     else:task=send(client,owner,task,'请创建一个新的 IP 风沙讲电梯，延续小沙说电梯的定位')
-    assert task['agent_proposal']['operation']=='create' and task['agent_proposal']['target_id'] is None
-    assert task['agent_proposal']['task_version']==task['version']
+    assert task['profile_binding']['operation']=='create' and task['profile_binding']['target_id'] is None
+    assert not task.get('agent_proposal')
+    review(client,owner,task)
     assert s.sync_files(owner)==0
     response=apply(client,task);assert response.status_code==200,response.text
     saved=response.json();assert saved['id']!=old['id'] and saved['title']=='风沙讲电梯'

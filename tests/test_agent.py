@@ -14,20 +14,19 @@ def fixture(client,monkeypatch,action='profile'):
  task=s.put(owner,'task',{'title':'定位沟通','mode':'profile','messages':[{'role':'user','text':'我叫小沙，做电梯项目销售'},{'role':'assistant','text':'A 同行 B 物业 C 学生'},{'role':'user','text':'A、B'}]})
  return owner,task
 
-def test_full_history_proposal_and_idempotent_apply(client,monkeypatch):
- owner,task=fixture(client,monkeypatch);seen=[];original=gateway.generate
- monkeypatch.setattr(gateway,'generate',lambda m,req:(seen.append(req),original(m,req))[1])
- j=client.post('/api/tasks/'+task['id']+'/agent/prepare-profile',json={}).json();assert wait(owner,j)['status']=='done'
- assert 'A 同行 B 物业 C 学生' in seen[0][1]['content']
- assert not s.list_(owner,'profile')
- p=s.get(owner,task['id'])['agent_proposal'];assert p['fields']['audience']=='同行与物业'
- url='/api/tasks/'+task['id']+'/agent/apply';data={'proposal_id':p['id']}
- r=client.post(url,json=data);assert r.status_code==200,r.text
- saved=r.json();assert saved['position']==FIELDS['position']
- assert client.post(url,json=data).json()['id']==saved['id']
- assert len(s.list_(owner,'profile'))==1
- assert s.get(owner,task['id'])['profile_id']==saved['id']
- account(client,'other-agent@example.test');assert client.post(url,json=data).status_code==404
+def test_full_history_handoff_is_deterministic_and_idempotent(client,monkeypatch):
+ owner,task=fixture(client,monkeypatch)
+ monkeypatch.setattr(gateway,'generate',lambda *a: (_ for _ in ()).throw(AssertionError('Opening guidance must not generate a candidate')))
+ url='/api/tasks/'+task['id']+'/agent/prepare-profile'
+ result=client.post(url,json={}).json();assert result['status']=='done'
+ row=s.get(owner,result['result']['interview_id'])
+ assert 'A 同行 B 物业 C 学生' in json.dumps(row['conversation_context'],ensure_ascii=False)
+ assert row['answers']=={} and row['question_index']==0
+ assert not s.list_(owner,'profile') and not s.get(owner,task['id']).get('agent_proposal')
+ assert s.get(owner,task['id'])['ip_interview_id']==row['id']
+ assert client.post(url,json={}).json()['result']['interview_id']==row['id']
+ assert len(s.list_(owner,'studio_interview'))==1
+ account(client,'other-agent@example.test');assert client.post(url,json={}).status_code==404
 
 def test_daily_memory_and_normal_chat_no_ip(client,monkeypatch):
  owner,task=fixture(client,monkeypatch,'memory')

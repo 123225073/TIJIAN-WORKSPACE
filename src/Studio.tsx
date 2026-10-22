@@ -19,6 +19,7 @@ import CreationFlow from './CreationFlow';
 import {flowOrigin} from './flow-navigation';
 import VideoScenarios from './VideoScenarios';
 import PersonalIP from './PersonalIP';
+import IPGuide from './IPGuide';
 import {MemorySettings} from './MemorySettings';
 import './studio-pane-resize.css';
 import ArticleEditor from './ArticleEditor';
@@ -119,7 +120,7 @@ function StudioEditors({t,page:normalized}:{t:any;page:string}){
  useEffect(()=>{if(retained.join('|')!==visited.join('|'))setVisited(retained)},[normalized,reusable]);
  const active=normalized.split('?')[0],origin=flowOrigin('studio/'+normalized),work=new URLSearchParams(origin.split('?')[1]||'').get('work')||'current';
  useEffect(()=>{for(const video of document.querySelectorAll<HTMLVideoElement>('.st-retained-editor[hidden] video'))video.pause()},[normalized]);
- return <>{retained.map(page=><div className="st-retained-editor" key={page} hidden={!reusable||page!==cachePage}><StudioPage t={t} page={page} visible={reusable&&page===cachePage}/></div>)}{!reusable&&(origin?<div className="studio-v2 st-flow-page"><CreationFlow key={work} t={t} route={origin.replace(/^studio\//,'')} embeddedRoute={active==='flow'?'':normalized} editor={active==='flow'?undefined:<StudioPage key={normalized} t={t} page={normalized}/>}/></div>:<StudioPage key={normalized} t={t} page={normalized}/>)}</>;
+ return <>{retained.map(page=><div className="st-retained-editor" key={page} hidden={!reusable||page!==cachePage}><StudioPage t={t} page={page} visible={reusable&&page===cachePage}/></div>)}{active==='ip-guide'?<IPGuide key={normalized} t={t} query={query}/>:!reusable&&(origin?<div className="studio-v2 st-flow-page"><CreationFlow key={work} t={t} route={origin.replace(/^studio\//,'')} embeddedRoute={active==='flow'?'':normalized} editor={active==='flow'?undefined:<StudioPage key={normalized} t={t} page={normalized}/>}/></div>:<StudioPage key={normalized} t={t} page={normalized}/>)}</>;
 }
 function StudioPage({t,page,visible=true}:{t:any;page:string;visible?:boolean}){
  const [path,query='']=page.split('?'),params=new URLSearchParams(query),spec=pages[path];
