@@ -260,7 +260,7 @@ def manifest(owner, flow_id):
                 'groups': groups, 'history': history, 'assets': assets, 'unassigned': unassigned}
 
 
-def image_zip(owner, flow_id, content_id, version):
+def image_zip(owner, flow_id, content_id, version, include_text=False):
     with s.LOCK:
         flow = _live(owner, flow_id, 'studio_flow')
         content = _live(owner, content_id, 'content')
@@ -274,12 +274,24 @@ def image_zip(owner, flow_id, content_id, version):
         if topic != current['id']:
             raise s.Conflict('文稿不属于当前选题，请返回对应选题后下载')
         item = _version(owner, content, scope)
+        if include_text and item['platform'] != 'xiaohongshu':
+            raise ValueError('图文打包仅适用于小红书稿件')
         if item['unavailable_count']:
             raise ValueError(item['notice'])
-        if not item['images']:
+        if not item['images'] and not include_text:
             raise ValueError('此版本没有可下载的配图')
         buffer, total = io.BytesIO(), 0
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            if include_text:
+                body = reader_article_body(content.get('body', ''))
+                # Preserve social hashtags: Python-Markdown treats even '#话题'
+                # without a space as a heading, which would drop the hash.
+                body = re.sub(r'(?m)^(\s*)#(?=\S)', r'\1\\#', body)
+                soup = BeautifulSoup(markdown.markdown(body), 'html.parser')
+                for img in soup.find_all('img'):
+                    img.decompose()
+                text = soup.get_text('\n', strip=True)
+                archive.writestr('文案.txt', ('标题：' + content.get('title', '') + '\n\n' + text + '\n').encode('utf-8-sig'))
             for image in item['images']:
                 _, _, source = _image(owner, content, image['kind'], image['id'], scope)
                 raw = source if isinstance(source, bytes) else source.read_bytes()
@@ -288,7 +300,7 @@ def image_zip(owner, flow_id, content_id, version):
                     raise ValueError('本版本配图合计超过100MB，请逐张下载')
                 archive.writestr(image['filename'], raw)
         label = dict(PLATFORMS).get(item['platform'], '文章')
-        filename = label + '-配图-v' + str(version) + '.zip'
+        filename = label + ('-图文' if include_text else '-配图') + '-v' + str(version) + '.zip'
         return Response(buffer.getvalue(), media_type='application/zip', headers={
             'Content-Disposition': "attachment; filename=\"images.zip\"; filename*=UTF-8''" + quote(filename),
             'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
@@ -300,5 +312,5 @@ def register(app, user):
         return manifest(u['id'], flow_id)
 
     @app.get('/api/studio/flows/{flow_id}/deliverables/{content_id}/images.zip')
-    def images(flow_id: str, content_id: str, version: int, u=Depends(user)):
-        return image_zip(u['id'], flow_id, content_id, version)
+    def images(flow_id: str, content_id: str, version: int, include_text: bool = False, u=Depends(user)):
+        return image_zip(u['id'], flow_id, content_id, version, include_text)

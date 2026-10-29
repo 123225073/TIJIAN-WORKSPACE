@@ -8,7 +8,7 @@ const directory=path.resolve('.runtime','installed-shortcut-'+Date.now());fs.mkd
 const shortcut=process.env.TIJIAN_VERIFY_SHORTCUT||path.join(process.env.USERPROFILE,'Desktop','梯世界工作台.lnk');
 if(!fs.existsSync(shortcut))throw Error('Installed shortcut is missing');
 const socket=net.createServer();await new Promise(resolve=>socket.listen(0,'127.0.0.1',resolve));const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));
-const launch=spawn('powershell',['-NoProfile','-Command','Start-Process -FilePath $env:TIJIAN_VERIFY_SHORTCUT -ArgumentList @("--disable-gpu","--remote-debugging-address=127.0.0.1","--remote-debugging-port=$env:TIJIAN_VERIFY_PORT") -WindowStyle Hidden'],{windowsHide:true,stdio:'pipe',env:{...process.env,TIJIAN_VERIFY_SHORTCUT:shortcut,TIJIAN_VERIFY_PORT:String(port)}});
+const launch=spawn('powershell',['-NoProfile','-Command','Start-Process -FilePath $env:TIJIAN_VERIFY_SHORTCUT -ArgumentList @("--enable-logging","--remote-debugging-address=127.0.0.1","--remote-debugging-port=$env:TIJIAN_VERIFY_PORT") -WindowStyle Hidden'],{windowsHide:true,stdio:'pipe',env:{...process.env,TIJIAN_VERIFY_SHORTCUT:shortcut,TIJIAN_VERIFY_PORT:String(port)}});
 const launched=await new Promise(resolve=>launch.once('exit',resolve));if(launched!==0)throw Error('Shortcut launch failed');
 const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));let ws;
 try{

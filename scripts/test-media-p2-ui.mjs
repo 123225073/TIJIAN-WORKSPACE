@@ -69,7 +69,11 @@ try{
  await page.evaluate(token=>sessionStorage.setItem('tijian-session',token),auth.token);
  await page.goto(base+'/?ui=1#studio/image?mode=text_image');
  await page.locator('.media-refs-drop').waitFor();
- await page.getByRole('button',{name:'模型与参数'}).click();
+ const reminder=page.getByRole('dialog',{name:'先让梯世界认识你'});
+ await reminder.waitFor();
+ await reminder.getByRole('button',{name:'稍后再做'}).click();
+ assert.equal(await page.locator('.mw-heading-row').getByRole('button',{name:'模型与尺寸'}).count(),1,'尺寸入口应紧邻图片创作标题');
+ await page.getByRole('button',{name:'模型与尺寸'}).click();
  await page.waitForFunction(()=>document.querySelectorAll('.mw-modal-model select option').length>1,undefined,{timeout:30000});
  await page.getByLabel('生成模型').selectOption(legacyTextModel.id);
  await page.getByRole('button',{name:'完成设置'}).click();
@@ -84,6 +88,9 @@ try{
   {name:'reference-b.png',mimeType:'image/png',buffer:png},
  ]);
  await page.waitForFunction(()=>document.querySelector('.media-refs-label')?.textContent?.includes('2 / 16'),undefined,{timeout:5000});
+ // Thumbnails are lazy-loaded only when their cards enter the scrollable
+ // viewport. Reveal each reference as a user would before checking decoding.
+ for(const preview of await page.locator('.media-refs-preview').all())await preview.scrollIntoViewIfNeeded();
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.media-refs-preview img')).filter(img=>img.complete&&img.naturalWidth>0).length===2);
  assert.equal(await page.locator('.media-refs-paste').isEnabled(),true,'素材库读取缓慢时上传和粘贴应及时恢复');
  assert(thumbnailRequests>=2,'参考图预览应读取缩略图');
@@ -100,7 +107,7 @@ try{
  assert.equal(new URL(page.url()).hash.includes('mode=image_edit'),false,'上传参考图不能切换到图片编辑');
  assert.equal(await page.locator('.mw-mode-switch a[aria-current=page]').innerText(),'图片生成');
  await page.waitForTimeout(1100);
- await page.getByRole('button',{name:'模型与参数'}).click();
+ await page.getByRole('button',{name:'模型与尺寸'}).click();
  assert.equal(await page.getByLabel('生成模型').inputValue(),legacyTextModel.id,'上传参考图后不应强制换回中转模型');
  await page.getByRole('button',{name:'完成设置'}).click();
  const legacyGeneratedDraft=await savedDraft('text_image',draft=>draft.model_id===legacyTextModel.id&&draft.input?.image_ids?.length===2);
@@ -129,6 +136,7 @@ try{
   id:'isolated-generation-result',tool:'text_image',draft_id:legacyGeneratedDraft.id,title:'隔离测试生成',status:'succeeded',asset_ids:[legacyGeneratedDraft.input.image_ids[0]],created:new Date().toISOString(),generation:{input:{prompt:'电梯产品展示，简洁可靠的视觉风格'},model_title:'隔离测试模型'},
  }]})}));
  await page.reload();
+ await reminder.waitFor();await reminder.getByRole('button',{name:'稍后再做'}).click();
  await page.locator('.mw-result-card').waitFor();
  assert.deepEqual(await page.locator('.mw-result-card .st-output-footer button, .mw-result-card footer button').allTextContents(),['下载','复制提示词'],'图片生成结果只应保留下载和复制提示词');
  assert.equal(await page.locator('.mw-result-card .st-inline').count(),0);
@@ -142,7 +150,7 @@ try{
  await page.locator('.ie-workspace').waitFor();
  assert(new URL(page.url()).hash.includes('mode=image_edit'));
  assert.equal(await page.getByRole('navigation',{name:'图片创作方式'}).getByRole('link',{name:'图片生成'}).isVisible(),true,'图片生成切换入口必须在编辑页直接可见');
- await page.getByRole('button',{name:'模型与参数'}).click();
+ await page.getByRole('button',{name:'模型与尺寸'}).click();
  await page.getByLabel('生成模型').selectOption(legacyEditModel.id);
  await page.getByRole('button',{name:'完成设置'}).click();
  await setClipboardImage();
@@ -184,7 +192,7 @@ try{
  await savedDraft('image_edit',draft=>draft.input?.image_ids?.length===2&&draft.input?.edit_marks?.length===2);
  await page.getByRole('button',{name:'关闭图片素材'}).click();
  assert.equal(await page.locator('.ie-stage').isVisible(),true);
- assert.equal(await page.locator('.mw-history').isVisible(),false,'编辑时不应在画布下面堆放历史作品');
+ assert.equal(await page.locator('.mw-history:visible').count(),0,'编辑时不应在画布下面堆放历史作品');
  await page.screenshot({path:path.join(dir,'image-edit-workspace.png')});
  const marked=await savedDraft('image_edit',draft=>draft.input?.edit_marks?.length===2&&draft.input.edit_marks.every(mark=>mark.instruction?.trim()));
  assert.notEqual(marked.input.edit_marks[0].instruction,marked.input.edit_marks[1].instruction);
@@ -209,11 +217,12 @@ try{
  const narrowStage=await page.locator('.ie-stage').boundingBox();
  assert(narrowStage&&narrowStage.width>=320,'最小窗口宽度下画布应保留可操作宽度');
  await page.screenshot({path:path.join(dir,'image-edit-narrow.png')});
- await page.getByRole('button',{name:'模型与参数'}).click();
+ await page.getByRole('button',{name:'模型与尺寸'}).click();
  assert.equal(await page.getByLabel('生成模型').isVisible(),true,'窄窗口仍可打开模型与生成设置');
  await page.getByRole('button',{name:'完成设置'}).click();
  await page.setViewportSize({width:1480,height:960});
  await page.reload();
+ await reminder.waitFor();await reminder.getByRole('button',{name:'稍后再做'}).click();
  await page.locator('.ie-mark').nth(1).waitFor();
  await page.getByRole('button',{name:/区域 1/}).first().click();
  assert.equal(await page.getByRole('textbox',{name:'区域 1 的修改说明'}).inputValue(),'把左上角改为深绿色，保留原有结构');
@@ -290,6 +299,7 @@ try{
   created:new Date().toISOString(),generation:{input:{prompt:'隔离测试，不调用生图服务'},model_title:'隔离测试模型'},
  }]})}));
  await page.reload();
+ await reminder.waitFor();await reminder.getByRole('button',{name:'稍后再做'}).click();
  await page.locator('.ie-latest-result').waitFor();
  const canvasBox=await page.locator('.ie-stage').boundingBox(),resultBox=await page.locator('.ie-latest-result').boundingBox();
  assert(canvasBox&&resultBox&&resultBox.y>=canvasBox.y+canvasBox.height-2,'修改结果应在原图画布下方');
@@ -331,12 +341,14 @@ try{
   created:new Date().toISOString(),generation:{input:{prompt:longPrompt},model_title:'隔离测试模型'},
  }]})}));
  await page.goto(base+'/?ui=1#studio/image?mode=text_image');
- const disclosure=page.locator('.mw-prompt-detail');
+ const disclosure=page.locator('.mw-prompt-detail:visible');
  await disclosure.waitFor();
  assert.equal(await disclosure.evaluate(node=>node.open),false);
  await disclosure.locator('summary').click();
  assert.equal(await disclosure.evaluate(node=>node.open),true);
  assert.equal((await disclosure.locator('p').innerText()).trim(),longPrompt);
+ const contrast=await disclosure.locator('p').evaluate(node=>{const css=getComputedStyle(node),rgb=s=>s.match(/\d+(?:\.\d+)?/g).slice(0,3).map(Number),luminance=v=>v.map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4}).reduce((n,x,i)=>n+x*[.2126,.7152,.0722][i],0),a=luminance(rgb(css.color)),b=luminance(rgb(css.backgroundColor));return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)});
+ assert(contrast>=4.5,'展开的完整提示词应有清晰的文字对比度：'+contrast);await disclosure.screenshot({path:path.join(dir,'prompt-readable.png')});
  assert.equal(generationRequests,0,'测试只能到费用确认，不能提交付费生成');
  assert.deepEqual(pageErrors,[]);
  console.log(JSON.stringify({passed:true,checks:['multiple references stay in text_image','name-only asset dropdown removed','clipboard button and Ctrl+V add image references','edit clipboard sets original, adds reference and movable object','reference preview opens','reference model and saved count','two independent marks survive reload','movable resizable marks and visible notes','min-width canvas and settings','active note beside canvas','asset drawer and positioned local upload','composite preserves concurrent edits','clear marks preserves image objects','two horizontal result cards and per-image download','configured legacy image model reaches cost confirmation without paid request','full history prompt expands'],dir}));

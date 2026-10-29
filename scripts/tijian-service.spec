@@ -1,11 +1,17 @@
 # Windows 10+ desktop target. Universal CRT is provided by the operating system.
 from pathlib import Path
+import ssl
 from PyInstaller.utils.hooks import collect_submodules
 root = Path(SPECPATH).parent
+# The bundled Python runtime loads this certificate rejection policy beside ssl.py.
+# Preserve it unchanged when present; a frozen app otherwise cannot create TLS contexts.
+ssl_policy = Path(ssl.__file__).with_name('codex-rejected-cas.pem')
+runtime_data = [(str(ssl_policy), '.')] if ssl_policy.is_file() else []
 a = Analysis([str(root/'backend/run.py')], pathex=[str(root)],
     binaries=[], datas=[(str(root/'vendor/writing-skills'),'vendor/writing-skills'),(str(root/'vendor/douyin_downloader/LICENSE'),'vendor/douyin_downloader'),(str(root/'vendor/douyin_downloader/SOURCE.md'),'vendor/douyin_downloader'),(str(root/'.runtime/desktop-frontend.zip'),'.'),(str(root/'vendor/Easel/skills'),'vendor/Easel/skills'),(str(root/'vendor/Easel/LICENSE'),'vendor/Easel')],
     hiddenimports=collect_submodules('backend')+collect_submodules('tos')+['markdown','yaml','uvicorn.logging','uvicorn.loops.auto','uvicorn.protocols.http.auto','uvicorn.lifespan.on'],
     hookspath=[],hooksconfig={},runtime_hooks=[],excludes=['pytest','IPython'],noarchive=False,optimize=0)
+a.datas += [(Path(source).name, source, 'DATA') for source, _ in runtime_data]
 a.binaries=[entry for entry in a.binaries if Path(entry[0]).name.lower()!='ucrtbase.dll']
 pyz=PYZ(a.pure)
 exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name='tijian-service',debug=False,bootloader_ignore_signals=False,strip=False,upx=False,console=True)

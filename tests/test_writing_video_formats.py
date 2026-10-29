@@ -34,6 +34,7 @@ def test_generation_selects_video_methods_and_keeps_admin_style(client, monkeypa
     assert {'skill:short-video-script', video['id']} <= ids
     assert 'skill:wechat-narrative' not in ids
     assert 'ADMIN_VIDEO_STYLE' in system and 'WECHAT_ONLY_STYLE' not in system
+    assert '短视频口播适配：' in system and '重新组织成有人对镜头说话' in system
     assert ('口播成稿交付约束：' in system) == (format_name == '口播脚本')
     assert trace['system_hash'] == s.digest(system)
     assert json.loads(requests[0][1]['content'])['内容形式'] == format_name
@@ -59,6 +60,7 @@ def test_oral_output_contract_survives_disabled_skill_without_reinserting_it(cli
     assert '只输出可以直接朗读的完整口播正文' in system
     assert all(term in system for term in ('标题', '分镜', '时间轴', '镜头说明', '朗读指令'))
     assert 'CUSTOM_ADMIN_VOICE' in system and 'DISABLED_VIDEO_STYLE' not in system
+    assert '短视频口播适配：' not in system
     saved = s.get(owner, result['result']['content_id'])
     assert 'skill:short-video-script' not in {item['id'] for item in saved['capabilities']['items']}
     assert s.config('system_capabilities') == before
@@ -75,3 +77,4 @@ def test_oral_contract_keeps_structured_transport_and_other_formats_unchanged(cl
     for form in ('公众号文章', '通用文案', '短视频脚本', '视频脚本'):
         request = writing_request(method, policy='', brief='介绍电梯', format_name=form, output_rules=output_rules)
         assert '口播成稿交付约束：' not in request['messages'][0]['content']
+        assert ('短视频口播适配：' in request['messages'][0]['content']) == (form in ('短视频脚本', '视频脚本'))

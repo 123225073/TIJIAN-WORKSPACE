@@ -107,6 +107,22 @@ def test_social_picture_order_and_unavailable_references_never_silently_drop_ima
     assert response.status_code == 400 and '不可下载' in response.json()['detail']
 
 
+def test_social_bundle_contains_saved_text_and_ordered_images_and_rejects_stale_version(client):
+    owner, flow, topic = setup(client)
+    first, binary = image(owner, flow_id=flow['id'])
+    row = document(owner, flow, topic, '小红书文案', body='第一段\n\n**第二段**\n\n#电梯', image_asset_ids=[first['id']])
+    url = items(delivery.manifest(owner, flow['id']))[0]['images_zip_url'] + '&include_text=true'
+    response = client.get(url)
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ['文案.txt', '01-小红书配图.png']
+        text = archive.read('文案.txt').decode('utf-8-sig')
+        assert row['title'] in text and '第一段' in text and '第二段' in text and '#电梯' in text
+        assert archive.read('01-小红书配图.png') == binary
+    s.put(owner, 'content', {**row, 'body': '新版本'}, row['id'], row['version'])
+    assert client.get(url).status_code == 409
+
+
 def test_zip_scope_and_optimistic_version_checks(client):
     owner, flow, topic = setup(client)
     asset, _ = image(owner)

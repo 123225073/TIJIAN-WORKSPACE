@@ -7,7 +7,7 @@ import FlowToolArtwork from './FlowToolArtwork';
 import PlatformIcon from './PlatformIcon';
 import FlowDeliverables,{socialImagesForContent} from './FlowDeliverables';
 import './creation-flow.css';
-import {creationChannels,findBranchDraft,mergeFlowDrafts} from './flow-navigation';
+import {creationChannels,findBranchDraft,mergeFlowDrafts,FLOW_PREPARE_SAVE,type FlowPrepareSave} from './flow-navigation';
 
 const stages=[['IP 定位','选择本次创作的身份',Lightbulb],['选好主题','明确这件作品的主题与切入角度',BookOpen],['多平台创作','选择平台，在这里完成内容',PenLine],['确认作品','挑选本次流程的成品版本',FolderOpen],['发布准备','复制图文、下载作品或准备平台草稿',Send]] as const;
 const tools=[['text','文案创作','text'],['image','图片创作','text_image'],['video','AI 视频','text_video'],['avatar/text','数字人口播','text_avatar'],['audio/tts','文本配音','tts'],['compose','素材成片','compose']] as const;
@@ -19,7 +19,7 @@ const flowSignature=(value:any)=>JSON.stringify(flowFields.map(key=>value?.[key]
 // revisits still read the server; neither local drafts nor old responses qualify.
 let canonicalRestore:{owner:string;scope:string;session:string;value:any;expires:number}|undefined;
 
-export default function CreationFlow({t,route='flow',embeddedRoute='',editor}:{t:any;route?:string;embeddedRoute?:string;editor?:ReactNode}){
+export default function CreationFlow({t,route='flow',embeddedRoute='',editor,bootstrap}:{t:any;route?:string;embeddedRoute?:string;editor?:ReactNode;bootstrap?:()=>Promise<any>}){
  const owner=t.state.user.id,workId=new URLSearchParams(route.split('?')[1]||'').get('work')||'';
  const storage='studio-flow:'+owner+(workId?':'+workId:'');
  const [flow,setFlow]=useState<any>(()=>{try{return JSON.parse(localStorage.getItem(storage)||'{}')}catch{return {}}});
@@ -32,7 +32,7 @@ export default function CreationFlow({t,route='flow',embeddedRoute='',editor}:{t
  const [allProfileTopics,setAllProfileTopics]=useState(false);
  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false),[dataLoaded,setDataLoaded]=useState(false),[topicsLoaded,setTopicsLoaded]=useState(false);
  useEffect(()=>{let live=true;const session=getToken(),readRevision=revision.current,transfer=canonicalRestore;canonicalRestore=undefined;
- const read=transfer&&transfer.owner===owner&&transfer.scope===profileScope(t.state)&&transfer.session===getToken()&&transfer.value.id===workId&&transfer.expires>Date.now()?Promise.resolve(transfer.value):api('/studio/flow'+(workId?'?work_id='+encodeURIComponent(workId):''));
+ const read=transfer&&transfer.owner===owner&&transfer.scope===profileScope(t.state)&&transfer.session===getToken()&&transfer.value.id===workId&&transfer.expires>Date.now()?Promise.resolve(transfer.value):workId?(bootstrap?bootstrap():api('/studio/flows/'+encodeURIComponent(workId)+'/bootstrap')).then(r=>r.flow):api('/studio/flow');
  void read.then(r=>{
   if(!live||session!==getToken())return;
   if(!workId&&r.id){canonicalRestore={owner,scope:profileScope(t.state),session:getToken(),value:r,expires:Date.now()+5000};location.hash='studio/flow?work='+encodeURIComponent(r.id);return}
@@ -51,7 +51,7 @@ export default function CreationFlow({t,route='flow',embeddedRoute='',editor}:{t
   api('/studio/catalog').then(r=>{if(live)setCatalog(r.tools||[])}),
   api('/studio/topics').then(r=>{if(live){setTopics(r.items||[]);setTopicsLoaded(true)}}),
   api('/studio/deliveries'+(workId?'?flow_id='+encodeURIComponent(workId):'')).then(r=>{if(live)setDeliveries(r.items||[])}),
-  ...(workId?[api('/studio/flows/'+encodeURIComponent(workId)+'/drafts').then(r=>{if(live){draftsRef.current=mergeFlowDrafts(r.items||[],draftsRef.current,draftsAtRead);draftsReady.current=true;setDrafts(draftsRef.current)}})]:[]),
+  ...(workId?[(bootstrap?bootstrap():api('/studio/flows/'+encodeURIComponent(workId)+'/bootstrap')).then(r=>{if(live){draftsRef.current=mergeFlowDrafts(r.items||[],draftsRef.current,draftsAtRead);draftsReady.current=true;setDrafts(draftsRef.current)}})]:[]),
  ];void Promise.allSettled(reads).then(results=>{if(!live)return;const failed=results.find(r=>r.status==='rejected');if(failed?.status==='rejected')setError('部分资料读取失败，请刷新后重试：'+String(failed.reason));setDataLoaded(true)});return()=>{live=false}},[workId,relatedReady,embeddedRoute]);
  useEffect(()=>{if(!loaded||!dirty.current)return;clearTimeout(saveTimer.current);saveTimer.current=setTimeout(()=>{
   dirty.current=false;const snapshot=flowRef.current;
@@ -77,6 +77,7 @@ export default function CreationFlow({t,route='flow',embeddedRoute='',editor}:{t
    return saved;
   }finally{saving.current--;revision.current++}
  };
+ useEffect(()=>{const prepare=(event:Event)=>{const detail=(event as CustomEvent<FlowPrepareSave>).detail;if(!detail||detail.claimed||!loaded||detail.flowId!==flowRef.current.id)return;detail.claimed=true;detail.tasks.push(Promise.resolve().then(()=>persistNow()).then(()=>{}))};window.addEventListener(FLOW_PREPARE_SAVE,prepare);return()=>window.removeEventListener(FLOW_PREPARE_SAVE,prepare)},[loaded,workId]);
  const stage=Math.min(4,Math.max(0,Number(embeddedRoute?new URLSearchParams(route.split('?')[1]||'').get('step'):flow.stage)||0)),channel=creationChannels.find(c=>c.id===flow.creation_channel)||creationChannels[0],choice=tools.find(x=>x[0]===(flow.tool_path||'text'))||tools[0],topic=topics.find(x=>x.id===flow.topic_id);
  const contents=(t.list?.('content')||[]).filter((x:any)=>!x.archived),ownContents=contents.filter((x:any)=>x.flow_id===flow.id),ownAssets=assets.filter(x=>x.flow_id===flow.id&&x.status==='ready'&&!x.archived&&!x.deleted);
  const defaultCover=socialImagesForContent(ownContents.find((c:any)=>c.id===flow.content_id),assets)[0];

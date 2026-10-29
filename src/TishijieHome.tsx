@@ -41,23 +41,41 @@ function VideoThumb({asset}:{asset:any}){
 }
 
 export default function TishijieHome({drafts,t}:{drafts:any[];t:any}){
- const [question,setQuestion]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[filter,setFilter]=useState('all');
+ const questionKey='tijian-home-question:'+t.state.user.id;
+ const [question,setQuestionState]=useState(()=>{try{return localStorage.getItem(questionKey)||''}catch{return ''}});
+ const setQuestion=(value:string)=>{setQuestionState(value);try{localStorage.setItem(questionKey,value)}catch{/* Keep current input editable. */}};
+ const opening=useRef(false),pendingTask=useRef<{text:string;profile:string;task:any}|null>(null);
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[filter,setFilter]=useState('all');
  const input=useRef<HTMLTextAreaElement>(null);
  const sessions=t.list?.('task')||[],assets=(t.list?.('studio_asset')||[]).filter((a:any)=>a.status==='ready'&&['image','video'].includes(a.asset_type));
  const filtered=assets.filter((a:any)=>filter==='all'||a.asset_type===filter),visible=filtered.slice(0,12),loading=!t.state||t.state.complete===false;
- const bound=t.state?.bindings?.qa||t.state?.bindings?.writing;
+ const bound=t.state?.preferences?.qa||t.state?.bindings?.qa||t.state?.bindings?.writing;
  const ready=!!t.state?.models?.some((m:any)=>m.id===bound&&m.capability==='text'&&m.published);
- const start=async()=>{const text=question.trim();if(!text||busy||!ready||loading)return;setBusy(true);setError('');try{
-  const task=await t.openTask(text,'auto',[],t.profile);
-  if(!task.messages?.length)await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope,skip_profile:t.profileSkipped===true});
-  await t.refresh();location.hash='task/'+task.id;
- }catch(e){setError(e instanceof Error?e.message:'对话未能开始')}finally{setBusy(false)}};
+ const start=async()=>{
+  if(opening.current||loading)return;
+  const text=question.trim(),origin=location.hash;
+  opening.current=true;setBusy(true);setError('');
+  try{
+   const pending=pendingTask.current;
+   const retry=pending&&pending.text===text&&pending.profile===t.profile;
+   const task=retry?(await api('/state/updates?ids='+pending.task.id)).items.find((item:any)=>item.id===pending.task.id):await t.openTask(text,'auto',[],t.profile,{navigate:false,fresh:true});
+   if(!task){pendingTask.current=null;throw new Error('原对话已不可用，请重新点击开始对话；输入已保留')}
+   pendingTask.current={text,profile:t.profile,task};
+   if(text&&!task.messages?.some((message:any)=>message.role==='user'&&message.text===text)){
+    const job=await api('/tasks/'+task.id+'/send',{text,mode:'auto',source_ids:[],reference_scope:task.reference_scope,skip_profile:t.profileSkipped===true});
+    await t.refreshItems([task.id,job.id],true);
+   }else if(retry)await t.refreshItems([task.id],true);
+   pendingTask.current=null;setQuestion('');
+   if(location.hash===origin)location.hash='task/'+task.id;
+  }catch(e){setError(e instanceof TypeError?'暂时无法连接本机服务，请重试；输入已保留':e instanceof Error?e.message:'对话未能开始，请重试；输入已保留')}
+  finally{opening.current=false;setBusy(false)}
+ };
  return <div className="tw-home"><section className="tw-hero" aria-labelledby="tw-title">
   <header className="tw-hero-title"><span>电梯行业 AI 内容工作台</span><h1 id="tw-title">梯世界</h1><h2>抢占线上曝光，用户一搜即见。</h2><p>找选题、写文章、做图片和视频，把行业经验变成客户看得见的内容。</p></header>
   <section className="tw-chat" aria-labelledby="tw-chat-title" aria-busy={busy}>
    <div className="tw-chat-head"><span className="tw-chat-icon"><MessageCircleMore size={20} aria-hidden="true"/></span><div><strong id="tw-chat-title">AI 对话</strong><span>说说你想完成什么</span></div><span className="tw-chat-label">从一句灵感开始</span></div>
    <textarea ref={input} aria-label="向梯世界提问" aria-describedby="tw-chat-hint" value={question} disabled={busy} onChange={e=>{setQuestion(e.target.value);setError('')}} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.nativeEvent.isComposing&&e.keyCode!==229){e.preventDefault();if(!e.repeat)void start()}}} placeholder="例如：帮我写一篇面向物业经理的公众号文章，讲清电梯维保为什么不能只看价格。"/>
-   <div className="tw-chat-foot"><span id="tw-chat-hint">{!t.state?'正在读取工作区…':ready?<>成果保留在对话中 <span className="tw-key-hint">· Enter 发送 / Shift + Enter 换行</span></>:'对话模型尚未配置，请联系管理员。'}</span><button type="button" className="tw-send" disabled={!ready||!question.trim()||busy} onClick={()=>void start()}>{busy?'正在打开…':'开始对话'}<Send size={15} aria-hidden="true"/></button></div>
+   <div className="tw-chat-foot"><span id="tw-chat-hint">{loading?'正在读取工作区…':ready?<>成果保留在对话中 <span className="tw-key-hint">· Enter 发送 / Shift + Enter 换行</span></>:'可先进入空白对话；发送内容前，请配置或选择可用模型。'}</span><button type="button" className="tw-send" disabled={loading||busy} onClick={()=>void start()}>{busy?'正在打开…':'开始对话'}<Send size={15} aria-hidden="true"/></button></div>
    {error&&<p className="tw-chat-error" role="alert">{error}</p>}
   </section>
   <div className="tw-starters" aria-label="试试这些创作话题">{starters.map(x=><button type="button" key={x} disabled={busy} onClick={()=>{setQuestion(x);setError('');input.current?.focus()}}>{x}<ArrowRight size={13} aria-hidden="true"/></button>)}</div>

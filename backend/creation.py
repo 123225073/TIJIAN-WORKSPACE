@@ -7,6 +7,7 @@ from fastapi import Depends
 from . import store as s, gateway as g, jobs, capabilities
 from .writing_methods import writing_request, word_requirement
 from .ip_questionnaire import profile_snapshot
+from .speech_helper import SPEECH_REQUEST_RULE, speech_from_content
 
 BRAND_FIELDS={'title','industry','products','audience','facts','style','contact','restrictions','body'}
 PROFILE_FIELDS={'title','position','audience','style','views','channels','agency_brands','brand_id'}
@@ -204,6 +205,8 @@ def register(app,user,admin,error):
 
     def generate(data,u,proposal=False):
         owner=u['id'];brief=str(data.get('brief','')).strip()
+        # Request-only instructions must not leak into user-visible titles or saved briefs.
+        user_brief=brief.removesuffix('\n\n'+SPEECH_REQUEST_RULE).strip()
         draft=owned(owner,data['draft_id'],'studio_text_draft') if data.get('draft_id') else None
         if not brief or len(brief)>30000:raise ValueError('请填写创作要求，最多30000字')
         content_format=str(data.get('format') or (draft or {}).get('input',{}).get('format') or '通用文案')[:100]
@@ -233,7 +236,7 @@ def register(app,user,admin,error):
                 progress('正在生成 IP 定位方案' if proposal else '正在生成文案')
                 text=g.generate(model_id,prepared['messages'])
                 if event.is_set():raise InterruptedError('任务已取消')
-                common={'brief':brief,'context_snapshot':snapshot,'source_ids':[x['id'] for x in snapshot['sources']],'brand_id':data.get('brand_id',''),'profile_id':data.get('profile_id',''),'capabilities':method['metadata'],'request_snapshot':prepared['snapshot'],'model_id':model_id}
+                common={'brief':user_brief,'context_snapshot':snapshot,'source_ids':[x['id'] for x in snapshot['sources']],'brand_id':data.get('brand_id',''),'profile_id':data.get('profile_id',''),'capabilities':method['metadata'],'request_snapshot':prepared['snapshot'],'model_id':model_id}
                 if proposal:
                     fields=bounded(g.json_result(text),PROFILE_FIELDS-{'brand_id'})
                     if not fields.get('title') or not fields.get('position'):raise ValueError('定位方案缺少名称或定位，请重试')
@@ -241,11 +244,27 @@ def register(app,user,admin,error):
                     return {'proposal_id':result['id']}
                 from .writing_methods import publish_body
                 text=publish_body(text)
-                title=old['title'] if old else brief[:60]
-                heading=re.match(r'\A(?:[ \t]*\r?\n)*# [ \t]*(\S[^\r\n]*)(?:\r?\n|\Z)',text) if content_format=='公众号文章' else None
+                title=old['title'] if old else user_brief.split('\n',1)[0][:60]
+                # Only a clearly marked first line is metadata. Never remove a
+                # natural opening sentence or a later section heading.
+                heading=re.match(r'\A[ \t]*(?:\r?\n[ \t]*)*(?:#{1,2}[ \t]+(?!标题[：:])([^\r\n]+)|(?:\*\*)?标题[：:](?:\*\*)?[ \t]*(.+?)(?:\*\*)?)[ \t]*(?:\r?\n|\Z)',text) if content_format!='口播脚本' else None
                 if heading:
-                    title=heading.group(1).strip()
-                    text=text[heading.end():]
+                    candidate=(heading.group(1) or heading.group(2)).strip().strip('*').strip()
+                    if candidate and len(candidate)<=120:
+                        title=candidate
+                        text=text[heading.end():].lstrip('\r\n')
+                if content_format=='口播脚本' and text.lstrip().startswith('{'):
+                    # Some providers return structured output despite the plain
+                    # speech contract. Preserve their raw response for inspection.
+                    speech=speech_from_content({'body':text,'format':content_format})
+                    if speech['source_field'] in ('spoken','script') and speech['text']:
+                        raw_text=text
+                        try:
+                            parsed=json.loads(text)
+                            if isinstance(parsed.get('title'),str) and parsed['title'].strip():title=parsed['title'].strip()[:120]
+                        except (ValueError,AttributeError):pass
+                        text=speech['text']
+                        common['generation_raw_body']=raw_text
                 item=s.put(owner,'content',{**(old or {}),**common,'title':title,'body':text,'status':'draft','format':content_format,'target_words':target_words or None,'outcome_type':'writing'},old['id'] if old else None,expected=old['version'] if old else None)
                 s.export_object(owner,item)
                 return {'content_id':item['id'],'version':item['version']}

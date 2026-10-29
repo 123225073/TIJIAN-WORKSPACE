@@ -372,40 +372,24 @@ def test_aliyun_image_edit_and_retired_i2v_payload(studio, monkeypatch):
     assert studio.post('/api/studio/drafts', json={'tool': 'image_video', 'input': {}, 'options': {'duration': 15}}).status_code == 200
 
 
-def test_shotstack_upload_pending_resume_composition(studio, monkeypatch):
+def test_legacy_shotstack_history_preserved_but_new_submit_blocked(studio, monkeypatch):
     configure(studio, 'shotstack')
     picture = asset(studio)
-    calls = []
-    polls = []
-
-    def request(method, url, **kwargs):
-        calls.append((method, url, kwargs))
-        if url.endswith('/ingest/stage/upload'):
-            return {'data': {'id': 'source-id', 'attributes': {'url': 'https://upload.example/signed'}}}
-        if method == 'PUT':
-            assert not kwargs.get('headers')
-            return {}
-        if '/sources/' in url:
-            polls.append(url)
-            return {'data': {'attributes': {'status': 'processing' if len(polls) == 1 else 'ready', 'source': 'https://cdn.example/source.png'}}}
-        assert url.endswith('/edit/stage/render')
-        payload = kwargs['payload']
-        assert payload['timeline']['tracks'][0]['clips'][0]['asset']['text'] == '电梯安全'
-        assert payload['timeline']['tracks'][1]['clips'][0]['asset']['src'] == 'https://cdn.example/source.png'
-        assert payload['output']['format'] == 'mp4'
-        return {'success': True, 'response': {'id': 'render-id'}}
-
-    monkeypatch.setattr(m, '_request', request)
     composition = draft(studio, 'compose', {'scenes': [{'asset_id': picture['id'], 'length': 5, 'caption': '电梯安全'}]})
-    run = submit(studio, composition).json()
-    assert run['status'] == 'interrupted' and run['task_id'] is None
-    run = studio.post('/api/studio/runs/' + run['id'] + '/refresh').json()
-    assert run['status'] == 'interrupted' and run['task_id'] is None
-    assert not any(c[1].endswith('/render') for c in calls)
-    resumed = submit(studio, composition, 'confirmed-resume').json()
-    assert resumed['id'] != run['id'] and resumed['status'] == 'running' and resumed['task_id'] == 'render-id'
-    assert sum(c[1].endswith('/upload') for c in calls) == 1
-    assert sum(c[1].endswith('/render') for c in calls) == 1
+    prior = s.put('alice', 'studio_run', {'title': '旧云端任务', 'tool': 'compose', 'provider': 'shotstack',
+                  'draft_id': composition['id'], 'draft_version': composition['version'], 'status': 'succeeded',
+                  'asset_ids': [], 'created': s.now()})
+    calls = []
+    monkeypatch.setattr(m, '_request', lambda *args, **kwargs: calls.append((args, kwargs)))
+    response = submit(studio, composition)
+    assert response.status_code == 400 and '本机合成' in response.json()['detail']
+    listing = studio.get('/api/studio/runs').json()['items']
+    assert any(row['id'] == prior['id'] for row in listing)
+    queued = s.put('alice', 'studio_run', {'title': '旧排队任务', 'tool': 'compose', 'provider': 'shotstack',
+                   'draft_id': composition['id'], 'status': 'queued', 'asset_ids': [], 'created': s.now()})
+    m._work('alice', queued['id'])
+    assert m._object('alice', queued['id'], 'studio_run')['status'] == 'interrupted'
+    assert calls == []
 
 
 def test_pinned_transport_no_redirect_credentials_or_environment_proxy(studio, monkeypatch):

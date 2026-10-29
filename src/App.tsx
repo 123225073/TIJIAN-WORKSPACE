@@ -35,7 +35,7 @@ const NAV=[['home','今日工作',PanelsTopLeft],['radar','行业雷达',Radio],
 const STUDIO_GROUPS=[
  {label:'开始',items:[['studio/home','首页',PanelsTopLeft],['studio/flow','一站式创作',Layers3]]},
  {label:'找方向',items:[['benchmark','灵感与对标',Compass],['studio/topics','选题库',BookOpen]]},
- {label:'内容创作',items:[['studio/text','文案创作',FileText],['studio/image','图片创作',PenLine],['studio/video','AI 视频',Film],['studio/avatar/text','数字人视频',UserRound]]},
+ {label:'内容创作',items:[['studio/text','文案创作',FileText],['studio/image','图片创作',PenLine],['studio/video','AI 视频',Film],['studio/avatar/text','数字人视频',UserRound],['studio/compose','视频剪辑',Layers3]]},
  {label:'我的资料',items:[['knowledge','个人知识库',BookOpen],['studio/brand','我的 IP',UserRound],['studio/works','作品与素材',FolderOpen]]},
 ] as const;
 const MODES=[{value:'qa',label:'知识问答'},{value:'daily',label:'日常沟通'},{value:'writing',label:'内容创作'},{value:'research',label:'资料研究'},{value:'benchmark',label:'对标分析'},{value:'topics',label:'选题策划'},{value:'profile',label:'定位访谈'}];
@@ -75,12 +75,12 @@ export default function App(){
   if(!refreshing.current)refreshing.current=queuedRefresh(async()=>{const session=getToken();if(!session)return;const started=Date.now();try{const next=await api<State>('/state');if(session===getToken())setState(previous=>reconcileState(previous,next,started))}catch(e){if(session===getToken())setError((e as Error).message)}});
   return refreshing.current();
  },[]);
- const refreshItems=useCallback(async(ids:string[])=>{
+ const refreshItems=useCallback(async(ids:string[],throwOnError=false)=>{
   const selected=[...new Set(ids.filter(Boolean))];if(!selected.length)return;
   const session=getToken();if(!session)return;
   try{const response=await api<{items:Item[]}>('/state/updates?ids='+encodeURIComponent(selected.join(',')));
    if(session===getToken())setState(previous=>{if(!previous)return previous;const objects=mergeObjects(previous.objects,response.items,true);return objects===previous.objects?previous:{...previous,objects}});
-  }catch(e){if(session===getToken())setError((e as Error).message)}
+  }catch(e){if(session===getToken())setError((e as Error).message);if(throwOnError)throw e}
  },[]);
  useEffect(()=>{const f=()=>setRoute(location.hash.slice(1)||'studio/home');const expired=()=>{setAuth(false);setState(null)};window.addEventListener('hashchange',f);window.addEventListener('session-expired',expired);const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();setSearchOpen(v=>!v)}};window.addEventListener('keydown',key);return()=>{window.removeEventListener('hashchange',f);window.removeEventListener('session-expired',expired);window.removeEventListener('keydown',key)}},[]);
  useEffect(()=>{
@@ -110,7 +110,7 @@ export default function App(){
  const update=(item:Item,changes:any)=>api('/objects/'+item.id,{version:item.version,...changes},'PATCH');
  const newItem=(kind:string,title:string,fields:Field[],initial={})=>setForm({title,fields,submit:'保存',action:d=>api('/objects/'+kind,{...initial,...d})});
  const editItem=(item:Item,fields:Field[])=>setForm({title:'编辑 · '+item.title,fields:fields.map(f=>({...f,value:item[f.key]})),submit:'保存修改',action:d=>update(item,d)});
- const openTask=async(text:string,mode='writing',sourceIds:string[]=[],profileId=profile)=>{if(!state||state.complete===false)throw new Error('身份档案尚未加载，请稍候');if(profileUnavailable(list('profile'),profileId))throw new Error('原 IP 已删除或不可用，请重新选择');const t=await api<Item>('/tasks/open',{title:text,mode,profile_id:profileId,source_ids:sourceIds});if(profileId===''&&readProfileChoice(profileChoiceKey(profileScope(state),'new-task'))==='')writeProfileChoice(profileChoiceKey(profileScope(state),'task:'+t.id),'');await refresh();go('task/'+t.id);return t};
+ const openTask=async(text:string,mode='writing',sourceIds:string[]=[],profileId=profile,options:{navigate?:boolean;fresh?:boolean}={})=>{if(!state||state.complete===false)throw new Error('身份档案尚未加载，请稍候');if(profileUnavailable(list('profile'),profileId))throw new Error('原 IP 已删除或不可用，请重新选择');const origin=location.hash,session=getToken();const task=await api<Item>('/tasks/open',{title:text,mode,profile_id:profileId,source_ids:sourceIds,new:options.fresh===true});if(session!==getToken())throw new Error('登录状态已变化，请重新进入工作台');if(profileId===''&&readProfileChoice(profileChoiceKey(profileScope(state),'new-task'))==='')writeProfileChoice(profileChoiceKey(profileScope(state),'task:'+task.id),'');setState(previous=>previous?{...previous,objects:mergeObjects(previous.objects,[task],true)}:previous);if(options.navigate!==false&&location.hash===origin)go('task/'+task.id);return task};
  const promptTask=(mode='daily',ids:string[]=[])=>setForm({title:'发起工作',description:'资料、身份和后续成果会保留在同一个任务中。',fields:[{key:'title',label:'你想完成什么？',type:'textarea',required:true},{key:'profile_id',label:'运营身份',options:[{value:'',label:'不限定身份'},...unavailableProfileOption(list('profile'),profile,state?.complete!==false),...opts('profile')],value:profile},{key:'_hint',label:'补充要求（可选）',type:'textarea',hint:'也可以进入对话后继续补充。'}],submit:'进入任务',action:async d=>{setProfile(d.profile_id);await openTask(d.title+(d._hint?'\n'+d._hint:''),'auto',ids,d.profile_id)}});
  const importForm=(benchmarkId?:string)=>setForm({title:benchmarkId?'导入对标文稿':'导入资料',description:'这里保存你粘贴的正文。来源链接仅用于追溯，不会自动下载；只有链接时请使用“从链接获取正文”。',fields:[{key:'title',label:'资料标题',required:true},{key:'folder_id',label:'保存到文件夹',options:[{value:'',label:'未分类'},...list('folder').filter((x:Item)=>x.library==='source').map((x:Item)=>({value:x.id,label:x.title}))]},{key:'body',label:'正文／字幕／访谈记录',type:'textarea',required:true},{key:'url',label:'原始链接（可选）'},{key:'published',label:'资料发布日期（可选）',type:'date'}],submit:'保存资料',action:async d=>{const x=await api<Item>('/import/text',{...d,benchmark_id:benchmarkId});if(!benchmarkId&&route.startsWith('knowledge'))location.hash='knowledge/source/'+x.id;return x}});
  const urlForm=(benchmarkId?:string)=>setForm({title:'采集文章 · 单篇或批量',fields:[{key:'urls',label:'文章链接（每行一个，最多100篇）',type:'textarea',required:true,hint:'后台逐篇采集，进度与结果显示在当前页面。'}],submit:'提交采集',action:async d=>{const j=await api<Item>('/import/batch',{...d,benchmark_id:benchmarkId});return j}});
@@ -118,7 +118,7 @@ export default function App(){
  const downloadFile=(path:string,name:string)=>action(()=>download(path,name),'已导出');
 
  if(!auth)return <LoginPage onLogin={()=>{setState(null);setAuth(true)}}/>;
- if(!state)return <div className="boot"><div className="brand-mark">Ⅱ</div><h2>正在打开工作区</h2>{error?<><p>{error}</p><button onClick={()=>{setAuth(false);setToken('')}}>返回登录</button></>:<LoaderCircle className="spin"/>}</div>;
+ if(!state)return <div className="boot"><div className="brand-mark">Ⅱ</div><h2>{error?'工作区暂时无法打开':'正在打开工作区'}</h2>{error?<><p role="alert">{error}</p><button onClick={()=>{setError('');void refresh()}}>重新连接</button><button onClick={()=>{setAuth(false);setToken('')}}>返回登录</button></>:<LoaderCircle className="spin"/>}</div>;
  const [page,id]=route.split('?')[0].split('/');const current=get(id);const isAdmin=page==='admin';
  const title=page==='studio'?(STUDIO_NAV.find(x=>x[0]===route.split('?')[0])?.[1]||'创作工作台'):page==='benchmark'?'灵感与对标':page==='task'?(current?.title||'任务工作区'):(page==='settings'||page==='accounts')?'设置中心':page==='tasks'?'任务中心':isAdmin?'管理后台':NAV.find(x=>x[0]===page)?.[1]||'今日工作';
  const jobs=list('job');const activeJobs=jobs.filter(x=>['queued','running'].includes(x.status));const pending=list('issue').filter(x=>x.status==='pending');

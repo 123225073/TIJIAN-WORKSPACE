@@ -29,6 +29,23 @@
   background: var(--ts-bg);
 }
 .ts-theme body {background:var(--ts-bg);color:var(--ts-text)}
+.ts-theme .ka-page{color:var(--ts-text)}
+.ts-theme .ka-header>span,.ts-theme .ka-start-title>svg,.ts-theme .ka-starters button>svg{color:var(--ts-accent)}
+.ts-theme .ka-page :is(.ka-header>p,.ka-start-title p,.ka-start-foot>span,.ka-section-title>span,.ka-starters button>span){color:var(--ts-muted)}
+.ts-theme .ka-start,.ts-theme .ka-history a{background:var(--ts-panel);border-color:var(--ts-line);color:var(--ts-text);box-shadow:none}
+.ts-theme .ka-start textarea:focus{border-color:var(--ts-accent);box-shadow:0 0 0 3px #9abbff24}
+.ts-theme .ka-starters button:hover,.ts-theme .ka-history a:hover{background:var(--ts-hover);border-color:var(--ts-accent);color:var(--ts-text)}
+.ts-theme .ka-error{color:#ffccba}
+.ts-theme .metric-grid>section{background:var(--ts-panel);border-color:var(--ts-line)}
+.ts-theme .metric-grid strong{color:var(--ts-text)}
+.ts-theme .metric-grid strong em{color:var(--ts-muted)}
+.ts-theme .page-area .studio-v2 .st-empty>a.st-primary{background:#3169d7!important;color:#fff!important}
+.ts-theme .page-area .studio-v2 .st-empty>a.st-primary:hover{background:#2454b0!important;color:#fff!important}
+.ts-theme .page-area .connection-summary,.ts-theme .page-area .identity-cover{background:var(--ts-elevated)!important;border-color:var(--ts-line);color:var(--ts-text)}
+.ts-theme .page-area .connection-summary .settings-link{color:var(--ts-accent)}
+.ts-theme .page-area .identity-cover>span{color:var(--ts-muted)}
+.ts-theme .tlc-table th:last-child,.ts-theme .tlc-table td.tlc-row-actions{position:sticky;right:0;background:var(--ts-panel);border-left:1px solid var(--ts-line);box-shadow:-6px 0 10px #00000014;z-index:1}
+.ts-theme .tlc-table th:last-child{background:var(--ts-elevated)}
 .ts-theme .st-retained-editor[hidden]{display:none!important}
 .ts-theme .studio-v2 .st-return{background:var(--ts-elevated);color:#c6d7f6;border-top:1px solid var(--ts-line)}
 .ts-theme .studio-v2 .st-return:hover{background:#293b55;color:#fff}

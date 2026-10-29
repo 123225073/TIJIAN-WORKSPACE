@@ -8,7 +8,8 @@ data=root/'.runtime'/('release-check-'+str(time.time_ns()));data.mkdir()
 with socket.socket() as sock:
     sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
 exe=root/'release'/version/'win-unpacked/resources/backend/tijian-service/tijian-service.exe'
-child=subprocess.Popen([str(exe)],cwd=root,env={**os.environ,'TIJIAN_DATA':str(data),'TIJIAN_PORT':str(port)},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW)
+log=(data/'backend.log').open('w',encoding='utf-8')
+child=subprocess.Popen([str(exe)],cwd=root,env={**os.environ,'TIJIAN_DATA':str(data),'TIJIAN_PORT':str(port),'PYTHONIOENCODING':'utf-8'},stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW)
 try:
     with httpx.Client(base_url=f'http://127.0.0.1:{port}',timeout=30,trust_env=False) as c:
         for _ in range(100):
@@ -26,7 +27,8 @@ try:
         r=c.post('/api/auth/login',json={'email':'admin','password':'admin'})
         assert r.status_code==200
         c.headers['Authorization']='Bearer '+r.json()['token']
-        assert c.post('/api/discovery/source',json={'url':'http://127.0.0.1/private'}).status_code==400
+        private=c.post('/api/discovery/source',json={'url':'http://127.0.0.1/private'})
+        assert private.status_code==400,(private.status_code,private.text,str(data/'backend.log'))
         feed=c.post('/api/discovery/source',json={'url':'https://www.ruanyifeng.com/blog/atom.xml'}).json()
         assert feed.get('type')=='rss' and feed['items']
         result={'version':version,'health':True,'assets':len(assets),'auth_boundary':True,'private_url_blocked':True,'live_rss_items':len(feed['items'])}
@@ -36,3 +38,4 @@ finally:
     child.terminate()
     try:child.wait(timeout=10)
     except subprocess.TimeoutExpired:child.kill();child.wait()
+    log.close()

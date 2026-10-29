@@ -67,7 +67,7 @@ def test_real_generation_route_structured_output_handoff_contract(client, monkey
     row = client.post('/api/studio/flow',json={**row,'content_id':generated['id']}).json()
     speech = resolve(client,row)
     assert speech['text'] == '你好，先核对记录。\n\n这才是完整结尾。'
-    assert speech['source_field'] == 'script' and not speech['needs_conversion']
+    assert speech['source_field'] == 'body' and not speech['needs_conversion']
     payload = json.loads(calls[0][1]['content'])
     assert payload['要求'].startswith(draft['input']['brief']) and payload['内容形式'] == '口播脚本'
     assert '本次口播输出约束' in payload['要求'] and '不输出文稿标题' in payload['要求']
@@ -76,7 +76,10 @@ def test_real_generation_route_structured_output_handoff_contract(client, monkey
     assert s.config('system_capabilities') == admin_config
     assert s.config('prompts:alice') == {'writing':'用户个人提示词：不要虚构经历。'}
     assert s.get('alice',draft['id'])['input']['brief'] == draft['input']['brief']
-    assert generated['body'].startswith('{'), 'Original generation must remain editable and untouched'
+    assert generated['body'] == speech['text']
+    assert generated['title'] == '只作展示的标题'
+    assert generated['brief'] == draft['input']['brief']
+    assert json.loads(generated['generation_raw_body'])['script'].startswith('**你好**')
 
 @pytest.mark.parametrize('platform', ['channels','douyin'])
 def test_platform_handoff_is_clean_and_existing_drafts_are_never_overwritten(client, platform):
@@ -156,3 +159,38 @@ def test_request_only_contract_is_scoped_to_speech_format_and_preserves_custom_i
     assert constrained['brief'].startswith(original['brief'])
     article = {**original,'format':'公众号文章'}
     assert speech_generation_request(article) == article
+
+
+def test_generated_speech_title_excludes_appended_rules(client, monkeypatch):
+    row = flow(client)
+    s.set_config('bindings', {'writing':'offline-contract'})
+    monkeypatch.setattr(g, 'select', lambda *a, **k:'offline-contract')
+    monkeypatch.setattr(g, 'generate', lambda model, messages:'这是自然口播开头。\n完整结尾。')
+    brief='老旧电梯安全检查'
+    draft=client.post('/api/studio/flows/'+row['id']+'/drafts',json={'tool':'text','input':{'brief':brief,'format':'口播脚本'}}).json()
+    response=client.post('/api/studio/text/generate',json={'flow_id':row['id'],'draft_id':draft['id'],'brief':brief,'format':'口播脚本','request_id':'plain-speech'})
+    assert response.status_code==200
+    for _ in range(200):
+        job=s.get('alice',response.json()['id'])
+        if job['status'] not in {'queued','running'}:break
+        time.sleep(.01)
+    assert job['status']=='done',job
+    generated=s.get('alice',job['result']['content_id'])
+    assert generated['title']==brief and generated['brief']==brief
+    assert generated['body']=='这是自然口播开头。\n完整结尾。'
+
+@pytest.mark.parametrize('first', ['**标题：** 正文中的标题', '标题：正文中的标题', '# 正文中的标题'])
+def test_explicit_first_title_is_saved_once(client, monkeypatch, first):
+    s.set_config('bindings', {'writing':'offline-contract'})
+    monkeypatch.setattr(g, 'select', lambda *a, **k:'offline-contract')
+    monkeypatch.setattr(g, 'generate', lambda model, messages:first+'\n\n实际内容。')
+    response=client.post('/api/studio/text/generate',json={'brief':'原始创作要求','format':'公众号文章','request_id':'title-'+str(len(first))})
+    assert response.status_code==200
+    for _ in range(200):
+        job=s.get('alice',response.json()['id'])
+        if job['status'] not in {'queued','running'}:break
+        time.sleep(.01)
+    assert job['status']=='done',job
+    generated=s.get('alice',job['result']['content_id'])
+    assert generated['title']=='正文中的标题'
+    assert generated['body']=='实际内容。'

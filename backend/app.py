@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.29.0','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.31.1','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -865,6 +865,8 @@ from . import interviews
 interviews.register(app,user)
 from . import media_studio, benchmark_api
 media_studio.register(app,user,admin,error)
+from . import local_asr
+local_asr.register(app,user)
 benchmark_api.register(app,user,admin,error)
 from . import workflows
 WORKFLOWS=workflows.register(app,user,error)

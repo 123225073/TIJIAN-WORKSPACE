@@ -1302,6 +1302,8 @@ def generate(owner, data, enqueue=None):
         draft = _object(owner, _text(data.get('draft_id'), 'draft_id', 128), 'studio_draft')
         if draft['version'] != data['version']:
             raise s.Conflict('草稿已更新，请刷新后确认当前版本')
+        if draft['tool'] == 'compose':
+            raise StudioError('素材成片已改为本机合成，请在本地成片页面继续；历史云端任务仍可查看')
         if TOOLS[draft['tool']][1] == 'hifly' and draft.get('model_id') not in (None, '', 'service:hifly'):
             raise StudioError('旧模型及参数已保留；当前功能使用飞影 API v2，请重新选择飞影并核对素材后确认生成')
         clean = {k: v for k, v in draft.items() if k in {'tool', 'title', 'input', 'options', 'model_id', 'brand_id', 'profile_id', 'source_ids'}}
@@ -1701,13 +1703,19 @@ def _work(owner, id, batch_refresh=False):
     try:
         run = _object(owner, id, 'studio_run')
         if isinstance(run.get('batch'), list):
-            _batch_work(owner, id, run, allow_submit=not batch_refresh)
+            _batch_work(owner, id, run, allow_submit=not batch_refresh and run.get('tool') != 'compose')
             return
         if run['status'] in ('succeeded', 'failed', 'cancelled', 'expired'):
             return
         if run.get('result'):
             phase = 'archive'
             _archive(owner, run)
+            return
+        # Legacy Shotstack runs remain readable and existing task IDs can be
+        # checked, but no queued legacy work may issue a new paid submission.
+        if run.get('tool') == 'compose' and not run.get('task_id'):
+            if not batch_refresh and run.get('status') in ('queued', 'preparing'):
+                _update(owner, id, status='interrupted', error='云端成片提交已停用，请使用本机成片。')
             return
         # Refresh only inspects an existing provider task or archives an existing
         # result. An interrupted run needs a new explicit generate request ID.
@@ -2171,6 +2179,9 @@ def register(app, user, admin, error):
         except (ValueError, KeyError, TypeError, httpx.HTTPError, OSError):
             return error(400, '媒体请求失败，请检查字段、素材及服务配置')
 
+    from . import local_compose
+    local_compose.register(app, user, invoke)
+
     @app.get('/api/studio/catalog')
     @s.config_snapshot(MEDIA_CONFIG_KEYS, locked=True)
     def catalog(u=Depends(user)):
@@ -2320,6 +2331,48 @@ def register(app, user, admin, error):
     @app.post('/api/studio/assets/{id}/voice-parameters')
     def set_voice_parameters(id: str, data: dict, u=Depends(user)):
         return invoke(voice_parameters, u['id'], id, data)
+
+    @app.post('/api/studio/assets/{id}/compose-video')
+    def compose_saved_video(id: str, data: dict, u=Depends(user)):
+        def compose():
+            from . import video_composition
+            asset = _object(u['id'], id, 'studio_asset')
+            if asset.get('asset_type') != 'video' or asset.get('status') != 'ready' or not asset.get('local_file'):
+                raise StudioError('请选择已保存的视频')
+            source = _path(u['id'], asset['local_file'], create=False)
+            if not source.is_file():
+                raise StudioError('源视频暂不可用')
+            metadata = _metadata(source, source.suffix.lower())
+            aid = s.uid()
+            target = _path(u['id'], aid + '.mp4')
+            try:
+                video_composition.render(source, target, float(metadata.get('duration') or 0),
+                    int(metadata.get('width') or 0), int(metadata.get('height') or 0),
+                    data.get('style', 'clean'), data.get('title', ''), data.get('srt', ''), data.get('position', 'bottom'),
+                    data.get('title_duration', '3'))
+                result = {**_metadata(target, '.mp4'), 'local_file': target.name,
+                    'title': (asset.get('title') or '数字人视频') + ' · 模板成片', 'status': 'ready',
+                    'provider': 'local', 'compat': COMPAT['video'], 'source_asset_id': id}
+                # Inherit only the owned source's verified work scope; never accept it from the request.
+                if asset.get('flow_id'):
+                    try:
+                        flow = _object(u['id'], asset['flow_id'], 'studio_flow')
+                        if not flow.get('archived'):
+                            result['flow_id'] = flow['id']
+                            if asset.get('topic_id'):
+                                topic = _object(u['id'], asset['topic_id'], 'studio_topic')
+                                if not topic.get('archived'):
+                                    result['topic_id'] = topic['id']
+                    except s.Missing:
+                        pass
+                return _public(s.put(u['id'], 'studio_asset', result, aid), owner=u['id'])
+            except ValueError as exc:
+                target.unlink(missing_ok=True)
+                raise StudioError(str(exc)) from None
+            except Exception:
+                target.unlink(missing_ok=True)
+                raise
+        return invoke(compose)
 
     @app.post('/api/studio/generate')
     def submit(data: dict, background_tasks: BackgroundTasks, u=Depends(user)):

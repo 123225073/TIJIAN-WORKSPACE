@@ -45,7 +45,7 @@ try{
  await page.route('**/*',r=>{const req=r.request(),u=new URL(req.url());if(u.origin!==base||(req.method()==='POST'&&/\/(generate|optimize|publish|sync|jobs)(\/|$)/.test(u.pathname))){blocked.push(u.pathname);return r.abort()}return r.continue()});
  await page.goto(base+'/#studio/home');await page.locator('.tw-home').waitFor();
  await step('supporting flow data starts while restore is still in flight',async()=>{
-  let release;const gate=new Promise(r=>release=r),pattern='**/api/studio/flow?work_id='+work.id;
+  let release;const gate=new Promise(r=>release=r),pattern='**/api/studio/flows/'+work.id+'/bootstrap';
   await page.route(pattern,async r=>{await gate;await r.continue()});
   try{
    const assets=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/studio/assets'&&r.request().method()==='GET'),topics=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/studio/topics');
@@ -64,6 +64,82 @@ try{
   }
   await page.screenshot({path:path.join(directory,'image-editor-ready.png')});return {readyWithOriginalImageMs:times,apiMocks:0,realBackend:true};
  });
+ await step('flow editor restores once and opens before slow history, retaining each draft',async()=>{
+  const make=(tool,title,input)=>api('/studio/flows/'+work.id+'/drafts',{tool,title,topic_id:tr.id,creation_channel:'avatar',input,options:{},profile_id:profile.id});
+  const textDraft=await make('text_avatar','文字驱动隔离稿',{text:'原有口播文案'});
+  await make('audio_avatar','音频驱动隔离稿',{});
+  const source='studio/avatar/text?draft='+textDraft.id+'&return='+encodeURIComponent('studio/flow?work='+work.id+'&step=2');
+  const requests=[];const onRequest=request=>{const url=new URL(request.url());if(url.pathname==='/api/studio/flows/'+work.id+'/bootstrap')requests.push(url.pathname)};
+  page.on('request',onRequest);
+  let release,seen;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>seen=resolve);
+  const handler=async route=>{seen();await gate;await route.continue().catch(()=>{})};
+  await page.route('**/api/studio/runs',handler);
+  try{
+   const start=Date.now();await page.evaluate(value=>location.hash=value,source);
+   await page.locator('.st-human-workspace').waitFor();const visibleMs=Date.now()-start;
+   await started;
+   assert.equal(await page.locator('.st-generate-bar button.st-primary').isDisabled(),true,'历史记录完成前不能重复提交付费任务');
+   assert.equal(requests.length,1,'作品和草稿在同一恢复请求中读取');
+   const input=page.getByLabel('口播文稿',{exact:true});await input.fill('切换后保留的最新口播');
+   release();await page.unroute('**/api/studio/runs',handler);
+   await page.waitForTimeout(1200);
+   await page.getByRole('link',{name:'音频驱动',exact:true}).click();
+   await page.getByLabel('驱动音频',{exact:true}).waitFor();
+   await page.getByRole('link',{name:'文字驱动',exact:true}).click();
+   await page.getByLabel('口播文稿',{exact:true}).waitFor();
+   assert.equal(await page.getByLabel('口播文稿',{exact:true}).inputValue(),'切换后保留的最新口播');
+   await page.screenshot({path:path.join(directory,'flow-switch-restored.png')});
+   return {editableBeforeHistory:true,initialBootstrapRequests:1,visibleMs,retainedDraft:true};
+  }finally{release();await page.unroute('**/api/studio/runs',handler);page.off('request',onRequest)}
+ });
+ await step('failed restore retries and revisiting reads the new server revision',async()=>{
+  await page.evaluate(()=>location.hash='studio/home');await page.locator('.tw-home').waitFor();
+  const pattern='**/api/studio/flows/'+work.id+'/bootstrap';let reads=0;
+  const handler=route=>{reads++;return reads===1?route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'隔离测试：首次读取失败'})}):route.continue()};
+  await page.route(pattern,handler);
+  try{
+   await page.evaluate(id=>location.hash='studio/flow?work='+id,work.id);
+   const retry=page.getByRole('button',{name:'重新读取'});await retry.waitFor();await retry.click();
+   await page.locator('.cf-continuous').waitFor();assert.equal(reads,2,'重新读取必须重新发起请求');
+  }finally{await page.unroute(pattern,handler)}
+  const drafts=(await api('/studio/flows/'+work.id+'/drafts')).items;
+  const original=drafts.find(row=>row.tool==='text_avatar');assert(original);
+  await page.evaluate(()=>location.hash='studio/home');await page.locator('.tw-home').waitFor();
+  await api('/studio/flows/'+work.id+'/drafts/'+original.id,{version:original.version,input:{...original.input,text:'其他窗口保存的新版本'}},'PATCH');
+  const source='studio/avatar/text?draft='+original.id+'&return='+encodeURIComponent('studio/flow?work='+work.id+'&step=2');
+  await page.evaluate(value=>location.hash=value,source);
+  const input=page.getByLabel('口播文稿',{exact:true});await input.waitFor();
+  assert.equal(await input.inputValue(),'其他窗口保存的新版本');
+  return {failedOnceThenRetried:true,revisitedNewRevision:true};
+ });
+ await step('unavailable generation history keeps editing available but prevents resubmission',async()=>{
+  const drafts=(await api('/studio/flows/'+work.id+'/drafts')).items;
+  const row=drafts.find(item=>item.tool==='text_avatar');assert(row);
+  const source='studio/avatar/text?draft='+row.id+'&return='+encodeURIComponent('studio/flow?work='+work.id+'&step=2');
+  await page.evaluate(()=>location.hash='studio/home');await page.locator('.tw-home').waitFor();await page.waitForLoadState('networkidle');
+  const pattern='**/api/studio/runs',handler=route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'隔离测试：历史读取失败'})});
+  await page.route(pattern,handler);
+  try{
+   await page.evaluate(value=>location.hash=value,source);
+   await page.getByLabel('口播文稿',{exact:true}).waitFor();
+   await page.getByText('生成记录暂不可读取，请刷新页面后再提交，避免重复生成。').waitFor();
+   assert.equal(await page.locator('.st-generate-bar button.st-primary').isDisabled(),true);
+  }finally{await page.unroute(pattern,handler)}
+  await page.reload();await page.getByLabel('口播文稿',{exact:true}).waitFor();
+  await page.getByText('生成记录暂不可读取，请刷新页面后再提交，避免重复生成。').waitFor({state:'hidden'});
+  return {editableDespiteFailure:true,blockedSubmission:true,reloadRecovered:true};
+ });
+ await step('switching works reads only the selected work and restores it afresh',async()=>{
+  const otherTopic=await topic('另一个作品主题'),other=await flow(otherTopic.title,otherTopic);
+  const otherDraft=await api('/studio/flows/'+other.id+'/drafts',{tool:'text_avatar',title:'另一作品口播',topic_id:otherTopic.id,creation_channel:'avatar',input:{text:'另一作品的口播'},options:{},profile_id:profile.id});
+  const link=(f,d)=>'studio/avatar/text?draft='+d+'&return='+encodeURIComponent('studio/flow?work='+f+'&step=2');
+  await page.evaluate(value=>location.hash=value,link(other.id,otherDraft.id));
+  const input=page.getByLabel('口播文稿',{exact:true});await input.waitFor();assert.equal(await input.inputValue(),'另一作品的口播');
+  const original=(await api('/studio/flows/'+work.id+'/drafts')).items.find(row=>row.tool==='text_avatar');
+  await page.evaluate(value=>location.hash=value,link(work.id,original.id));
+  await page.getByLabel('口播文稿',{exact:true}).waitFor();assert.equal(await page.getByLabel('口播文稿',{exact:true}).inputValue(),'其他窗口保存的新版本');
+  return {differentWorkIsolated:true,returnReadsOriginalWork:true};
+ });
  await step('no errors or paid provider submissions',async()=>{assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);return {errors,blocked}});
 }catch(e){process.exitCode=1;console.log(e.stack);if(page)fs.writeFileSync(path.join(directory,'failure-ui.txt'),await page.locator('body').innerText().catch(()=>''));}
-finally{await browser?.close();ui.closeAllConnections();await new Promise(r=>ui.close(r));service.kill();fs.writeFileSync(path.join(directory,'results.json'),JSON.stringify({results,hashes,errors,blocked,realBackend:true,apiMocks:0,paidCalls:0},null,2));fs.writeFileSync(path.join(directory,'backend.log'),log);console.log(JSON.stringify({directory,passed:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length}));}
+finally{await browser?.close();ui.closeAllConnections();await new Promise(r=>ui.close(r));service.kill();fs.writeFileSync(path.join(directory,'results.json'),JSON.stringify({results,hashes,errors,blocked,realBackend:true,successfulApiMocks:0,injectedFailureResponses:2,paidCalls:0},null,2));fs.writeFileSync(path.join(directory,'backend.log'),log);console.log(JSON.stringify({directory,passed:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length}));}

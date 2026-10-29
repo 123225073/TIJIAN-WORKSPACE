@@ -4,6 +4,16 @@ const speechLabels=new Set(['口播','口播稿','口播脚本','朗读正文','
 const productionLabels=new Set(['标题','发布标题','视频标题','文章标题','摘要','发布文案','分镜','分镜脚本','画面','画面建议','封面建议','封面提示词','制作说明','拍摄建议','话题标签']);
 const speechFormat=(source:any)=>['口播脚本','视频脚本'].includes(source?.format);
 
+// 0.30.0 and earlier could append this request-only rule to the generated
+// title, truncated to 60 characters. Match the full distinctive signature;
+// generic words such as “口播” or “标题” are ordinary user content.
+export function repairLegacySpeechTitle(value:string):string|null{
+ const marker='本次口播输出约束：输出完整、可直接朗读的纯口播正文';
+ const index=value.indexOf(marker);
+ if(index<0)return null;
+ return value.slice(0,index).trim()||'未命名口播稿';
+}
+
 function structured(body:string):Record<string,any>{
  const value=body.trim().replace(/^```(?:json)?\s*\n/i,'').replace(/\n```\s*$/,'');
  if(!value.startsWith('{'))return {};

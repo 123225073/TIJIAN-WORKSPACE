@@ -381,16 +381,31 @@ def _install_flow_routes(app, user):
         with s.LOCK:
             _flow(u['id'], flow_id)
             _sync_flow_outputs(u['id'], flow_id)
-            kinds = list(_DRAFT_KINDS)
-            with s.conn() as c:
-                rows = c.execute(
-                    'SELECT * FROM objects WHERE owner=? AND kind IN (?,?) '
-                    "AND json_extract(data,'$.flow_id')=? AND json_extract(data,'$.archived') IS NOT 1 "
-                    + ("AND json_extract(data,'$.tool')=? " if tool else '')
-                    + 'ORDER BY kind=? DESC,updated DESC',
-                    [u['id'], *kinds, flow_id] + ([tool] if tool else []) + [kinds[0]]).fetchall()
-            return {'items': _display_drafts(u['id'], (obj for obj in map(s.unpack, rows)
-                             if not obj.get('archived')))}
+            return {'items': flow_draft_list(u['id'], flow_id, tool)}
+
+    def flow_draft_list(owner, flow_id, tool=''):
+        kinds = list(_DRAFT_KINDS)
+        with s.conn() as c:
+            rows = c.execute(
+                'SELECT * FROM objects WHERE owner=? AND kind IN (?,?) '
+                "AND json_extract(data,'$.flow_id')=? AND json_extract(data,'$.archived') IS NOT 1 "
+                + ("AND json_extract(data,'$.tool')=? " if tool else '')
+                + 'ORDER BY kind=? DESC,updated DESC',
+                [owner, *kinds, flow_id] + ([tool] if tool else []) + [kinds[0]]).fetchall()
+        return _display_drafts(owner, (obj for obj in map(s.unpack, rows) if not obj.get('archived')))
+
+    @app.get('/api/studio/flows/{flow_id}/bootstrap')
+    def flow_bootstrap(flow_id: str, u=Depends(user)):
+        # Both the flow shell and editor need these authoritative records. One
+        # lock and reconciliation avoids scanning historical runs twice; the
+        # response is never cached and writes keep their version checks.
+        with s.LOCK:
+            row = _flow(u['id'], flow_id)
+            _sync_flow_outputs(u['id'])
+            upgraded = _upgrade_flow(u['id'], row)
+            if upgraded['version'] != row['version']:
+                _sync_flow_outputs(u['id'], flow_id)
+            return {'flow': upgraded, 'items': flow_draft_list(u['id'], flow_id)}
 
     @app.get('/api/studio/tasks/{task_id}/drafts')
     def task_drafts(task_id: str, u=Depends(user)):
@@ -567,7 +582,7 @@ def register(app,user,error):
     @app.post('/api/tasks/open')
     def open_task(data:dict,u=Depends(user)):
         text=str(data.get('title','')).strip()
-        if not text:error(400,'请输入目标')
+        if len(text)>10000:error(400,'本次要求最多10000字')
         mode=data.get('mode') or 'auto'
         if mode not in {*DEFAULTS,'auto'}:error(400,'工作类型无效')
         refs=data.get('source_ids',[]);jobs.contextual_ids(u['id'],refs,data.get('profile_id'))
@@ -575,8 +590,8 @@ def register(app,user,error):
         with s.LOCK:
             key=s.digest(str((text,mode,sorted(refs),data.get('profile_id') or '',scope)))
             old=next((x for x in s.list_(u['id'],'task') if (x.get('entry_key')==key or (x.get('title')==text[:60] and x.get('mode')==mode and sorted(x.get('source_ids',[]))==sorted(refs) and (x.get('profile_id') or '')==(data.get('profile_id') or ''))) and not x.get('archived')),None)
-            if old:return old
-            return s.export_object(u['id'],s.put(u['id'],'task',{'title':text[:160],'messages':[],'mode':mode,'source_ids':refs,'reference_scope':scope,'profile_id':data.get('profile_id'),'entry_key':key,'created':s.now()}))
+            if text and old and data.get('new') is not True:return old
+            return s.export_object(u['id'],s.put(u['id'],'task',{'title':text[:160] or '新对话','initial_text':text,'messages':[],'mode':mode,'source_ids':refs,'reference_scope':scope,'profile_id':data.get('profile_id'),'entry_key':key,'created':s.now()}))
 
     @app.post('/api/objects/{id}/trash')
     @jobs.serialized

@@ -10,6 +10,11 @@ export function flowOrigin(route:string):string{
  return '';
 }
 
+// A child editor must flush pending shell changes before it updates the same
+// work. The shell supplies its promise synchronously for the matching work.
+export const FLOW_PREPARE_SAVE='tijian-flow-prepare-save';
+export type FlowPrepareSave={flowId:string;claimed:boolean;tasks:Promise<void>[]};
+
 export const creationChannels=[
  {id:'wechat',label:'公众号',description:'标题、正文与配图',format:'公众号文章',words:1200,tool:'text'},
  {id:'xiaohongshu',label:'小红书',description:'图片、标题、正文与标签',format:'小红书文案',words:500,tool:'text'},

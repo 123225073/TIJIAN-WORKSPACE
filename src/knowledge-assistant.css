@@ -19,10 +19,11 @@
 .ka-section-title h2{font-size:18px;margin:0}
 .ka-section-title span{font-size:12px;color:#7c8c82}
 .ka-starters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.ka-starters button{border:1px solid #dee7df;background:#fff;border-radius:14px;min-height:157px;padding:19px;text-align:left;display:grid;grid-template-columns:1fr auto;gap:7px;cursor:pointer;color:#233b30}
+.ka-starters button{border:1px solid #dee7df;background:#fff;border-radius:14px;min-height:157px;padding:19px;text-align:left;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;cursor:pointer;color:#233b30}
+.ka-page .ka-starters button{display:grid;justify-items:start}
 .ka-starters button>svg:first-child{grid-column:1/-1;color:#138365}
 .ka-starters button strong{grid-column:1/-1;font-size:16px}
-.ka-starters button span{font-size:12px;color:#718077;line-height:1.6}
+.ka-starters button span{font-size:12px;color:#718077;line-height:1.6;min-width:0;white-space:normal;overflow-wrap:anywhere}
 .ka-starters button:hover,.ka-history a:hover{border-color:#8fc3a7;background:#f9fcf8}
 .ka-history{display:grid;gap:7px}.ka-history a{display:flex;align-items:center;gap:12px;padding:14px 16px;background:#fff;border:1px solid #e1e9e2;border-radius:11px;color:#284137;text-decoration:none}.ka-history a span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:800px){.ka-starters{grid-template-columns:1fr}.ka-start-foot{align-items:flex-start;flex-direction:column}.ka-page{padding:20px 15px}}

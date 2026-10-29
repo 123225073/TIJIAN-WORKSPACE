@@ -24,7 +24,7 @@ const contentFields=['title','body','summary','cover_brief','cover_asset_id','ca
 export default function TaskWorkspace(t:any){
  const task=t.task as Item,composerKey='assistant-composer:'+t.state.user.id+':'+task.id;
  const cache=(()=>{try{return JSON.parse(localStorage.getItem(composerKey)||'null')}catch{return null}})();
- const [text,setText]=useState(cache?.text??(task.messages?.length?'':task.title)),[profile,setProfile]=useProfileDefault(t.list('profile'),profileScope(t.state),'task:'+task.id,taskProfileInitial(task,cache,profileScope(t.state)),t.state.complete!==false),[model,setModel]=useState(cache?.model||'');
+ const [text,setText]=useState(cache?.text??(task.messages?.length?'':task.initial_text??task.title)),[profile,setProfile]=useProfileDefault(t.list('profile'),profileScope(t.state),'task:'+task.id,taskProfileInitial(task,cache,profileScope(t.state)),t.state.complete!==false),[model,setModel]=useState(cache?.model||'');
  const [scope,setScope]=useState<ReferenceScope>(cache?.scope||task.reference_scope||defaultScope),[tab,setTab]=useState('body'),[references,setReferences]=useState(false),[selected,setSelected]=useState(task.active_outcome||Object.keys(task.platform_outcomes||{})[0]||'legacy'),[versions,setVersions]=useState<any[]>([]),[sending,setSending]=useState(false);
  const saveActive=useRef<null|(()=>Promise<any>)>(null),messages=useRef<HTMLDivElement>(null),lastOutcome=useRef(task.active_outcome);
  const lastInterview=useRef(task.ip_interview_id);

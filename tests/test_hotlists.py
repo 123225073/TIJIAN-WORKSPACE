@@ -1,4 +1,5 @@
 import json,time
+from datetime import datetime,timezone
 from test_workflows import client,account
 from test_interaction_revision import wait
 from backend import hotlists,store as s
@@ -44,15 +45,16 @@ def test_custom_source_keywords_are_used(client,monkeypatch):
 
 def test_hotlist_fallback_and_cache_are_truthful(client,monkeypatch):
     account(client);calls=[]
+    active_at=int(time.time()*1000)
     def fetch(url):
         calls.append(url)
         if '60s.viki.moe' in url:raise ValueError('limited')
-        return json.dumps({'code':200,'data':[{'title':'热点','link':'https://example.com/a','active_time_at':1791818065000}]}),url
+        return json.dumps({'code':200,'data':[{'title':'热点','link':'https://example.com/a','active_time_at':active_at}]}),url
     monkeypatch.setattr(hotlists,'_fetch',fetch)
     fresh=hotlists.snapshot('douyin')
     assert not fresh['error'] and len(calls)==2
     assert fresh['provider_url'] != 'https://60s.viki.moe'
-    assert fresh['upstream_at'].startswith('2026-10-12')
+    assert fresh['upstream_at']==datetime.fromtimestamp(active_at/1000,timezone.utc).isoformat()
     cached=hotlists.snapshot('douyin')
     assert cached['cache_hit'] is True and cached['fetched_at']==fresh['fetched_at'] and len(calls)==2
 

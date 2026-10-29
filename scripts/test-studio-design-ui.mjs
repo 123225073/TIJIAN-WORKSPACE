@@ -38,7 +38,7 @@ try {
   await page.screenshot({path:path.join(directory,name+'.png'),fullPage:true});report.push({page:name,ready_ms:Date.now()-start,...metrics});fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify({passed:false,pages:report,failures},null,2));
   if(name==='home'){await page.locator('.page-area').evaluate(node=>node.scrollTo(0,800));await page.screenshot({path:path.join(directory,'home-materials.png')})}
   if(name==='image'){
-   await page.getByRole('button',{name:'模型与参数'}).click();
+   await page.getByRole('button',{name:'模型与尺寸'}).click();
    const options=await page.getByLabel('生成模型').locator('option').evaluateAll(nodes=>nodes.map(node=>({value:node.value,label:node.textContent})));
    const model=options.find(option=>option.value==='fixture-image2')||options.find(option=>option.value&&/参考|GPT Image/.test(option.label));
    if(model)await page.getByLabel('生成模型').selectOption(model.value);

@@ -9,6 +9,7 @@
 .mw-mode-switch a{min-width:112px;padding:8px 16px;border-radius:7px;color:#65806d;font-size:13px;font-weight:700;text-align:center;text-decoration:none}
 .mw-mode-switch a[aria-current=page]{background:#087856;color:#fff;box-shadow:0 2px 8px #08785628}
 .media-workbench .mw-mode-parameters{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid #b8d5c3;border-radius:8px;background:#f3faf5;color:#116447;font-size:12px;font-weight:700;cursor:pointer}
+.media-workbench .mw-heading-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:5px 0 17px}.media-workbench .mw-heading-row h1{margin:0}.media-workbench .mw-heading-row .mw-mode-parameters{flex:none;white-space:nowrap;padding:7px 9px}
 .media-workbench.image-workbench .mw-panel,.media-workbench.image-workbench .mw-pane-resizer,.media-workbench.image-workbench .mw-results{grid-row:2}
 .media-workbench.image-workbench .mw-results{overflow:auto}
 .media-workbench.studio-v2.image-edit-mode{grid-template-columns:minmax(0,1fr);min-height:0}

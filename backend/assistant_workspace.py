@@ -226,7 +226,8 @@ def turn(owner, task_id, text, source_ids=None, profile_id=None, model_id=None, 
     identity_snapshot=profile_snapshot(s.get(owner,profile_id)) if profile_id else None
     short_skip=bool(task.get('pending_creation') and re.fullmatch(r'(?:不需要|不用|暂时不需要)[，。！!\s]*',text))
     skipped=skip_profile is True or _skip_requested(text) or short_skip or task.get('identity_skipped',False)
-    task=s.put(owner,'task',{**task,'mode':'profile' if profile_only else 'auto','agent_proposal':None,'topic_proposal':None,'profile_id':profile_id,'source_ids':source_ids,
+    title=text[:160] if task.get('initial_text')=='' and not task.get('messages') else task.get('title','新对话')
+    task=s.put(owner,'task',{**task,'title':title,'mode':'profile' if profile_only else 'auto','agent_proposal':None,'topic_proposal':None,'profile_id':profile_id,'source_ids':source_ids,
               'reference_scope':scope,'identity_skipped':skipped,'messages':task.get('messages',[])+[{'role':'user','text':text,'at':s.now()}]},task_id)
     task=s.export_object(owner,task)
     def work(progress,event):

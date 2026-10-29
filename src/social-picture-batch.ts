@@ -34,7 +34,9 @@ const draftsPath=(b:SocialBatch)=>b.flow_id?'/studio/flows/'+encodeURIComponent(
 const title=(b:SocialBatch,s:Slot)=>`独立配图 ${b.id} ${s.index+1} ${s.attempt}`;
 export function socialPicturePrompt(b:SocialBatch,index:number){
  const style=socialStyles.find(s=>s.id===b.style)||socialStyles[0];
- return `基于提供的完整文案，为小红书制作一组 ${b.slots.length} 张独立图片中的第 ${index+1} 张画面要求。${style.prompt}\n首张概括全文主题；中间图片分别讲清文案中的不同重点，避免重复；末张总结全文（只有一张时概括全文）。当前图片重点应与序号相符。仅表现原文信息，不虚构品牌、价格、数据或结论。请综合全文和所选段落，不能忽略文案末尾的限制与结论。返回最多1200字的具体画面提示词。`;
+ const count=b.slots.length;
+ const role=count===1?'唯一图片：用一个清晰的视觉主题概括全文核心，不堆砌所有信息。':index===0?'封面：提炼全文最值得读者关心的一个真实问题或收获，设计醒目的短标题和与内容有关的主体。':index===count-1?'结尾：聚焦文末结论或读者可以执行的下一步，避免重复封面。':`内页：按全文内容顺序提炼第 ${index} 个不同重点；一个画面只讲一个信息，用适合内容的步骤、对比、清单或场景图解。`;
+ return `基于提供的完整文案，为小红书制作一组 ${count} 张图中的第 ${index+1} 张。${role}\n${style.prompt}\n先理解全文并规划每页不同重点，再只输出当前页的具体画面提示词；所选段落仅供定位，全文事实和限制优先。明确画面主体、主次层级、留白、视线顺序、色彩对比和安全边距，手机缩略图也应辨认主体。图中文字只放必要的少量准确短句，避免密集小字、长段落、装饰性伪文字；重要联系方式、长数字和复杂事实留在正文，不要伪造。不要将每页画成同一张重复封面，不凭空增加品牌、价格、数字、资质、案例或结论。返回不超过1200字的画面提示词。`;
 }
 const acceptPrompt=(slot:Slot,job:any)=>{
  if(job.id)slot.job_id=job.id;

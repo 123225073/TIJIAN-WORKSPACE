@@ -11,6 +11,7 @@ WRITING_CONTRACT = '''本次平台、内容形式、创作要求、目标字数�
 FORM_PLATFORMS = {'公众号文章':'wechat','小红书文案':'xiaohongshu','口播脚本':'channels','视频脚本':'channels','短视频脚本':'channels','朋友圈文案':'moments'}
 ORAL_OUTPUT_CONTRACT = '''口播成稿交付约束：本次“口播脚本”的正文将用于配音或数字人朗读，只输出可以直接朗读的完整口播正文。不要在正文混入标题、小标题、分镜、时间轴、镜头说明、字幕标签、朗读指令、配图提示词或创作解释；开头与结尾本身要是要说的话，不加栏目名称。
 若接口要求 JSON 等结构化结果，保持规定字段结构，上述约束仅作用于口播正文字段，标题只放独立标题字段；纯文本输出不附标题或其他制作栏目。文风、叙事和表达仍采用管理员启用的方法及用户要求，本约束只限定交付内容。'''
+SPOKEN_STYLE_CONTRACT = '''短视频口播适配：先从素材中选一个面向具体听众的问题或观点，重新组织成有人对镜头说话的表达，而非照搬文章段落或压缩摘要。开头尽快点出问题或有依据的判断；接着用听得懂的因果、对比或具体做法推进，最后回应开头或给出与内容有关的下一步。每句话都推进一个信息，长短句自然交替，必要术语随口解释；网址、长串号码等如确有必要保留，应改成自然可朗读的说法，不丢失关键事实。只使用有依据的案例和数字，不编造经历、夸张冲突或保证传播效果。尊重用户指定的时长、口吻、内容和格式；未要求互动营销时不强加关注或点赞。若另需分镜或发布文案，按现有字段分开，不混入口播正文。'''
 WRITING_PLATFORMS = {'wechat':'公众号文章','xiaohongshu':'小红书文案','channels':'视频号／口播脚本','douyin':'抖音脚本','moments':'朋友圈文案','general':'通用文案'}
 SKILL_PLATFORMS = {'skill:writing':['wechat'], 'skill:wechat-narrative':['wechat'],
                    'skill:wechat-title-cover':['wechat'], 'skill:wechat-editor':['wechat'],
@@ -40,6 +41,10 @@ def writing_request(method, *, policy, brief, format_name, target_words=None, co
     data.update({'要求':brief,'内容形式':format_name,'目标字数':words,'字数约束':mode,
                  '已选上下文':context,'原稿':original})
     system=policy+'\n'+method['text']+('\n'+output_rules if output_rules else '')
+    if (method['metadata']['purpose']=='writing'
+            and any(item.get('id')=='skill:short-video-script' for item in method['metadata'].get('items',[]))
+            and (format_name in {'口播脚本','视频脚本','短视频脚本'} or selected_platform in {'channels','douyin'})):
+        system+='\n'+SPOKEN_STYLE_CONTRACT
     if method['metadata']['purpose']=='writing' and format_name=='口播脚本':
         system+='\n'+ORAL_OUTPUT_CONTRACT
     user=json.dumps(data,ensure_ascii=False)

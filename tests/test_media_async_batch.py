@@ -403,41 +403,17 @@ def test_single_interrupted_refresh_never_submits_and_explicit_retry_is_deduped(
     assert len(posts) == 1
 
 
-def test_pending_shotstack_upload_requires_explicit_new_request_before_render(studio, monkeypatch):
+def test_compose_rejects_new_cloud_upload_even_with_configured_service(studio, monkeypatch):
     configure(studio, 'shotstack')
     picture = asset(studio)
-    created = draft(studio, 'compose', {'scenes': [
-        {'asset_id': picture['id'], 'length': 5, 'caption': '电梯安全'},
-    ]})
-    renders, uploads, polls = [], [], []
-
-    def provider_request(method, url, **kwargs):
-        if url.endswith('/ingest/stage/upload'):
-            uploads.append(url)
-            return {'data': {'id': 'source-id', 'attributes': {'url': 'https://upload.example/signed'}}}
-        if method == 'PUT':
-            return {}
-        if '/sources/' in url:
-            polls.append(url)
-            return {'data': {'attributes': {'status': 'processing' if len(polls) == 1 else 'ready',
-                                            'source': 'https://cdn.example/source.png'}}}
-        assert method == 'POST' and url.endswith('/edit/stage/render')
-        renders.append(kwargs['payload'])
-        return {'success': True, 'response': {'id': 'render-id'}}
-
-    monkeypatch.setattr(media, '_request', provider_request)
-    first = submit(studio, created, 'waiting-for-upload').json()
-    assert first['status'] == 'interrupted' and '重新生成' in first['error']
-    assert len(uploads) == len(polls) == 1 and renders == []
-    assert studio.post('/api/studio/runs/' + first['id'] + '/refresh').json()['status'] == 'interrupted'
-    assert submit(studio, created, 'waiting-for-upload').json()['id'] == first['id']
-    assert len(polls) == 1 and renders == []
-    continued = submit(studio, created, 'confirmed-after-upload').json()
-    assert continued['id'] != first['id'] and continued['status'] == 'running'
-    assert continued['task_id'] == 'render-id' and len(renders) == 1
-    assert len(uploads) == 1 and len(polls) == 2
-    assert submit(studio, created, 'another-id-same-version').json()['id'] == continued['id']
-    assert len(renders) == 1
+    created = draft(studio, 'compose', {'scenes': [{'asset_id': picture['id'], 'length': 5}]})
+    calls = []
+    monkeypatch.setattr(media, '_request', lambda *args, **kwargs: calls.append((args, kwargs)))
+    first = submit(studio, created, 'no-cloud-one')
+    second = submit(studio, created, 'no-cloud-two')
+    assert first.status_code == second.status_code == 400
+    assert '本机合成' in first.json()['detail']
+    assert not calls
 
 
 def test_wavespeed_restart_marks_unacknowledged_slot_unknown_without_resubmitting(studio, monkeypatch):

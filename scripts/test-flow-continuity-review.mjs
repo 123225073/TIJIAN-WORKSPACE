@@ -9,7 +9,7 @@ import {build} from 'esbuild';
 import {chromium} from 'playwright-core';
 const root=process.cwd(),directory=path.resolve('.runtime','article-editing-ui-flow-review-'+Date.now());fs.mkdirSync(directory,{recursive:true});
 const files=['src/CreationFlow.tsx','src/Studio.tsx','src/flow-navigation.ts','src/IPStartupReminder.tsx','src/App.tsx','backend/workflows.py','src/FlowDeliverables.tsx'];
-const useDist=process.argv.includes('--dist'),visualOnly=process.argv.includes('--visual-only'),deliveryOnly=process.argv.includes('--delivery-visual-only');
+const useDist=process.argv.includes('--dist'),visualOnly=process.argv.includes('--visual-only'),deliveryOnly=process.argv.includes('--delivery-visual-only'),transferOnly=process.argv.includes('--transfer-only');
 if(useDist)fs.cpSync(path.resolve('dist'),path.join(directory,'dist'),{recursive:true});
 const hashes=Object.fromEntries(files.map(f=>[f,createHash('sha256').update(fs.readFileSync(f)).digest('hex')]));
 if(!useDist){const bundle=await build({entryPoints:['src/main.tsx'],bundle:true,write:false,outfile:path.join(directory,'app.js'),jsx:'automatic',external:['/visuals/*'],define:{'process.env.NODE_ENV':'"development"'}});
@@ -22,7 +22,7 @@ const ui=http.createServer((req,res)=>{const u=new URL(req.url,'http://local');i
 await new Promise(r=>ui.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+ui.address().port;
 let token='',browser,page;const results=[],network=[],errors=[],blocked=[];
 const api=async(p,data,method=data===undefined?'GET':'POST')=>{const r=await fetch(backend+'/api'+p,{method,headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:data===undefined?undefined:JSON.stringify(data)});assert(r.ok,p+' '+r.status+' '+(r.ok?'':await r.text()));return r.json()};
-const step=async(name,fn)=>{if(visualOnly&&!name.startsWith('full App'))return;if(deliveryOnly&&!/^(full App|WeChat real|social )/.test(name))return;try{const evidence=await fn();results.push({name,ok:true,evidence});console.log(JSON.stringify({name,evidence}))}catch(e){results.push({name,ok:false,error:e.stack});console.log(JSON.stringify({name,error:e.message}));if(page){await page.screenshot({path:path.join(directory,'failed-'+results.length+'.png')}).catch(()=>{});fs.writeFileSync(path.join(directory,'failed-'+results.length+'.txt'),await page.locator('body').innerText().catch(()=>''))}process.exitCode=1}};
+const step=async(name,fn)=>{if(transferOnly&&!name.includes('transfer')&&!name.startsWith('oral editor'))return;if(visualOnly&&!name.startsWith('full App'))return;if(deliveryOnly&&!/^(full App|WeChat real|social )/.test(name))return;try{const evidence=await fn();results.push({name,ok:true,evidence});console.log(JSON.stringify({name,evidence}))}catch(e){results.push({name,ok:false,error:e.stack});console.log(JSON.stringify({name,error:e.message}));if(page){await page.screenshot({path:path.join(directory,'failed-'+results.length+'.png')}).catch(()=>{});fs.writeFileSync(path.join(directory,'failed-'+results.length+'.txt'),await page.locator('body').innerText().catch(()=>''))}process.exitCode=1}};
 const flowRoute=id=>'studio/flow?work='+id;
 const goto=async route=>{await page.goto(base+'/#'+route);await page.locator('.cf-continuous').waitFor();await page.waitForFunction(()=>!document.querySelector('.cf-data-loading'));};
 const locationHash=()=>new URL(page.url()).hash.split('?')[1];
@@ -72,6 +72,20 @@ try{
   const program='import json,sys,os; from pathlib import Path; from backend import store as s; v=json.load(sys.stdin); assert Path(os.environ["TIJIAN_DATA"]).resolve()==Path(v["directory"]).resolve(); assert "article-editing-ui-flow-review-" in v["directory"]; d=s.get(v["owner"],v["draft"]); a=s.get(v["owner"],v["asset"]); a=s.put(v["owner"],"studio_asset",{**a,"flow_id":v["flow"]},a["id"],a["version"]); c=s.put(v["owner"],"content",{"title":"审查文章标题","body":"隔离种子正文，非模型生成。\\n\\n![隔离本地图](/api/studio/assets/"+a["id"]+"/file)","summary":"隔离摘要","format":"公众号文章","status":"draft","flow_id":v["flow"],"draft_id":d["id"]}); j=s.put(v["owner"],"job",{"title":"隔离种子完成记录（非模型调用）","status":"done","flow_id":v["flow"],"input":{"action":"studio_text","draft_id":d["id"],"draft_version":d["version"]},"result":{"content_id":c["id"]}}); s.put(v["owner"],d["kind"],{**d,"job_ids":[j["id"]],"job_versions":{j["id"]:d["version"]}},d["id"],d["version"]); print(json.dumps(c,ensure_ascii=False))';
   const result=spawnSync(path.resolve('.runtime/venv/Scripts/python.exe'),['-B','-X','utf8','-c',program],{cwd:root,env:{...process.env,TIJIAN_DATA:directory,PYTHONUTF8:'1'},windowsHide:true,encoding:'utf8',input:JSON.stringify({directory,owner,flow:w.id,draft:d.id,asset:asset.id})});assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);
  };
+ await step('oral editor is plain text and returns from avatar',async()=>{
+  const tr=await topic('口播独立编辑'),w=await flow(tr.title,tr),d=await draft(w,tr.title,tr.title);let output=await seedOutput(w,d);
+  const polluted='电梯价格热视频本次口播输出约束：输出完整、可直接朗读的纯口播正文，保留用户明确要求';
+  output=await api('/objects/'+output.id,{version:output.version,format:'口播脚本',title:polluted,body:'你好，先核对记录。\n最后保留完整结论。'},'PATCH');
+  await goto('studio/text?draft='+d.id+'&mode=text&return='+encodeURIComponent(flowRoute(w.id)+'&step=2'));await page.reload();await page.locator('.cf-continuous').waitFor();const modal=page.getByRole('button',{name:'稍后再做',exact:true});if(await modal.isVisible())await modal.click();await page.getByRole('button',{name:'内容编辑',exact:true}).click();await page.locator('.oral-editor').waitFor();
+  assert.equal(await page.locator('.oral-editor .md-format').count(),0);assert.equal(await page.getByLabel('编辑生成文稿').inputValue(),output.body);assert.equal(await page.getByText('仅用于管理，不会朗读').count(),1);
+  const title=page.getByLabel('文稿标题');await page.waitForFunction(()=>document.querySelector('input[aria-label="文稿标题"]')?.value==='电梯价格热视频');
+  assert.equal((await api('/state/updates?ids='+output.id)).items[0].title,polluted,'仅打开旧稿不能直接写服务器');
+  const saved=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/objects/'+output.id&&r.request().method()==='PATCH');await page.locator('.oral-editor').getByRole('button',{name:'保存修改'}).click();assert.equal((await saved).status(),200);
+  assert.equal((await api('/state/updates?ids='+output.id)).items[0].title,'电梯价格热视频');
+  await title.fill('用户自己编辑的新名称');await page.reload();await page.locator('.cf-continuous').waitFor();const again=page.getByRole('button',{name:'稍后再做',exact:true});if(await again.isVisible())await again.click();await page.getByRole('button',{name:'内容编辑',exact:true}).click();await page.locator('.oral-editor').waitFor();assert.equal(await page.getByLabel('文稿标题').inputValue(),'用户自己编辑的新名称','重新打开不得覆盖未保存的手工标题');
+  await page.getByLabel('编辑生成文稿').fill('修改后可直接朗读。');await page.getByRole('button',{name:'用于文字口播',exact:true}).click();await page.getByRole('button',{name:'返回文案修改',exact:true}).click();await page.locator('.oral-editor').waitFor();assert.equal(await page.getByLabel('编辑生成文稿').inputValue(),'修改后可直接朗读。');
+  return {plain:true,returned:true,saved:true,legacyTitleRepaired:true,manualTitlePreserved:true};
+ });
  const outputChain=async(saveEdit)=>{
   const topicRow=await topic('真实产物链路隔离核查 '+saveEdit),w=await flow(topicRow.title,topicRow),draftRow=await draft(w,'公众号 · '+topicRow.title,topicRow.title);const output=await seedOutput(w,draftRow);
   await goto('studio/text?draft='+draftRow.id+'&mode=text&return='+encodeURIComponent(flowRoute(w.id)+'&step=2'));
@@ -99,7 +113,10 @@ try{
   if(double){const pattern='**/api/state/updates?ids='+output.id;await page.route(pattern,async r=>{await new Promise(resolve=>setTimeout(resolve,200));await r.continue()});await button.dblclick();}else await button.click();
   await page.waitForFunction(()=>location.hash.startsWith('#studio/avatar/text?')||location.hash.startsWith('#studio/video?'));await new Promise(r=>setTimeout(r,350));page.off('response',capture);
   const saved=(await api('/state/updates?ids='+output.id)).items.find(x=>x.id===output.id),list=(await api('/studio/flows/'+w.id+'/drafts')).items.filter(x=>x.tool===(video?'text_video':'text_avatar'));
-  assert.equal(saved.body,edited);assert(list.length);const value=list[0].input[video?'prompt':'text'];return {oldScript,double,video,savedBody:saved.body,actualTransferred:value,targetDraftCount:list.length,targetIds:list.map(x=>x.id),cleanedTitle:!value.includes('# 审查文章标题'),receivedLatest:value.includes('作者最新修改'),bug:!value.includes('作者最新修改')||list.length>1};
+  assert.equal(saved.body,edited);assert(list.length);const value=list[0].input[video?'prompt':'text'];
+  await page.getByRole('button',{name:'返回文案修改',exact:true}).click();await page.locator('.article-editor').waitFor();
+  assert.equal(await page.getByLabel('编辑生成文稿').inputValue(),edited);assert.equal(new URLSearchParams(locationHash()).get('draft'),d.id);
+  return {oldScript,double,video,savedBody:saved.body,actualTransferred:value,targetDraftCount:list.length,targetIds:list.map(x=>x.id),cleanedTitle:!value.includes('# 审查文章标题'),receivedLatest:value.includes('作者最新修改'),returnToEditor:true,bug:!value.includes('作者最新修改')||list.length>1};
  };
  await step('unsaved article edit -> avatar transfer actual persisted text',async()=>{const r=await transferCase();assert.equal(r.bug,false);assert(r.cleanedTitle);return r});
  await step('unsaved article edit -> video transfer actual persisted prompt',async()=>{const r=await transferCase({video:true});assert.equal(r.bug,false);return r});
@@ -110,8 +127,8 @@ try{
  await step('late actual flow GET cannot rewind a newer saved version',async()=>{
   const tr=await topic('迟到恢复响应'),w=await flow(tr.title,tr);await draft(w,'公众号 · '+tr.title,tr.title);await goto(flowRoute(w.id));await channel().click();await brief().waitFor();await page.waitForLoadState('networkidle');
   let release,captured;const gate=new Promise(r=>release=r),received=new Promise(r=>captured=r);let held=false,snapshot;
-  const pattern='**/api/studio/flow?work_id='+w.id;
-  const handler=async route=>{if(held||route.request().method()!=='GET')return route.continue();held=true;const response=await route.fetch();snapshot=await response.json();captured();await gate;await route.fulfill({response}).catch(()=>{})};await page.route(pattern,handler);
+  const pattern='**/api/studio/flows/'+w.id+'/bootstrap';
+  const handler=async route=>{if(held||route.request().method()!=='GET')return route.continue();held=true;const response=await route.fetch();snapshot=(await response.json()).flow;captured();await gate;await route.fulfill({response}).catch(()=>{})};await page.route(pattern,handler);
   try{
    await page.locator('.cf-timeline .cf-node>button').nth(3).click();await received;await page.locator('.cf-asset-grid').waitFor();
    const nextSave=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/studio/flow'&&r.request().method()==='POST'&&r.request().postDataJSON().stage===1);
@@ -127,7 +144,7 @@ try{
  await step('late GET cannot replace a local edit before its autosave',async()=>{
   const tr=await topic('本地未保存编辑'),w=await flow(tr.title,tr);await goto(flowRoute(w.id));await channel().click();await brief().waitFor();await page.waitForLoadState('networkidle');
   let release,captured;const gate=new Promise(r=>release=r),received=new Promise(r=>captured=r);let held=false;
-  const pattern='**/api/studio/flow?work_id='+w.id;
+  const pattern='**/api/studio/flows/'+w.id+'/bootstrap';
   const handler=async route=>{if(held)return route.continue();held=true;const response=await route.fetch();captured();await gate;await route.fulfill({response}).catch(()=>{})};await page.route(pattern,handler);
   try{
    await page.locator('.cf-timeline .cf-node>button').nth(1).click();await received;const editor=page.getByLabel('今天想讲什么？');await editor.waitFor();const text='本地尚未保存的新主题';
@@ -153,12 +170,14 @@ try{
   await goto(flowRoute(w.id));await page.reload();await page.locator('.cf-asset-grid').waitFor();await page.getByRole('button',{name:'稍后再做',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.cf-data-loading'));
   const imports=[];const capture=async r=>{if(new URL(r.url()).pathname==='/api/studio/flows/'+w.id+'/imports'&&r.request().method()==='POST')imports.push(await r.json())};page.on('response',capture);
   await page.getByRole('button',{name:'确认，选择发布平台',exact:true}).click();await page.locator('.cf-deliverables').waitFor();await page.waitForLoadState('networkidle');page.off('response',capture);
-  const rendered=await page.locator('[data-content-id="'+output.id+'"][data-image-asset-id]').evaluateAll(nodes=>nodes.map(n=>n.dataset.imageAssetId));assert.deepEqual(rendered,wechat?[original.id,unscoped.id]:[unscoped.id,original.id]);
-  await page.waitForFunction(()=>[...document.querySelectorAll('[data-image-asset-id] img')].length===2&&[...document.querySelectorAll('[data-image-asset-id] img')].every(i=>i.naturalWidth>0));
+  if(!wechat)await page.getByRole('tab',{name:/朋友圈/}).click();
+  const pictureRows=page.locator('[data-content-id="'+output.id+'"] [data-image-asset-id]');
+  const rendered=await pictureRows.evaluateAll(nodes=>nodes.filter(n=>n.querySelector('button[aria-label^="下载"]:not([disabled])')).map(n=>n.dataset.imageAssetId));assert.deepEqual(rendered,wechat?[original.id,unscoped.id]:[unscoped.id,original.id]);
+  for(const ident of rendered){const target=page.locator('[data-content-id="'+output.id+'"] [data-image-asset-id="'+ident+'"]');await target.scrollIntoViewIfNeeded();const preview=target.locator('img');await preview.waitFor({state:'visible'});await preview.evaluate(image=>new Promise((resolve,reject)=>{if(image.complete&&image.naturalWidth>0)return resolve();image.addEventListener('load',resolve,{once:true});image.addEventListener('error',reject,{once:true})}))}
   const savedFlow=await api('/studio/flow?work_id='+w.id),allAssets=(await api('/studio/assets')).items,savedCover=allAssets.find(a=>a.id===savedFlow.cover_id);
   assert(savedCover);assert.equal(savedCover.flow_id,w.id);assert.equal(imports.length,manualCover||wechat?0:1);assert.equal(manualCover||wechat?savedCover.id:savedCover.imported_from,manualCover||wechat?original.id:unscoped.id);
   const savedContent=(await api('/state/updates?ids='+output.id)).items.find(c=>c.id===output.id);assert.equal(savedContent.body,output.body);assert.deepEqual(savedContent.image_asset_ids,ids);assert.equal(savedContent.version,output.version);
-  const imageDownload=page.waitForEvent('download').then(value=>({value}),error=>({error}));await page.locator('[data-content-id="'+output.id+'"][data-image-asset-id]').first().getByRole('button').click();const imageResult=await imageDownload;assert(imageResult.value,imageResult.error?.message);const imageTarget=path.join(directory,'delivered-image-'+manualCover+'-'+wechat+'.png');await imageResult.value.saveAs(imageTarget);assert.deepEqual(fs.readFileSync(imageTarget),fs.readFileSync(path.join(directory,'output.png')),'Independent image download must preserve actual file bytes');
+  const imageDownload=page.waitForEvent('download').then(value=>({value}),error=>({error}));await pictureRows.locator('button[aria-label^="下载"]:not([disabled])').first().click();const imageResult=await imageDownload;assert(imageResult.value,imageResult.error?.message);const imageTarget=path.join(directory,'delivered-image-'+manualCover+'-'+wechat+'.png');await imageResult.value.saveAs(imageTarget);assert.deepEqual(fs.readFileSync(imageTarget),fs.readFileSync(path.join(directory,'output.png')),'Independent image download must preserve actual file bytes');
   if(wechat){
    // The adversarial body above intentionally references another owner. Prove that
    // export refuses it, then use a valid saved body for the independent export test.
@@ -166,7 +185,7 @@ try{
    await api('/objects/'+output.id,{version:savedContent.version,body:'这是实际交付的正文。\n\n![首图]('+imageRef(original.id)+')\n\n![第二图]('+imageRef(unscoped.id)+')'},'PATCH');
    await page.reload();await page.locator('.cf-deliverables').waitFor();const reminder=page.getByRole('button',{name:'稍后再做',exact:true});if(await reminder.isVisible())await reminder.click();
    const exportResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/content/'+output.id+'/export');const downloaded=page.waitForEvent('download').then(value=>({value}),error=>({error}));await page.locator('.cf-deliverables').getByRole('button',{name:'下载文稿',exact:true}).click();const response=await exportResponse;assert.equal(response.status(),200);assert.equal(new URL(response.url()).searchParams.get('include_metadata'),'true');const downloadResult=await downloaded;assert(downloadResult.value,downloadResult.error?.message);const target=path.join(directory,'wechat-with-metadata.html');await downloadResult.value.saveAs(target);const html=fs.readFileSync(target,'utf8');assert(html.includes('<h1>'+output.title+'</h1>'),'Downloaded file missing title');assert(html.includes('作者：隔离测试作者'),'Downloaded file missing author');
-   await page.context().grantPermissions(['clipboard-read','clipboard-write'],{origin:base});const copyResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/content/'+output.id+'/export');await page.locator('.cf-deliverables').getByRole('button',{name:'复制图文',exact:true}).click();const copied=await copyResponse;assert.equal(new URL(copied.url()).searchParams.has('include_metadata'),false);assert.equal(copied.status(),200);await page.getByText('图文已复制，请到公众号编辑器粘贴并核对图片。',{exact:true}).waitFor();const clipboard=await page.evaluate(async()=>{for(const item of await navigator.clipboard.read())if(item.types.includes('text/html'))return (await item.getType('text/html')).text();return ''});assert(clipboard.includes('这是实际交付的正文。'),'Clipboard missing actual body');assert(!clipboard.includes('作者：隔离测试作者'),'Clipboard incorrectly includes author');fs.writeFileSync(path.join(directory,'wechat-clipboard.html'),clipboard);
+   await page.context().grantPermissions(['clipboard-read','clipboard-write'],{origin:base});const copyResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/content/'+output.id+'/export');await page.locator('.cf-deliverables').getByRole('button',{name:'复制图文',exact:true}).click();const copied=await copyResponse;assert.equal(new URL(copied.url()).searchParams.has('include_metadata'),false);assert.equal(copied.status(),200);await page.getByText('图文已复制，请粘贴后核对图片与排版。',{exact:true}).waitFor();const clipboard=await page.evaluate(async()=>{for(const item of await navigator.clipboard.read())if(item.types.includes('text/html'))return (await item.getType('text/html')).text();return ''});assert(clipboard.includes('这是实际交付的正文。'),'Clipboard missing actual body');assert(!clipboard.includes('作者：隔离测试作者'),'Clipboard incorrectly includes author');fs.writeFileSync(path.join(directory,'wechat-clipboard.html'),clipboard);
   }
   await page.screenshot({path:path.join(directory,'social-images-'+manualCover+'-'+wechat+'.png'),fullPage:true});
   return {manualCover,wechat,otherFlowExcluded:otherAsset.id,flow:w.id,content:output.id,rendered,foreignExcluded:foreign.id,archivedExcluded:archived.id,cover:savedCover.id,importedFrom:savedCover.imported_from,importCount:imports.length,contentUnchanged:true};
