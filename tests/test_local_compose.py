@@ -56,6 +56,82 @@ def image_frame(path, sec):
     return Image.open(io.BytesIO(data)).convert('RGB')
 
 
+def test_caption_layout_preserves_text_and_fits_long_lines():
+    style = {'size': 'medium', 'font_scale': 1, 'x': .01, 'y': .6}
+    text = '这是一个需要合理缩小和分成两行显示的字幕示例，不能丢失任何文字，包括ABC123。'
+    lines, size, x, y = lc._caption_layout(text, 720, 1280, style)
+    assert len(lines) == 2 and ''.join(lines) == text
+    assert max(len(line) for line in lines) * size * 1.10 <= 720 * .8 + .001
+    assert x > 720 * .01 and y == 768
+
+
+def test_caption_layout_keeps_wide_english_and_two_lines_in_frame():
+    style = {'size': 'large', 'font_scale': 2, 'x': .01, 'y': .01, 'stroke': 5}
+    lines, size, x, y = lc._caption_layout('W' * 30, 1280, 720, style)
+    assert ''.join(lines) == 'W' * 30 and len(lines) == 2
+    estimated_width = max(len(line) for line in lines) * size * 1.10
+    assert estimated_width <= 1280 * .8 + .001
+    assert x >= estimated_width / 2 - 1
+    margin_y = size * len(lines) * 1.3 / 2 + style['stroke'] + 2
+    assert y >= margin_y - 1
+    style['y'] = .99
+    assert lc._caption_layout('W' * 30, 1280, 720, style)[3] <= 720 - margin_y + 1
+    # The real Windows font need not exist on Linux test runners; when it is
+    # available, check its widest common Latin glyph against our fit estimate.
+    from pathlib import Path
+    from PIL import ImageFont
+    font_file = Path('C:/Windows/Fonts/msyhbd.ttc')
+    if font_file.is_file():
+        font = ImageFont.truetype(str(font_file), max(1, round(size)))
+        assert max(font.getlength(line) for line in lines) <= 1280 * .8 + 3
+
+
+def test_subtitle_intro_cut_position_and_speed_in_real_export(studio):
+    main, _ = media('video', color='blue', length=3)
+    title = picture(transparent=True)
+    config = {'scenes': [{'asset_id': main['id'], 'length': 3}],
+              'intro': {'overlay_asset_id': title['id'], 'overlay_duration': .7},
+              'srt': '1\n00:00:00,200 --> 00:00:01,600\nThis is a caption',
+              'subtitle_style': {'size': 'medium', 'font_scale': 1.1, 'x': .3, 'y': .6,
+                                 'color': '#ff8000', 'hide_during_intro': True, 'start_time': .9},
+              'aspect_ratio': '9:16', 'resolution': '720p', 'playback_speed': 1.2}
+    _, project = setup_project(studio, config)
+    started = studio.post('/api/studio/local-compose/projects/' + project['id'] + '/render', json={'version': project['version']})
+    assert started.status_code == 200, started.text
+    job = studio.get('/api/studio/local-compose/jobs/' + started.json()['id']).json()
+    assert job['status'] == 'done', job
+    output = m._path('alice', s.get('alice', job['result_asset_id'])['local_file'])
+    def orange(at):
+        image = image_frame(output, at)
+        return [(x, y) for y in range(650, 880) for x in range(0, 500)
+                if (lambda p: p[0] > 150 and 50 < p[1] < 210 and p[2] < 80)(image.getpixel((x, y)))]
+    assert not orange(.5), '片头及字幕起始时间前不能显示字幕'
+    visible = orange(.9)
+    assert len(visible) > 10
+    assert 110 < sum(x for x, _ in visible) / len(visible) < 320
+    assert 700 < sum(y for _, y in visible) / len(visible) < 830
+    assert not orange(1.5), '按原始时间裁切且倍速后，字幕应准时结束'
+
+
+def test_subtitle_rejects_unreadably_long_line(studio):
+    main, _ = media('video')
+    config = {'scenes': [{'asset_id': main['id'], 'length': 2}],
+              'srt': '1\n00:00:00,200 --> 00:00:01,600\n' + '很长的字幕' * 60}
+    _, project = setup_project(studio, config)
+    result = studio.post('/api/studio/local-compose/projects/' + project['id'] + '/render', json={'version': project['version']})
+    assert result.status_code == 400 and '无法清晰显示' in result.json()['detail']
+
+
+def test_hidden_unreadable_line_does_not_block_other_subtitles(studio):
+    main, _ = media('video')
+    config = {'scenes': [{'asset_id': main['id'], 'length': 2}],
+              'subtitle_style': {'start_time': 1},
+              'srt': '1\n00:00:00,100 --> 00:00:00,900\n' + '很长的字幕' * 60 +
+                     '\n\n2\n00:00:01,000 --> 00:00:01,800\n正常显示'}
+    validated = lc._validated('alice', config)
+    assert validated['style']['start_time'] == 1
+
+
 def test_local_composition_renders_b_roll_without_replacing_main_audio(studio):
     main, source = media('video')
     original = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -242,3 +318,51 @@ def test_cancel_job_does_not_publish_partial_asset(studio, monkeypatch):
         assert hashlib.sha256(path.read_bytes()).hexdigest() == original
     finally:
         pool.shutdown(wait=True)
+
+
+def test_tracks_disable_and_clip_without_mutating_project(studio):
+    main, _ = media('video', length=3)
+    b = picture()
+    voice, _ = media('audio')
+    title = picture(transparent=True)
+    project = {'scenes': [{'asset_id': main['id'], 'length': 2}, {'asset_id': 'missing', 'length': 3, 'enabled': False}],
+               'b_roll': [{'asset_id': b['id'], 'start': 1.5, 'length': 2, 'fit': 'cover'}, {'asset_id': 'missing', 'start': 0, 'length': 1, 'enabled': False}],
+               'music': {'asset_id': voice['id'], 'volume': .2, 'enabled': False},
+               'intro': {'overlay_asset_id': title['id'], 'overlay_duration': 1, 'enabled': False},
+               'srt': '1\n00:00:01,000 --> 00:00:03,500\n保留原句',
+               'subtitle_style': {'enabled': False}, 'clip_to_duration': True}
+    before = json.dumps(project, ensure_ascii=False)
+    resolved = lc._validated('alice', project)
+    assert len(resolved['scenes']) == 1 and resolved['total'] == 2
+    assert len(resolved['b_roll']) == 1 and resolved['b_roll'][0]['length'] == .5
+    assert resolved['music'] is None and resolved['overlay'] is None and resolved['segments'] == []
+    assert json.dumps(project, ensure_ascii=False) == before
+    project['subtitle_style']['enabled'] = True
+    resolved = lc._validated('alice', project)
+    assert resolved['segments'] == [(1.0, 2.0, '保留原句')]
+    project['scenes'][0]['enabled'] = False
+    with pytest.raises(ValueError, match='至少启用一个主画面'):
+        lc._validated('alice', project)
+
+
+def test_title_and_subtitle_independent_timing_in_real_export(studio):
+    main, _ = media('video', color='blue', length=3)
+    title = picture(transparent=True)
+    config = {'scenes': [{'asset_id': main['id'], 'length': 3}],
+              'intro': {'overlay_asset_id': title['id'], 'start_time': 1, 'overlay_duration': 1},
+              'srt': '1\n00:00:00,200 --> 00:00:02,500\n字幕始终独立显示',
+              'subtitle_style': {'color': '#ff8000', 'y': .65, 'start_time': .2},
+              'aspect_ratio': '9:16', 'resolution': '720p'}
+    _, project = setup_project(studio, config)
+    res = studio.post('/api/studio/local-compose/projects/'+project['id']+'/render', json={'version':project['version']})
+    assert res.status_code == 200, res.text
+    job=studio.get('/api/studio/local-compose/jobs/'+res.json()['id']).json()
+    assert job['status']=='done', job
+    output=m._path('alice', s.get('alice',job['result_asset_id'])['local_file'])
+    def colors(t):
+        frame=image_frame(output,t)
+        pix=list(frame.getdata())
+        return (sum(1 for r,g,b in pix if r>180 and g>180 and b<80),sum(1 for r,g,b in pix if r>180 and 65<g<190 and b<75))
+    before,during,after=colors(.5),colors(1.5),colors(2.3)
+    assert before[0]<20 and during[0]>100 and after[0]<20, (before,during,after)
+    assert min(before[1],during[1],after[1])>10, (before,during,after)

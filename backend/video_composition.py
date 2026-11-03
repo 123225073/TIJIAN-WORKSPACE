@@ -18,7 +18,7 @@ def seconds(parts):
     return h * 3600 + m * 60 + sec + ms / 1000
 
 
-def parse_srt(value, duration):
+def parse_srt(value, duration, max_chars=36):
     if not isinstance(value, str) or len(value) > 100000:
         raise ValueError('字幕内容过长或格式无效')
     text = value.replace('\r\n', '\n').replace('\r', '\n').lstrip('\ufeff').strip()
@@ -36,8 +36,8 @@ def parse_srt(value, duration):
         caption = ' '.join(line.strip() for line in lines).strip()
         if not 0 <= start < end <= duration + .05:
             raise ValueError('字幕时间必须位于视频时长内，结束时间应晚于开始时间')
-        if not caption or len(caption) > 36:
-            raise ValueError('每条字幕请控制在 1 至 36 个字，较长内容请拆分成多条')
+        if not caption or len(caption) > max_chars:
+            raise ValueError(f'每条字幕请控制在 1 至 {max_chars} 个字，较长内容请拆分成多条')
         if segments and start < segments[-1][1]:
             raise ValueError('字幕时间不能交叠，请检查顺序')
         segments.append((start, end, caption))
