@@ -33,8 +33,8 @@ def client(tmp_path, monkeypatch):
 
 def test_media_registry_encryption_classification_and_immediate_revocation(client):
     initial = client.get('/api/admin/media-registry').json()
-    assert {m['family'] for m in initial['models'] if m['category'] == 'AI 视频'} == {'seedance-2.0', 'seedance-2.5', 'seedance-2.0-fast', 'seedance-2.0-mini'}
-    assert all(not m['published'] for m in initial['models'] if m['category'] == 'AI 视频' and m['provider_id'] != 'ark')
+    assert {m['family'] for m in initial['models'] if m['category'] == 'AI 视频' and m['published']} == {'minimax-h3-768p', 'minimax-h3-2k', 'minimax-h3-pro-768p', 'minimax-h3-pro-2k'}
+    assert all(not m['published'] for m in initial['models'] if m['category'] == 'AI 视频' and m['provider_id'] != 'oairegbox')
     assert 'wan' not in client.get('/api/studio/catalog').text.lower()
     saved = client.post('/api/admin/media-registry/providers', json={'id': 'segmind', 'api_key': 'secret-never-public'})
     assert saved.status_code == 200, saved.text

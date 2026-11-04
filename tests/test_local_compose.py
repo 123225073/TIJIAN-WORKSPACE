@@ -167,6 +167,67 @@ def test_local_composition_renders_b_roll_without_replacing_main_audio(studio):
     assert studio.get('/api/studio/local-compose/projects/' + project['id']).json()['last_job_id'] == job['id']
 
 
+def test_uploaded_five_minute_music_uses_exact_one_minute_range(studio, tmp_path):
+    main, _ = media('video', length=62)
+    music_file = tmp_path / 'external-music.wav'
+    ff = hifly_render.ffmpeg()
+    # Audible markers distinguish the requested middle passage from the
+    # beginning and ending of the original music.
+    subprocess.run([ff, '-v', 'error', '-y',
+                    '-f', 'lavfi', '-i', 'sine=frequency=660:sample_rate=8000:duration=105',
+                    '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=8000:duration=62',
+                    '-f', 'lavfi', '-i', 'sine=frequency=1100:sample_rate=8000:duration=133',
+                    '-filter_complex', '[0:a][1:a][2:a]concat=n=3:v=0:a=1[a]', '-map', '[a]',
+                    str(music_file)], check=True, capture_output=True)
+    with music_file.open('rb') as source:
+        uploaded = studio.post('/api/studio/upload', files={'file': ('external-music.wav', source, 'audio/wav')})
+    assert uploaded.status_code == 200, uploaded.text
+    music = uploaded.json()
+    assert music['duration'] == pytest.approx(300)
+    clip = {'asset_id': music['id'], 'volume': .6, 'trim': 106.125, 'start': .375, 'length': 60}
+    config = {'scenes': [{'asset_id': main['id'], 'length': 62}], 'music': clip, 'resolution': '720p'}
+    _, project = setup_project(studio, config)
+    project_url = '/api/studio/local-compose/projects/' + project['id']
+    assert studio.get(project_url).json()['project']['music'] == clip
+    response = studio.post(project_url + '/render', json={'version': project['version']})
+    assert response.status_code == 200, response.text
+    job = studio.get('/api/studio/local-compose/jobs/' + response.json()['id']).json()
+    assert job['status'] == 'done', job
+    output = s.get('alice', job['result_asset_id'])
+    assert output['duration'] == pytest.approx(62, abs=.06)
+    path = m._path('alice', output['local_file'])
+    audio = subprocess.run([ff, '-v', 'error', '-i', str(path), '-map', '0:a:0', '-ac', '1', '-ar', '8000',
+                            '-f', 's16le', '-'], check=True, capture_output=True).stdout
+
+    def tone(start, end, frequency):
+        chunk = audio[round(start * 8000) * 2:round(end * 8000) * 2]
+        values = struct.unpack('<' + 'h' * (len(chunk) // 2), chunk)
+        return abs(sum(value * complex(math.cos(2 * math.pi * frequency * i / 8000),
+                                      -math.sin(2 * math.pi * frequency * i / 8000))
+                       for i, value in enumerate(values))) / len(values)
+
+    assert tone(.255, .355, 880) < 20
+    assert tone(.395, .495, 880) > 100
+    assert tone(60.255, 60.355, 880) > 100
+    assert tone(60.395, 60.495, 880) < 20
+    assert max(tone(.395, .495, 660), tone(60.255, 60.355, 1100)) < 20
+    assert min(tone(.255, .355, 440), tone(.395, .495, 440), tone(60.395, 60.495, 440)) > 100
+    assert hashlib.sha256(m._path('alice', s.get('alice', music['id'])['local_file']).read_bytes()).digest() == hashlib.sha256(music_file.read_bytes()).digest()
+
+
+def test_music_clip_cannot_read_past_source_and_clamps_to_shortened_film(studio):
+    main = picture()
+    audio, _ = media('audio')
+    config = {'scenes': [{'asset_id': main['id'], 'length': 2}],
+              'music': {'asset_id': audio['id'], 'trim': 1, 'start': 1.5, 'length': 2}}
+    resolved = lc._validated('alice', config)
+    assert resolved['music']['length'] == .5
+    assert config['music']['length'] == 2
+    config['music']['length'] = 2.1
+    with pytest.raises(ValueError, match='裁剪超出素材时长'):
+        lc._validated('alice', config)
+
+
 def test_playback_speed_preserves_all_timeline_relationships(studio):
     """Real export: all source-clock overlays and speech move together."""
     main, source = media('video', color='blue', length=3)

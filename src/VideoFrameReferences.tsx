@@ -1,4 +1,4 @@
-import {useRef,useState,type DragEvent} from 'react';
+import {useEffect,useRef,useState,type DragEvent} from 'react';
 import {Image as ImageIcon,UploadCloud,X,ArrowLeftRight} from 'lucide-react';
 import {api} from './api';
 import {AssetThumbnail} from './AssetPicker';
@@ -11,6 +11,8 @@ export default function VideoFrameReferences(props:any){
  const {draft,model,assets,update,reload,busy}=props;
  const [uploading,setUploading]=useState(''),[error,setError]=useState(''),[added,setAdded]=useState<any[]>([]);
  const file=useRef<HTMLInputElement>(null),target=useRef('first_frame'),lock=useRef(false),latest=useRef(props);latest.current=props;
+ const mounted=useRef(true);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
  const slots=videoFrameSlots(draft.inputs),refs=videoFrameRefs(draft.inputs);
  const roles=draft.inputs.reference_mode==='first_frame'?['first_frame']:['first_frame','last_frame'];
  const allAssets=[...assets,...added.filter(a=>!assets.some((x:any)=>x.id===a.id))];
@@ -34,6 +36,7 @@ export default function VideoFrameReferences(props:any){
   const image=files[0];if(!image.type.startsWith('image/')&&!/\.(png|jpe?g|webp|bmp|tiff?|gif)$/i.test(image.name)){setError('首帧和尾帧只接受图片文件。');return}
   const started={model:draft.model_id,mode:draft.inputs.reference_mode,id:draft.id};lock.current=true;setUploading(role);setError('');
   try{const data=new FormData();data.append('file',image);const result=await api('/studio/upload',data),asset=result.asset||result;if(!asset.id)throw Error('图片上传未返回素材编号');setAdded(items=>[asset,...items]);void reload([asset]).catch(()=>{});
+   if(!mounted.current)return;
    const current=latest.current.draft;if(current.id!==started.id||current.model_id!==started.model||current.inputs.reference_mode!==started.mode){setError('图片已保存到素材库；创作方式已切换，请在当前页面重新选择。');return}changeSlot(role,{id:asset.id});
   }catch(cause){setError((cause as Error).message)}finally{lock.current=false;setUploading('');if(file.current)file.current.value=''}
  };
@@ -41,7 +44,7 @@ export default function VideoFrameReferences(props:any){
  const extras=[...refs.filter(r=>!roles.map(role=>slots[role]).includes(videoFrameKey(r))).map(r=>({kind:'image',...r})),...(draft.inputs.video_ids||[]).map((id:string)=>({kind:'video',id})),...(draft.inputs.audio_ids||[]).map((id:string)=>({kind:'audio',id})),...(draft.inputs.remote_references||[]).filter((r:any)=>r.kind!=='image')];
  const removeExtra=(ref:any)=>{const frame_slots=Object.fromEntries(Object.entries(slots).map(([role,key])=>[role,ref.kind==='image'&&key===videoFrameKey(ref)?'':key]));if(ref.id){const key=ref.kind+'_ids',ids=(draft.inputs[key]||[]).filter((id:string)=>id!==ref.id);update({[key]:ids,...(ref.kind==='image'?{image_id:ids[0]||'',frame_slots}:{})})}else update({remote_references:(draft.inputs.remote_references||[]).filter((r:any)=>r.kind!==ref.kind||r.url!==ref.url),frame_slots})};
  return <section className="video-frame-references" aria-label="首尾帧图片选择">
-  <header><strong>{roles.length===2?'首尾画面':'开场画面'}</strong><small>上传图片，或直接从右侧素材库拖入</small></header>
+  <header><strong>{roles.length===2?'首尾画面':'开场画面'}</strong><small>上传、拖入文件或从素材库选择</small></header>
   <div className="video-frame-grid">{roles.map((role,index)=>{const ref=refs.find(r=>videoFrameKey(r)===slots[role]),asset=ref?.id?allAssets.find(a=>a.id===ref.id):null;return <article className="video-frame-slot" key={role} onDragOver={e=>e.preventDefault()} onDrop={e=>drop(e,role)} aria-label={label(role)+'图片'}>
    <div className="video-frame-title"><b>{index+1<10?'0'+(index+1):index+1}</b><div><strong>{label(role)}</strong><small>{role==='first_frame'?'视频开始时的画面':'视频结束时的画面'}</small></div>{ref&&<button type="button" aria-label={'移除'+label(role)+'图片'} disabled={busy||!!uploading} onClick={()=>changeSlot(role,null)}><X size={15}/></button>}</div>
    <div className={'video-frame-preview'+(ref?' selected':'')}>{asset?<AssetThumbnail asset={asset}/>:ref?<span>已选择外部图片<br/>{ref.title||ref.url}</span>:<><ImageIcon size={27}/><span>{'添加'+label(role)+'图片'}</span></>}</div>

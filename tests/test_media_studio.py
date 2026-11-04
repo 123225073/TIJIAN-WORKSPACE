@@ -57,6 +57,31 @@ def configure(client, provider='aliyun'):
     return m._service(provider)
 
 
+def test_video_prompt_library_saves_owned_versioned_prompts(studio):
+    endpoint = '/api/studio/video-prompts'
+    fields = {'title': '现场讲解', 'category': '我的常用', 'body': '先给轿厢全景，再切到面板。'}
+    assert studio.post(endpoint, json={**fields, 'body': '  '}).status_code == 400
+    response = studio.post(endpoint, json=fields)
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    url = endpoint + '/' + saved['id']
+    assert studio.get(endpoint).json()['items'] == [saved]
+    foreign = {'authorization': 'Bearer bob'}
+    assert studio.get(endpoint, headers=foreign).json()['items'] == []
+    assert studio.patch(url, json={**fields, 'version': saved['version']}, headers=foreign).status_code == 404
+
+    updated = studio.patch(url, json={**fields, 'title': '面板讲解', 'version': saved['version']})
+    assert updated.status_code == 200, updated.text
+    current = updated.json()
+    assert current['title'] == '面板讲解'
+    assert studio.post(url + '/archive', json={'version': saved['version']}).status_code == 409
+    assert studio.get(endpoint).json()['items'] == [current]
+
+    assert studio.post(url + '/archive', json={'version': current['version']}).status_code == 200
+    assert studio.get(endpoint).json()['items'] == []
+    assert s.get('alice', saved['id'])['archived'] is True
+
+
 def png():
     value = io.BytesIO()
     Image.new('RGB', (256, 256), 'green').save(value, format='PNG')
@@ -84,7 +109,56 @@ def resource(kind, service, owner='alice'):
                  'provider_resource_id': kind + '-provider-id', 'compat': m.COMPAT[kind], 'service_scope': m._scope('hifly', service)})
 
 
+def test_failed_video_retry_uses_original_snapshot_and_delete_hides_only_record(studio, monkeypatch):
+    service = configure(studio, 'hifly')
+    inputs = {'text': '原口播稿', 'voice_id': resource('voice', service)['id'],
+              'avatar_id': resource('avatar', service)['id']}
+    original_draft = draft(studio, 'text_avatar', inputs)
+    calls = []
+
+    def request(method, url, **kwargs):
+        assert method == 'POST' and url.endswith('/video/create_by_tts')
+        calls.append(kwargs['payload']['text'])
+        return {'code': 1005} if len(calls) == 1 else {'code': 0, 'task_id': 'retry-vendor-task'}
+
+    monkeypatch.setattr(m, '_request', request)
+    failed = submit(studio, original_draft).json()
+    assert failed['status'] == 'failed' and failed['can_delete_failure'] and failed['can_retry_failure']
+    endpoint = '/api/studio/runs/' + failed['id']
+    foreign = {'authorization': 'Bearer bob'}
+    assert studio.post(endpoint + '/retry', json={'confirmed': True}, headers=foreign).status_code == 404
+    assert studio.delete(endpoint, headers=foreign).status_code == 404
+    assert studio.post(endpoint + '/retry', json={'confirmed': False}).status_code == 400
+
+    updated = studio.patch('/api/studio/drafts/' + original_draft['id'], json={
+        'tool': 'text_avatar', 'title': '编辑后的草稿', 'input': {**inputs, 'text': '后续编辑的稿件'},
+        'options': {}, 'version': original_draft['version']})
+    assert updated.status_code == 200, updated.text
+    with ThreadPoolExecutor(2) as pool:
+        responses = list(pool.map(lambda _: studio.post(endpoint + '/retry', json={'confirmed': True}), range(2)))
+    assert all(response.status_code == 200 for response in responses), [response.text for response in responses]
+    retry, duplicate = [response.json() for response in responses]
+    assert retry['id'] == duplicate['id'] and retry['id'] != failed['id']
+    assert calls == ['原口播稿', '原口播稿']
+    rows = studio.get('/api/studio/runs').json()['items']
+    assert next(row for row in rows if row['id'] == failed['id'])['retry_run_id'] == retry['id']
+    assert studio.delete('/api/studio/runs/' + retry['id']).status_code == 409
+    m._update('alice', retry['id'], status='unknown')
+    assert studio.post('/api/studio/runs/' + retry['id'] + '/retry', json={'confirmed': True}).status_code == 409
+    assert studio.delete('/api/studio/runs/' + retry['id']).status_code == 409
+
+    assert studio.delete(endpoint).status_code == 200
+    assert studio.delete(endpoint).status_code == 200
+    assert [row['id'] for row in studio.get('/api/studio/runs').json()['items']] == [retry['id']]
+    assert submit(studio, original_draft).json()['archived'] is True
+    assert len(calls) == 2
+    assert s.get('alice', original_draft['id'])['input']['text'] == '后续编辑的稿件'
+    assert len(s.list_('alice', 'studio_asset')) == 2
+
+
 def test_seedance_reference_limits_and_draft_round_trip(studio):
+    for model_id in ('ark-seedance-20', 'ark-seedance-25'):
+        m.media_registry.save_model({'id': model_id, 'published': True})
     images = [asset(studio)['id'] for _ in range(10)]
     body = {'tool': 'image_video', 'title': '多参考视频', 'model_id': 'media:ark-seedance-20',
             'input': {'prompt': '电梯门开启，保持产品外观', 'image_id': images[0], 'image_ids': images[:9]}, 'options': {}}

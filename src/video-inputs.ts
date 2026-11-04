@@ -24,8 +24,16 @@ export function videoReferenceCounts(inputs:any){
  ])) as Record<'image'|'video'|'audio',number>;
 }
 export function videoInputIssue(draft:any,model:any):string {
- if(model?.provider!=='ark'||draft.inputs.draft_run)return '';
+ const h3=model?.provider==='oairegbox';
+ if(!supportsVideoModes(model)||(!h3&&draft.inputs.draft_run))return '';
  const input=draft.inputs,mode=input.reference_mode||'reference',n=videoReferenceCounts(input);
+ if(h3){
+  if(n.video&&!model.reference_limits?.video)return '当前 MiniMax H3 标准版不支持参考视频，请切换到 H3 Pro 或移除参考视频。';
+  if(!input.prompt?.trim()||Array.from(input.prompt.trim()).length>7000)return '请填写 7000 字以内的 MiniMax H3 提示词。';
+  if(!Object.values(n).some(Boolean)&&draft.options?.ratio==='adaptive')return '无参考素材时，请选择明确的画面比例。';
+  if(n.audio&&!n.image)return '参考音频需要搭配至少一张参考图片。';
+  if(input.remote_references?.some((ref:any)=>!ref.url?.startsWith('https://')))return 'OAIREGBOX 参考素材链接须使用公开 HTTPS 地址，请替换旧链接。';
+ }
  if(model.modes&&!model.modes.includes(mode))return '当前模型不支持此创作方式，请重新选择。';
  if(model.family==='seedance-2.5'&&['first_frame','first_last_frame','edit','extend'].includes(mode)&&draft.options?.ratio&&draft.options.ratio!=='adaptive')return '旧草稿的比例与当前方式不一致，请重新点击当前创作方式，恢复按素材比例生成。';
  if(mode==='edit'&&draft.options?.duration!==undefined&&draft.options.duration!==-1)return '编辑视频需要沿用原片时长，请重新点击“编辑视频”恢复智能时长。';
@@ -42,11 +50,13 @@ export function videoInputIssue(draft:any,model:any):string {
  if(model.family!=='seedance-2.5'&&n.audio&&!n.image&&!n.video)return '当前模型的音频参考需要同时加入图片或视频。';
  const limits=model.reference_limits||{};
  if((['image','video','audio'] as const).some(k=>n[k]>(limits[k]||0)))return '参考素材超过当前模型上限，请移除多余素材。';
- if(n.video&&!model.storage_ready&&input.video_ids?.length)return '本地视频参考需要管理员配置视频素材存储；草稿和素材已保留。';
+ if(!h3&&n.video&&!model.storage_ready&&input.video_ids?.length)return '本地视频参考需要管理员配置视频素材存储；草稿和素材已保留。';
  return '';
 }
+export const supportsVideoModes=(model:any)=>['ark','oairegbox'].includes(model?.provider);
+
 export function videoReferenceModel(draft:any,model:any){
- if(model?.provider!=='ark')return model;
+ if(!supportsVideoModes(model))return model;
  const mode=draft.inputs.reference_mode||'reference',counts=videoReferenceCounts(draft.inputs);
  const limits={...model.reference_limits};
  if(['text','first_frame','first_last_frame'].includes(mode)){
@@ -56,16 +66,8 @@ export function videoReferenceModel(draft:any,model:any){
    limits[kind]=Math.max(Math.min(model.reference_limits?.[kind]||0,required),counts[kind as keyof typeof counts]);
   }
  }
+ if(model.provider==='oairegbox'&&mode==='reference'){
+  for(const kind of ['image','video','audio'] as const)limits[kind]=Math.max(limits[kind]||0,counts[kind]);
+ }
  return {...model,reference_limits:limits};
-}
-// Studio's scenario callback can use this patch without creating a new draft,
-// resetting options, or replacing references already selected in the workbench.
-export function videoScenarioPatch(inputs:any,prompt:string,imageId:string,scenario:string,videoId:string){
- const add=(ids:string[]|undefined,id:string)=>Array.from(new Set([...(ids||[]),...(id?[id]:[])]));
- const image_ids=add(inputs.image_ids?.length?inputs.image_ids:inputs.image_id?[inputs.image_id]:[],imageId);
- const video_ids=add(inputs.video_ids,scenario==='remix'?videoId:'');
- const hasReferences=image_ids.length||video_ids.length||inputs.audio_ids?.length||inputs.remote_references?.length;
- const templateHasMedia=!!imageId||(scenario==='remix'&&!!videoId);
- const reference_mode=templateHasMedia?'reference':inputs.reference_mode||(hasReferences?'reference':'text');
- return {prompt,image_ids,image_id:image_ids[0]||'',video_ids,reference_mode};
 }

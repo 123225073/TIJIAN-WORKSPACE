@@ -24,13 +24,14 @@ const kinds = [
  {kind:'audio', label:'参考音频', icon:AudioLines, accept:'audio/*'},
 ] as const;
 
-export default function MediaReferences({draft, model, assets, update, reload, busy}:{
+export default function MediaReferences({draft, model, assets, update, reload, busy, library=false}:{
  draft:any;
  model:any;
  assets:Asset[];
  update:(values:any)=>void;
  reload:(added?:Asset[])=>Promise<void>;
  busy:boolean;
+ library?:boolean;
 }) {
  const [error,setError]=useState('');
  const [uploading,setUploading]=useState(false);
@@ -43,10 +44,12 @@ export default function MediaReferences({draft, model, assets, update, reload, b
  const uploadKind=useRef<Kind>('image');
  const latest=useRef({draft,model,update});
  latest.current={draft,model,update};
+ const mounted=useRef(true);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
  const limits:Partial<Record<Kind,number>>=model?.reference_limits||{};
- const ark=model?.provider==='ark',remote=draft.inputs.remote_references||[];
+ const ark=model?.provider==='ark',h3=model?.provider==='oairegbox',remote=draft.inputs.remote_references||[];
  const remoteCount=(kind:Kind)=>(remote as any[]).filter(r=>r.kind===kind).length;
- const addRemote=()=>{const value=remoteUrl.trim();if(!/^https:\/\/[^\s]+$/.test(value)&&!/^asset:\/\/[A-Za-z0-9_-]+$/.test(value)){setError('请输入公开HTTPS地址或官方asset://素材ID');return}if(selected(remoteKind).length+remoteCount(remoteKind)>=(limits[remoteKind]||0)){setError('已达到当前模型参考素材上限');return}update({remote_references:[...remote,{kind:remoteKind,url:value,title:value.startsWith('asset:')?'方舟素材 '+value.slice(8):'外部'+kinds.find(k=>k.kind===remoteKind)?.label}]});setRemoteUrl('');setError('')};
+ const addRemote=()=>{const value=remoteUrl.trim();if(!/^https:\/\/[^\s]+$/.test(value)&&!(ark&&/^asset:\/\/[A-Za-z0-9_-]+$/.test(value))){setError(ark?'请输入公开 HTTPS 地址或方舟素材 ID':'请输入公开 HTTPS 素材地址');return}if(selected(remoteKind).length+remoteCount(remoteKind)>=(limits[remoteKind]||0)){setError('已达到当前模型参考素材上限');return}update({remote_references:[...remote,{kind:remoteKind,url:value,title:value.startsWith('asset:')?'方舟素材 '+value.slice(8):'外部'+kinds.find(k=>k.kind===remoteKind)?.label}]});setRemoteUrl('');setError('')};
 
  const selected=(kind:Kind,current=draft):string[]=>{
   const ids=current.inputs[kind+'_ids'];
@@ -76,6 +79,8 @@ export default function MediaReferences({draft, model, assets, update, reload, b
   if(!files.length||uploadLock.current)return;
   uploadLock.current=true;
   const startedWithModel=draft.model_id;
+  const startedWithMode=draft.inputs.reference_mode;
+  const startedDraft=draft.id;
   setUploading(true);
   setError('');
   const uploaded:string[]=[],uploadedAssets:Asset[]=[];
@@ -84,10 +89,11 @@ export default function MediaReferences({draft, model, assets, update, reload, b
    // Render the returned files immediately; a slow library refresh must not
    // hold the selected references or keep the upload controls locked.
    void reload(uploadedAssets).catch(()=>{});
+   if(!mounted.current)return;
    const {draft:current,model:currentModel}=latest.current;
-   if(current.model_id!==startedWithModel){
+   if(current.id!==startedDraft||current.model_id!==startedWithModel||current.inputs.reference_mode!==startedWithMode){
     setProgress('上传完成，文件已保存在素材库');
-    setError('上传期间切换了模型，文件未自动加入参考素材。请在当前模型下重新选择。');
+    setError('上传期间草稿或视频设置发生变化，请从素材库重新选择。');
     return;
    }
    const ids=selected(kind,current);
@@ -164,7 +170,10 @@ export default function MediaReferences({draft, model, assets, update, reload, b
      onDragLeave={()=>setDragging(null)} onDrop={e=>drop(e,kind)}>
      <UploadCloud size={17}/><span>{uploading&&uploadKind.current===kind?'上传中…':'上传'+(kind==='image'?'图片':kind==='video'?'视频':'音频')}</span>
     </button>{kind==='image'&&<button ref={pasteButton} type="button" className="media-refs-paste" aria-label="粘贴截图或图片" disabled={busy||uploading||selected(kind).length>=(limits[kind]||0)} onClick={()=>void pasteFromButton()} title="复制图片后点击；也可聚焦此按钮后按 Ctrl+V"><ClipboardPaste size={16}/><span>粘贴图片</span><kbd>Ctrl+V</kbd></button>}</div>
-    <p className="media-refs-hint">{kind==='image'?'支持拖入图片，也可按 Ctrl+V 粘贴':'支持拖入本地文件或素材库素材'}</p>
+    {library?<select className="video-library-select" aria-label={'从素材库选择'+label} value="" disabled={busy||uploading||selected(kind).length+remoteCount(kind)>=(limits[kind]||0)} onChange={e=>add(kind,e.target.value)}>
+     <option value="">从素材库选择{label}</option>
+     {assets.filter(asset=>asset.asset_type===kind&&asset.status==='ready'&&!selected(kind).includes(asset.id)).map(asset=><option key={asset.id} value={asset.id}>{asset.title||asset.name||'未命名素材'}</option>)}
+    </select>:<p className="media-refs-hint">{kind==='image'?'支持拖入图片，也可按 Ctrl+V 粘贴':'支持拖入本地文件或素材库素材'}</p>}
     <div className="media-refs-selected">{selected(kind).map((id,i)=>{
      const asset=assets.find(a=>a.id===id);
      return <div className={'media-ref-card '+kind} key={id} title={asset?.title||id}>
@@ -178,7 +187,7 @@ export default function MediaReferences({draft, model, assets, update, reload, b
     })}</div>
    </div>)}
    <input ref={input} hidden type="file" multiple onChange={e=>void upload(Array.from(e.target.files||[]),uploadKind.current)}/>
-   {ark?<><div className="ark-link-input"><select aria-label="方舟外部素材类型" value={remoteKind} onChange={e=>setRemoteKind(e.target.value as Kind)}>{kinds.map(k=><option key={k.kind} value={k.kind}>{k.label}</option>)}</select><input aria-label="方舟素材地址" value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="HTTPS地址或asset://素材ID"/><button type="button" disabled={busy||!remoteUrl.trim()} onClick={addRemote}>添加</button></div><div className="media-refs-selected">{remote.map((r:any,i:number)=><div key={i}><span>{r.title}</span><button type="button" aria-label={'移除外部素材'+(i+1)} onClick={()=>update({remote_references:remote.filter((_:any,n:number)=>n!==i)})}><X size={13}/></button></div>)}</div><p>提示词中可用 @image1 / @video1 / @audio1 指定对应素材。视频与音频各自总时长不超过{model?.reference_limits?.duration||30}秒。{!model.storage_ready?'本地视频参考需管理员配置火山TOS；图片和音频可直接使用。':''}</p><a href="https://docs.volcengine.com/docs/ark/seedance-portrait-asset-guide?lang=zh" target="_blank" rel="noreferrer">真人肖像素材请使用官方授权素材库 ↗</a></>:<p>数量由当前模型决定；中转平台可能设置更低上限。生成前会再次检查。</p>}
+   {(ark||h3)?<><div className="ark-link-input"><select aria-label={ark?"方舟外部素材类型":"外部素材类型"} value={remoteKind} onChange={e=>setRemoteKind(e.target.value as Kind)}>{kinds.map(k=><option key={k.kind} value={k.kind}>{k.label}</option>)}</select><input aria-label={ark?"方舟素材地址":"外部素材地址"} value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder={ark?"HTTPS地址或asset://素材ID":"公开 HTTPS 地址"}/><button type="button" disabled={busy||!remoteUrl.trim()} onClick={addRemote}>添加</button></div><div className="media-refs-selected">{remote.map((r:any,i:number)=><div key={i}><span>{r.title}</span><button type="button" aria-label={'移除外部素材'+(i+1)} onClick={()=>update({remote_references:remote.filter((_:any,n:number)=>n!==i)})}><X size={13}/></button></div>)}</div>{h3?<p>图片支持 PNG、JPEG、WebP。音频支持 MP3、WAV，须搭配参考图，合计最多 15 秒。{model.reference_limits?.video?'参考视频支持 MP4、MOV，限 1 段 2–5 秒。':'参考视频请使用 H3 Pro。'}</p>:<><p>提示词中可用 @image1 / @video1 / @audio1 指定对应素材。视频与音频各自总时长不超过{model?.reference_limits?.duration||30}秒。{!model.storage_ready?'本地视频参考需管理员配置火山TOS；图片和音频可直接使用。':''}</p><a href="https://docs.volcengine.com/docs/ark/seedance-portrait-asset-guide?lang=zh" target="_blank" rel="noreferrer">真人肖像素材请使用官方授权素材库 ↗</a></>}</>:<p>数量由当前模型决定；中转平台可能设置更低上限。生成前会再次检查。</p>}
   </>}
   {progress&&<p className="media-refs-progress" role="status">{uploading&&<LoaderCircle className="spin" size={14}/>} {progress}</p>}
   {error&&<p className="mw-error" role="alert">{error}</p>}

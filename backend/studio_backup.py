@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import UploadFile
 from . import media_studio as media, store as s
 
-KINDS={'studio_flow','studio_interview','studio_brand','studio_text_draft','studio_profile_proposal','studio_draft','studio_run','studio_asset','benchmark_api_account','benchmark_api_item','benchmark_api_analysis'}
+KINDS={'studio_flow','studio_interview','studio_brand','studio_text_draft','studio_profile_proposal','studio_draft','studio_run','studio_asset','studio_video_prompt','benchmark_api_account','benchmark_api_item','benchmark_api_analysis'}
 LIMIT=95_000_000
 
 def export(owner,records,archive):

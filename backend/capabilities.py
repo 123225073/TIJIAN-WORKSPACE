@@ -29,8 +29,19 @@ Skills 是管理员审核的文本方法。根据本次任务与平台采用适�
  'knowledge':'你是知识整理员。提炼有来源、适用范围和有效时间的候选知识，不把 AI 建议当作事实，遵守请求中的 JSON 输出结构。',
 }
 
+VIDEO_PROMPT_ROLE = 'role:video_prompt_optimize'
+VIDEO_PROMPT_METHOD = '''你负责把电梯行业 IP 的口播配画、产品展示、现场记录或知识讲解构想，改写成视频生成模型可直接执行的镜头提示词。先确定这段画面要让观众看懂什么，再选择能表达这个重点的主体、动作和镜头。用户明确的目的、事实、台词、素材用途和限制优先。其他行业的题材沿用同一镜头方法，保持原主题。
+
+按播放顺序写画面：开场交代主体与环境，随后写看得见的关键动作和镜头变化，最后让动作自然落点或留出后续剪接的余量。短片优先用一个清楚的主镜头和少量动作；只有在内容需要时才切镜。每段交代是谁或什么在做什么、相对位置如何变化、镜头从哪里看和怎样移动。用可以看见的细节代替“高级感”“电影感”等空泛标签。竖屏优先保留主体和关键部件，给后期字幕留出干净空间；横屏注意人物与设备的空间关系。
+
+按输入的创作方式组织。首帧生视频从已选首帧的构图、主体身份与外观、空间位置和光向自然延续，重点写接下来怎么动；首尾帧描述能平滑到达尾帧的动作与机位变化；多素材按用户给定的用途关联外观、动作或声音；纯文字从原描述建立画面。只收到素材数量时，描述应遵守的约束，不猜测素材中实际有什么。全程保持前后帧一致性，避免人物变脸、部件错位、场景突然跳变。
+
+口播配画优先衬托已有文稿，用全景交代空间、近景呈现与论点相关的部件或动作，避免配画抢话或生成重复人声。明确要求人物出镜时写眼神、表情、自然手势与停顿；明确提供台词时保留原句及说话人，不自行添加台词、字幕、卖点、价格或政策。展示电梯时保持门扇、轿厢、楼层面板与人物比例连续，动作符合正常使用逻辑。维保和安全题材只把已确认事实变成画面，避免把事故演示或危险操作写成正常用法。'''
+
 def defaults():
     roles=[dict(id='role:'+k,kind='role',purpose=k,title=v,body=ROLES[k],status='published',version=1,origin='系统内置',history=[]) for k,v in PURPOSES.items()]
+    roles.insert(2, dict(id=VIDEO_PROMPT_ROLE,kind='role',purpose='prompt_optimize',title='AI 视频提示词优化',
+                        body=VIDEO_PROMPT_METHOD,status='published',version=1,origin='系统内置',history=[]))
     skills=[dict(id='skill:'+k,kind='skill',purpose=k if k in PURPOSES else 'writing',title=v[0],body=upstream.skill_text(k),status='published' if k!='style' else 'disabled',version=1,origin='Easel / '+v[1],history=[]) for k,v in upstream.SKILLS.items()]
     for item in skills:
         if item['id'] in SKILL_PLATFORMS:item['platforms']=list(SKILL_PLATFORMS[item['id']])
@@ -72,17 +83,20 @@ def restore(id,data,actor):
         if not target:raise ValueError('找不到要恢复的版本')
         return save({**target,'version':old['version']},actor)
 
-def snapshot(purpose,owner=None):
+def snapshot(purpose,owner=None,*,video=False):
     """Freeze before enqueueing. User-visible jobs store only versions/hash, never bodies."""
     with s.LOCK:
         if purpose not in PURPOSES:raise ValueError('不支持的工作类型')
         items=deepcopy(list_());base=next(x for x in items if x['id']=='role:agent')
         methods=[] if purpose=='agent' else [next(x for x in items if x['id']=='role:'+purpose)]
+        if purpose=='prompt_optimize' and video:
+            methods.append(next(x for x in items if x['id']==VIDEO_PROMPT_ROLE))
         skills=[x for x in items if x['kind']=='skill' and x['status']=='published' and x['purpose'] in [purpose,'agent','all']]
         chosen=[base]+methods+skills
         parts=[]
         for x in chosen:
-            prefix='统一 Agent 基础提示词：\n' if x is base else ('\n本次任务方法（同一助手的专业要求）：'+PURPOSES[purpose]+'\n' if x['kind']=='role' else '\n方法指导（不授予工具或执行权限）：'+x['title']+'\n')
+            label=x['title'] if x['id']==VIDEO_PROMPT_ROLE else PURPOSES[purpose]
+            prefix='统一 Agent 基础提示词：\n' if x is base else ('\n本次任务方法（同一助手的专业要求）：'+label+'\n' if x['kind']=='role' else '\n方法指导（不授予工具或执行权限）：'+x['title']+'\n')
             parts.append({'text':prefix+x['body'],'item':{'id':x['id'],'version':x['version']},
                           'platforms':x.get('platforms',SKILL_PLATFORMS.get(x['id'],[])) if purpose=='writing' and x['kind']=='skill' else []})
         suffix=''
@@ -119,9 +133,9 @@ def register(app,admin):
         return restore(id,data,u['id'])
 
     @app.get('/api/admin/capabilities/preview/{purpose}')
-    def preview(purpose:str,platform:str='',u=Depends(admin)):
+    def preview(purpose:str,platform:str='',video:bool=False,u=Depends(admin)):
         from .jobs import POLICY
-        result=snapshot(purpose,u['id'])
+        result=snapshot(purpose,u['id'],video=video)
         if platform:
             if purpose!='writing' or platform not in WRITING_PLATFORMS:raise ValueError('请选择有效的写作平台')
             result=for_platform(result,platform)

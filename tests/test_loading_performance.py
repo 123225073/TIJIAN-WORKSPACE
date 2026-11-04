@@ -120,7 +120,7 @@ def test_task_updates_include_all_outcomes_and_assets_atomically(isolated):
 
 def test_registry_choices_reads_each_config_once_and_keeps_visibility(isolated, monkeypatch):
     s.set_config('ark_video_migrated', True)
-    s.set_config(registry.PROVIDER_KEY, {'wavespeed': {'published': False}, 'ark': {'secret': 'not-a-real-key'}})
+    s.set_config(registry.PROVIDER_KEY, {'wavespeed': {'published': False}, 'oairegbox': {'secret': 'not-a-real-key'}})
     expected = []
     for m in registry.models():
         try:

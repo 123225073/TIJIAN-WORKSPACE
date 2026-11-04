@@ -20,6 +20,8 @@ const operationLabel=(path:string)=>{
  if(path.includes('/prompt')&&path.includes('optimize'))return '优化提示词';
  if(path.includes('/import/'))return '导入资料';
  if(/^\/studio\/runs\/[^/]+\/refresh$/.test(path))return '核查生成任务';
+ if(/^\/studio\/runs\/[^/]+\/retry$/.test(path))return '提交重跑请求';
+ if(/^\/studio\/runs\/[^/]+$/.test(path))return '删除失败生成记录';
  if(path.includes('/refresh'))return '获取最新资料';
  if(path.includes('/probe')||path.includes('/test'))return '测试连接';
  if(path.includes('/generate'))return '生成内容';

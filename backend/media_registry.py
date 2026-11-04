@@ -8,7 +8,7 @@ import hashlib
 import re
 import httpx
 
-from . import gateway as g, network, store as s, ark_video
+from . import gateway as g, network, store as s, ark_video, h3_video
 
 PROVIDER_KEY = 'media_registry_providers'
 MODEL_KEY = 'media_registry_models'
@@ -17,6 +17,7 @@ IMAGE_TOOLS = {'text_image', 'image_edit'}
 DIGITAL_TOOLS = {'text_avatar', 'audio_avatar', 'photo_talk', 'avatar_create'}
 TOOLS = VIDEO_TOOLS | IMAGE_TOOLS | DIGITAL_TOOLS
 FAMILIES = {
+    **{id: ('AI 视频', VIDEO_TOOLS) for id in h3_video.MODELS},
     'seedance-2.0': ('AI 视频', VIDEO_TOOLS),
     'seedance-2.5': ('AI 视频', VIDEO_TOOLS),
     'seedance-2.0-fast': ('AI 视频', VIDEO_TOOLS),
@@ -27,13 +28,15 @@ FAMILIES = {
     'heygen-avatar-v': ('数字人口播', {'text_avatar', 'audio_avatar'}),
     'heygen-avatar-v-create': ('形象克隆', {'avatar_create'}),
 }
-REFERENCE_LIMITS = {**ark_video.LIMITS, 'gpt-image-2.5-edit': {'image': 16}}
+REFERENCE_LIMITS = {**ark_video.LIMITS, **h3_video.LIMITS, 'gpt-image-2.5-edit': {'image': 16}}
 IMAGE_OPTIONS = {'aspect_ratio': ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', '2:1', '1:2', '3:1', '1:3', '9:21'], 'resolution': ['1k', '2k', '4k'], 'quality': ['low', 'medium', 'high', 'xhigh', 'max'], 'output_format': ['png', 'jpeg', 'webp']}
 IMAGE_BATCH_COUNTS = [1, 2, 3, 4]  # App limit: one separately billed prediction per image.
 
 
 def options(model):
     family = model['family']
+    if model.get('provider_id') == h3_video.PROVIDER:
+        return h3_video.OPTIONS
     if family.startswith('seedance-') and model.get('provider_id') == 'ark':
         return ark_video.options(model)
     if family.startswith('seedance-'):
@@ -45,6 +48,8 @@ def options(model):
 
 def adapter_ready(model):
     path = model.get('api_model_id', '')
+    if model.get('provider_id') == h3_video.PROVIDER:
+        return path in h3_video.MODELS and path == model['family'] == model['id']
     if model['family'].startswith('seedance-'):
         if model.get('provider_id') != 'ark':
             return model.get('provider_id') == 'wavespeed' and path in ('bytedance/seedance-2.0/text-to-video','bytedance/seedance-2.5/text-to-video')
@@ -56,11 +61,16 @@ def adapter_ready(model):
         return path in {f'openai/gpt-image-2.5-{tier}/{operation}' for tier in ('flare', 'sunburst') for operation in ('text-to-image', 'edit')} and (path.endswith('/edit') == (model['family'] == 'gpt-image-2.5-edit'))
     return False
 PRESET_PROVIDERS = [
+    {'id': h3_video.PROVIDER, 'title': 'OAIREGBOX', 'category': 'AI 视频',
+     'base_url': h3_video.BASE_URL, 'docs_url': h3_video.DOCS_URL, 'published': True},
     {'id': 'ark', 'title': '火山引擎 · 方舟官方', 'category': 'AI 视频', 'base_url': ark_video.BASE_URL, 'docs_url': 'https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh', 'published': True},
     {'id': 'segmind', 'title': 'Segmind', 'category': '数字人', 'base_url': 'https://api.segmind.com', 'docs_url': 'https://docs.segmind.com/', 'published': True},
     {'id': 'wavespeed', 'title': 'WaveSpeedAI', 'category': '图片与数字人', 'base_url': 'https://api.wavespeed.ai', 'docs_url': 'https://wavespeed.ai/docs/docs-api', 'published': True},
 ]
 PRESET_MODELS = [
+    *[{'id': id, 'provider_id': h3_video.PROVIDER, 'title': title, 'api_model_id': id,
+       'family': id, 'tools': sorted(VIDEO_TOOLS), 'published': True, 'price_per_second': price}
+      for id, (title, price) in h3_video.MODELS.items()],
     {'id': 'segmind-seedance-20', 'provider_id': 'segmind', 'title': 'Seedance 2.0', 'family': 'seedance-2.0', 'tools': ['text_video', 'image_video'], 'published': False},
     {'id': 'segmind-seedance-25', 'provider_id': 'segmind', 'title': 'Seedance 2.5', 'family': 'seedance-2.5', 'tools': ['text_video', 'image_video'], 'published': False},
     {'id': 'wavespeed-seedance-20', 'provider_id': 'wavespeed', 'title': 'Seedance 2.0', 'api_model_id': 'bytedance/seedance-2.0/text-to-video', 'family': 'seedance-2.0', 'tools': ['text_video', 'image_video'], 'published': False},
@@ -101,33 +111,32 @@ def models():
     # One-time shelving retains all account configuration and history. Shared image
     # and digital-human providers remain active. Administrators can re-enable later.
     with s.LOCK:
-        if not s.config('ark_video_migrated', False):
+        pending = {flag for flag in ('ark_video_migrated', 'h3_video_migrated', 'hifly_digital_migrated')
+                   if not s.config(flag, False)}
+        if pending:
             saved = s.config(MODEL_KEY, {})
             for model in _rows(MODEL_KEY, PRESET_MODELS):
-                if set(model.get('tools', [])) & VIDEO_TOOLS and model.get('provider_id') != 'ark':
+                tools = set(model.get('tools', []))
+                provider = model.get('provider_id')
+                shelve_video = tools & VIDEO_TOOLS and provider != h3_video.PROVIDER and (
+                    'h3_video_migrated' in pending or ('ark_video_migrated' in pending and provider != 'ark'))
+                if shelve_video or ('hifly_digital_migrated' in pending and tools & DIGITAL_TOOLS):
                     saved[model['id']] = {**saved.get(model['id'], {}), 'published': False}
             s.set_config(MODEL_KEY, saved)
-            s.set_config('ark_video_migrated', True)
-        # Reversible shelving: retain provider credentials, model rows and history.
-        if not s.config('hifly_digital_migrated', False):
-            saved = s.config(MODEL_KEY, {})
-            for model in _rows(MODEL_KEY, PRESET_MODELS):
-                if set(model.get('tools', [])) & DIGITAL_TOOLS:
-                    saved[model['id']] = {**saved.get(model['id'], {}), 'published': False}
-            s.set_config(MODEL_KEY, saved)
-            s.set_config('hifly_digital_migrated', True)
+            for flag in sorted(pending):
+                s.set_config(flag, True)
     return _rows(MODEL_KEY, PRESET_MODELS)
 
 
 def _public_provider(item):
-    return {k: v for k, v in item.items() if k not in ('secret', 'tos_access_secret', 'tos_secret')} | {'has_key': bool(item.get('secret')), 'has_tos_key': bool(item.get('tos_access_secret')), 'has_tos_secret': bool(item.get('tos_secret')), 'storage_ready': ark_video.storage_ready(item), 'adapter_ready': item['id'] in ('wavespeed', 'ark')}
+    return {k: v for k, v in item.items() if k not in ('secret', 'tos_access_secret', 'tos_secret')} | {'has_key': bool(item.get('secret')), 'has_tos_key': bool(item.get('tos_access_secret')), 'has_tos_secret': bool(item.get('tos_secret')), 'storage_ready': ark_video.storage_ready(item), 'adapter_ready': item['id'] in ('wavespeed', 'ark', h3_video.PROVIDER)}
 
 
 def catalogue():
     ps = providers()
     return {'providers': [_public_provider(p) for p in ps],
             'models': [{**m, 'category': FAMILIES[m['family']][0], 'adapter_ready': adapter_ready(m)} for m in models() if m.get('provider_id') in {p['id'] for p in ps}],
-            'notice': 'AI 视频默认使用火山方舟官方 Seedance；原中转视频模型保留并下架。配置 API Key 后可测试连接；本地视频参考需配置火山TOS。实际生成由用户确认并按官方账号计费。'}
+            'notice': 'AI 视频默认使用 OAIREGBOX MiniMax H3 标准 768P。请配置 minimax 分组 API 令牌。四款模型按秒计费，参考视频仅支持 Pro 档。'}
 
 
 def _url(value):
@@ -168,6 +177,8 @@ def save_provider(data):
         item['base_url'] = _url(data['base_url'])
     if not item.get('base_url'):
         raise RegistryError('请填写 Base URL')
+    if id == h3_video.PROVIDER and item['base_url'] != h3_video.BASE_URL:
+        raise RegistryError('请使用 OAIREGBOX 官方 API 地址')
     if id == 'ark':
         if item['base_url'] != ark_video.BASE_URL:
             raise RegistryError('AI 视频仅使用火山方舟官方北京服务地址')
@@ -219,6 +230,8 @@ def save_model(data):
     family = item.get('family')
     if family not in FAMILIES:
         raise RegistryError('模型类别不受支持')
+    if item.get('provider_id') == h3_video.PROVIDER and not adapter_ready(item):
+        raise RegistryError('OAIREGBOX 仅支持预置的四款 MiniMax H3 模型')
     if family.startswith('seedance-') and item.get('provider_id') == 'ark' and not adapter_ready(item):
         raise RegistryError('模型ID与Seedance版本不匹配；可使用对应的官方ID或ep-接入点ID')
     tools = item.get('tools')
@@ -271,6 +284,15 @@ def discover_provider(id):
     if not provider.get('secret'):
         raise RegistryError('请先配置 API Key')
     key = g.cipher().decrypt(provider['secret'].encode()).decode()
+    if id == h3_video.PROVIDER:
+        result = _request(h3_video.BASE_URL + '/v1/models', {'Authorization': 'Bearer ' + key})
+        if not isinstance(result, dict) or not isinstance(result.get('data'), list):
+            raise RegistryError('平台没有返回有效的模型目录')
+        visible = sorted({m['id'] for m in result['data'] if isinstance(m, dict)
+                          and isinstance(m.get('id'), str) and m['id'] in h3_video.MODELS})
+        note = '令牌可见型号：' + ('、'.join(visible) if visible else '无，请核对 minimax 分组')
+        return {'connected': True, 'catalogue_count': len(visible), 'added': 0,
+                'note': note + '。本次只查模型目录。'}
     if id == 'ark':
         _request(ark_video.BASE_URL + ark_video.TASKS + '?page_size=1', {'Authorization': 'Bearer ' + key})
         return {'connected': True, 'catalogue_count': 4, 'added': 0, 'note': '官方任务查询接口连接成功；模型已预置，模型开通权限和生成能力需另外验证。本次未生成视频。'}
@@ -337,5 +359,13 @@ def choices(tool):
             continue
         m = model
         ready = adapter_ready(m)
+        if p['id'] == h3_video.PROVIDER and ready:
+            out.append({'id': 'media:' + m['id'], 'title': m['title'], 'family': m['family'],
+                        'provider': p['id'], 'modes': h3_video.MODES,
+                        'reference_limits': h3_video.LIMITS[m['family']], 'options': h3_video.OPTIONS,
+                        'price_per_second': h3_video.MODELS[m['family']][1],
+                        'configured': bool(p.get('secret')), 'adapter_ready': True,
+                        'reason': '' if p.get('secret') else '请在管理后台配置 OAIREGBOX API 令牌'})
+            continue
         out.append({'id': 'media:' + m['id'], 'title': m['title'] + ' · ' + p['title'], 'family': m['family'], 'provider': p['id'], 'storage_ready': ark_video.storage_ready(p), 'modes': ark_video.MODES if m['family'] == 'seedance-2.5' else ark_video.MODES[:4] if m['family'].startswith('seedance-') else [], 'reference_limits': REFERENCE_LIMITS.get(m['family'], {}), 'options': options(m) if ready else {}, 'configured': ready and bool(p.get('secret')), 'adapter_ready': ready, 'reason': '请在管理后台配置平台 API Key' if ready and not p.get('secret') else '接口适配待完成' if not ready else ''})
     return out

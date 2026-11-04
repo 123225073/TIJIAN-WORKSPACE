@@ -33,13 +33,13 @@ try{
  page.on('pageerror',error=>pageErrors.push(error.message));
  await page.goto(base);await page.evaluate(token=>sessionStorage.setItem('tijian-session',token),auth.token);
  await page.goto(base+'/?ui=1#studio/video');
- await page.locator('.ark-scenario > summary').click();
- await page.locator('.vs-compact .vs-form').waitFor();
- await page.getByRole('button',{name:'门店引流'}).click();
- assert(await page.locator('.vs-compact').innerText().then(x=>x.includes('地址与服务亮点')&&x.includes('门店动线与画面')));
- await page.getByRole('button',{name:'爆款复刻'}).click();
- assert(await page.locator('.vs-compact').innerText().then(x=>x.includes('参考视频的结构与节奏')&&x.includes('参考视频')));
- await page.screenshot({path:path.join(dir,'video-scenarios.png')});
+ await page.getByRole('button',{name:'稍后再做',exact:true}).click();
+ await page.getByRole('button',{name:'提示词库',exact:true}).click();
+ const library=page.getByRole('dialog',{name:'视频提示词库'});
+ await library.getByLabel('搜索提示词').fill('展厅');
+ assert(await library.getByRole('button',{name:/到展厅试乘/}).isVisible());
+ await page.screenshot({path:path.join(dir,'video-prompt-library.png')});
+ await library.getByRole('button',{name:'关闭弹窗'}).click();
  await page.evaluate(()=>location.hash='studio/image');
  await page.locator('.media-refs').waitFor();
  await page.locator('.media-refs-drop').waitFor();
@@ -107,13 +107,13 @@ try{
   assert((await page.locator('.st-flow-context').innerText()).includes('第 3 步'),label+' 缺少返回主线入口');
   if(label==='AI 视频'){
    const videoRoute=new URL(page.url()).hash.slice(1);
-   await page.locator('.ark-scenario > summary').click();
-   await page.locator('.vs-actions a').click();
+   await page.getByRole('button',{name:'视频设置',exact:true}).click();
+   await page.getByRole('link',{name:'管理素材',exact:true}).click();
    await page.locator('.st-library-tabs').waitFor();
    assert((await page.locator('.st-flow-context button').innerText()).includes('返回AI 视频'));
    await page.locator('.st-flow-context button').click();
-   await page.locator('.ark-scenario > summary').click();
-   await page.locator('.vs-compact').waitFor();
+   await page.getByRole('button',{name:'视频设置',exact:true}).click();
+   await page.getByRole('dialog',{name:'视频设置',exact:true}).getByRole('button',{name:'完成设置'}).click();
    assert.equal(new URL(page.url()).hash.slice(1),videoRoute,'管理素材返回后应保留视频草稿和主线来源');
   }
   await page.locator('.st-flow-context button').click();
@@ -195,5 +195,5 @@ try{
  assert.equal(await page.locator('.reference-picker').count(),0);
  assert(!await page.locator('body').innerText().then(x=>x.includes('全选全部模块')));
  assert(!pageErrors.some(x=>/ReferenceError|TypeError|Minified React|Maximum update depth/.test(x)),pageErrors.join('\n'));
- console.log(JSON.stringify({passed:true,checks:['scenario-specific video inputs','reference upload stays in generation and edit preview works','cover generation and draft return','six creation tools and nested assets return to correct flow','simple delivery form persistence','independent work records','simple AI chat reference selection','fast flow shell without duplicate workspace requests'],flowVisibleMs,dir,pageErrors}));
+ console.log(JSON.stringify({passed:true,checks:['classified video prompt library','reference upload stays in generation and edit preview works','cover generation and draft return','six creation tools and nested assets return to correct flow','simple delivery form persistence','independent work records','simple AI chat reference selection','fast flow shell without duplicate workspace requests'],flowVisibleMs,dir,pageErrors}));
 }catch(error){if(browser){const page=browser.contexts()[0]?.pages()[0];if(page){console.error('Isolated flow diagnostics:',JSON.stringify({hash:new URL(page.url()).hash,alerts:await page.getByRole('alert').allInnerTexts(),statuses:await page.getByRole('status').allInnerTexts(),results:await page.locator('.mw-result-card header').allInnerTexts()}));await page.screenshot({path:path.join(dir,'failure.png')})}}throw error}finally{if(browser)await browser.close();service.kill()}

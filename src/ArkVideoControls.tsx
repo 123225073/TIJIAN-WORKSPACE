@@ -3,9 +3,10 @@ import {videoModes} from './video-inputs';
 
 export default function ArkVideoControls({draft,model,update,changeOptions,busy,section='main'}:{draft:any;model:any;update:(v:any)=>void;changeOptions:(k:string,v:any)=>void;busy:boolean;section?:'main'|'settings'}){
  const mode=draft.inputs.reference_mode||'reference',opts=draft.options||{},latest=model?.family==='seedance-2.5';
+ const h3=model?.provider==='oairegbox';
  const locked=latest&&['first_frame','first_last_frame','edit','extend'].includes(mode);
  const available=model?.options||{},supported=model?.modes||['text','reference','first_frame','first_last_frame'];
- const setMode=(next:string)=>{update({reference_mode:next,...(next!==mode&&!(['first_frame','first_last_frame'].includes(mode)&&['first_frame','first_last_frame'].includes(next))?{frame_slots:undefined}:{})});if(latest&&['first_frame','first_last_frame','edit','extend'].includes(next))changeOptions('ratio','adaptive');if(next==='edit')changeOptions('duration',-1)};
+ const setMode=(next:string)=>{update({reference_mode:next,...(next!==mode&&!(['first_frame','first_last_frame'].includes(mode)&&['first_frame','first_last_frame'].includes(next))?{frame_slots:undefined}:{})});if(latest&&['first_frame','first_last_frame','edit','extend'].includes(next))changeOptions('ratio','adaptive');if(h3&&next==='text'&&opts.ratio==='adaptive')changeOptions('ratio','16:9');if(next==='edit')changeOptions('duration',-1)};
  const toggle=(key:string,label:string,defaultValue=false)=><label className="ark-toggle"><input type="checkbox" disabled={busy} checked={opts[key]??defaultValue} onChange={e=>changeOptions(key,e.target.checked)}/>{label}</label>;
  const modeButton=(m:string)=><button key={m} type="button" disabled={busy} aria-pressed={m===mode} onClick={()=>setMode(m)}>{videoModes[m]?.label||m}</button>;
  if(section==='main')return <section className="ark-controls video-simple-controls" aria-label="视频创作方式与输出">
@@ -15,12 +16,13 @@ export default function ArkVideoControls({draft,model,update,changeOptions,busy,
    {supported.some((m:string)=>['edit','extend'].includes(m))&&<details className="video-existing-modes" open={['edit','extend'].includes(mode)||undefined}><summary>修改已有视频{['edit','extend'].includes(mode)?' · '+videoModes[mode].label:''}</summary><div className="ark-modes">{supported.filter((m:string)=>['edit','extend'].includes(m)).map(modeButton)}</div></details>}
    <p className="video-mode-hint">{videoModes[mode]?.hint}</p>
    <div className="ark-basic-grid">
-    <label>画面比例<select aria-label="视频画面比例" disabled={busy||locked} value={locked?'adaptive':opts.ratio||'adaptive'} onChange={e=>changeOptions('ratio',e.target.value)}>{(available.ratio||['adaptive']).map((v:string)=><option key={v} value={v}>{({adaptive:'自动适配', '9:16':'竖屏 · 9:16','16:9':'横屏 · 16:9','1:1':'方形 · 1:1'} as Record<string,string>)[v]||v}</option>)}</select></label>
-    <label>时长<select aria-label="视频时长" disabled={busy||mode==='edit'} value={mode==='edit'?-1:opts.duration??-1} onChange={e=>changeOptions('duration',Number(e.target.value))}>{(available.duration||[-1]).map((v:number)=><option key={v} value={v}>{v===-1?'智能选择':v+' 秒'}</option>)}</select></label>
+    <label>画面比例<select aria-label="视频画面比例" disabled={busy||locked} value={locked?'adaptive':opts.ratio||(h3?'16:9':'adaptive')} onChange={e=>changeOptions('ratio',e.target.value)}>{(available.ratio||['adaptive']).filter((v:string)=>!h3||mode!=='text'||v!=='adaptive').map((v:string)=><option key={v} value={v}>{({adaptive:'自动适配', '9:16':'竖屏 · 9:16','16:9':'横屏 · 16:9','1:1':'方形 · 1:1'} as Record<string,string>)[v]||v}</option>)}</select></label>
+    <label>时长<select aria-label="视频时长" disabled={busy||mode==='edit'} value={mode==='edit'?-1:opts.duration??(h3?5:-1)} onChange={e=>changeOptions('duration',Number(e.target.value))}>{(available.duration||[-1]).map((v:number)=><option key={v} value={v}>{v===-1?'智能选择':v+' 秒'}</option>)}</select></label>
    </div>{locked&&<p>保持首帧或原视频比例。{mode==='edit'?'时长沿用原片。':''}</p>}
   </>}
   {opts.draft&&<p>当前为样片模式；样片与正式视频分别计费。</p>}
  </section>;
+ if(h3)return <p className="video-mode-hint">分辨率由型号决定，成片包含原生音频。{model.reference_limits?.video?'支持 1 段 2–5 秒的参考视频。':'参考视频仅支持 H3 Pro。'}</p>;
  return <section className="ark-controls video-detail-controls" aria-label="视频模型参数">
   <div className="ark-basic-grid">
    <label>分辨率<select aria-label="视频分辨率" disabled={busy||opts.draft} value={opts.draft?'480p':opts.resolution||'720p'} onChange={e=>changeOptions('resolution',e.target.value)}>{(available.resolution||[]).map((v:string)=><option key={v}>{v}</option>)}</select></label>

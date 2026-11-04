@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 import pytest
 from PIL import Image
-from backend import ark_video as ark, media_registry as registry, media_studio as m, store as s, gateway as g
+from backend import ark_video as ark, h3_video, media_registry as registry, media_studio as m, store as s, gateway as g
 from test_media_studio import studio, submit
 
 
@@ -27,6 +27,7 @@ def save(client,inputs=None,options=None,mid=ark.DEFAULT_MODEL):
 
 
 def configured():
+    registry.save_model({'id': ark.DEFAULT_MODEL.removeprefix('media:'), 'published': True})
     return registry.save_provider({'id':'ark','api_key':'isolated-ark-test-key'})
 
 
@@ -36,8 +37,9 @@ def test_default_binding_shelves_but_retains_legacy_configuration(studio):
     s.set_config(registry.MODEL_KEY,{'wavespeed-seedance-25':{'published':True}})
     s.set_config('bindings',{'text_video':'media:wavespeed-seedance-25','image_edit':'media:wavespeed-gpt-image-25-flare-edit','writing':'custom-text'})
     catalog=studio.get('/api/studio/catalog').json()
-    assert next(t for t in catalog['tools'] if t['id']=='text_video')['binding']==ark.DEFAULT_MODEL
-    assert all(x['provider']=='ark' for x in next(t for t in catalog['tools'] if t['id']=='text_video')['models'])
+    video = next(t for t in catalog['tools'] if t['id'] == 'text_video')
+    assert video['binding'] == h3_video.DEFAULT_MODEL
+    assert {x['family'] for x in video['models']} == set(h3_video.MODELS)
     assert not next(v for v in registry.models() if v['id']=='wavespeed-seedance-25')['published']
     assert s.config(registry.PROVIDER_KEY)['wavespeed']['secret']==secret
     assert s.config('bindings')['image_edit']=='media:wavespeed-gpt-image-25-flare-edit'
@@ -118,6 +120,7 @@ def test_invalid_explicit_frame_slots_are_rejected(slots):
 
 
 def test_frame_slots_roundtrip_and_asset_ownership(studio):
+    configured()
     image = picture(studio)
     value = {'reference_mode': 'first_last_frame', 'image_ids': [image['id']],
              'frame_slots': {'first_frame': '', 'last_frame': 'id:' + image['id']}}

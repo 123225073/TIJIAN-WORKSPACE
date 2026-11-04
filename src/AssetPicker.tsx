@@ -1,10 +1,11 @@
-import {useEffect,useRef,useState,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 import {getToken} from './api';
-export function StudioModal({title,children,onClose}:{title:string;children:ReactNode;onClose:()=>void}){
- const ref=useRef<HTMLDialogElement>(null);useEffect(()=>{ref.current?.showModal();return()=>ref.current?.close()},[]);
- useEffect(()=>{const route=()=>onClose();window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[onClose]);
- return createPortal(<dialog ref={ref} className="studio-modal" onCancel={e=>{e.preventDefault();onClose()}}><header><h2>{title}</h2><button type="button" onClick={onClose} aria-label="关闭弹窗">关闭</button></header>{children}</dialog>,document.body)
+export function StudioModal({title,children,onClose,open=true}:{title:string;children:ReactNode;onClose:()=>void;open?:boolean}){
+ const ref=useRef<HTMLDialogElement>(null),titleId=useId();
+ useEffect(()=>{const dialog=ref.current;if(open)dialog?.showModal();return()=>dialog?.close()},[open]);
+ useEffect(()=>{if(!open)return;const route=()=>onClose();window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[onClose,open]);
+ return createPortal(<dialog ref={ref} className="studio-modal" aria-labelledby={titleId} onCancel={e=>{e.preventDefault();onClose()}}><header><h2 id={titleId}>{title}</h2><button type="button" onClick={onClose} aria-label="关闭弹窗">关闭</button></header>{children}</dialog>,document.body)
 }
 export function AssetThumbnail({asset,full=false}:{asset:any;full?:boolean}){
  const [url,setUrl]=useState(''),[visible,setVisible]=useState(full),[error,setError]=useState(''),[retry,setRetry]=useState(0);const ref=useRef<HTMLElement|null>(null);

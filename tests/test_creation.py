@@ -2,7 +2,7 @@ import json
 import time
 import pytest
 from test_workflows import client, account
-from backend import store as s, gateway as g
+from backend import store as s, gateway as g, capabilities
 
 def finish(c,j):
     for _ in range(100):
@@ -77,11 +77,54 @@ def test_prompt_optimize_rules_cover_image_edit_and_video(client,monkeypatch):
     assert finish(client,image)['status']=='done'
     video=client.post('/api/studio/prompt/optimize',json={
         'type':'video','prompt':'参考图1确定产品外观，参考视频1仅用于动作，参考音频1控制节奏',
-        'reference_counts':{'image':1,'video':1,'audio':1},'has_reference':True}).json()
+        'reference_counts':{'image':1,'video':1,'audio':1},'has_reference':True,
+        'video_mode':'reference','video_ratio':'9:16','duration':5}).json()
     assert finish(client,video)['status']=='done'
     assert '修改对象与区域' in requests[0][0]['content']
+    assert capabilities.VIDEO_PROMPT_METHOD not in requests[0][0]['content']
+    assert capabilities.VIDEO_PROMPT_METHOD in requests[1][0]['content']
     assert '前后帧一致性' in requests[1][0]['content']
     assert '不重新编号' in requests[1][0]['content']
+    context=json.loads(requests[1][1]['content'])
+    assert context['创作方式']=='多素材参考'
+    assert context['画幅（仅用来安排构图）']=='9:16'
+    assert context['时长（仅用来安排镜头节奏）']==5
+
+    role=next(item for item in capabilities.list_() if item['id']==capabilities.VIDEO_PROMPT_ROLE)
+    capabilities.save({**role,'body':'管理员视频优化规则：镜头优先平稳。'},'fixture-admin')
+    fake_model(monkeypatch,lambda mid,messages: requests.append(messages) or '从首帧自然延续，镜头平稳推进，电梯门缓缓打开。')
+    first_frame=client.post('/api/studio/prompt/optimize',json={
+        'type':'video','prompt':'电梯门缓缓打开','reference_counts':{'image':1},'video_mode':'first_frame',
+        'video_ratio':'9:16','duration':5}).json()
+    assert finish(client,first_frame)['status']=='done'
+    assert '管理员视频优化规则：镜头优先平稳。' in requests[-1][0]['content']
+    assert json.loads(requests[-1][1]['content'])['创作方式']=='首帧生视频'
+
+
+def test_h3_conversion_uses_bound_text_model_and_reference_template(client, monkeypatch):
+    account(client)
+    result = ('subject_definitions: Use <Video 1> for movement.\n'
+              'summary: Elevator doors open.\nretention_analysis: Reuse camera movement.\n'
+              'detailed_description: [Shot 1] The elevator doors slide open.\n'
+              'overall_soundscape: Soft mechanical movement.\nnon_diegetic_music: N/A')
+
+    def answer(model_id, messages):
+        assert model_id == 'test-model'
+        assert 'Ref2VA' in messages[0]['content']
+        assert capabilities.VIDEO_PROMPT_METHOD not in messages[0]['content']
+        context = json.loads(messages[1]['content'])
+        assert context['成片时长'] == 6 and context['素材数量'] == {'video': 1}
+        return result
+
+    fake_model(monkeypatch, answer)
+    response = client.post('/api/studio/prompt/optimize', json={
+        'type': 'video', 'prompt': '电梯门缓缓打开', 'h3_mode': 'reference',
+        'duration': 6, 'reference_counts': {'video': 1},
+    })
+    assert response.status_code == 200, response.text
+    done = finish(client, response.json())
+    assert done['status'] == 'done'
+    assert done['result']['optimized_prompt'] == result
 
 @pytest.mark.parametrize('answer',[
     '',None,'优化完成','以下是优化后的提示词：一台电梯','画面采用16:9构图，主体是一台电梯',

@@ -1,0 +1,8 @@
+.st-failure-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-block:10px}
+.st-preview>.st-failure-actions{margin-inline:20px}
+.mw-result-card>.st-failure-actions{margin-inline:18px}
+.st-failure-actions button{display:inline-flex;align-items:center;gap:6px}
+.st-failure-actions small{color:var(--ts-muted,#5e7166);flex-basis:100%}
+.st-failure-dialog{padding:20px 24px 24px;max-width:520px}
+.st-failure-dialog p{line-height:1.75;margin:0 0 15px}
+.st-failure-dialog>div{display:flex;justify-content:flex-end;gap:8px}

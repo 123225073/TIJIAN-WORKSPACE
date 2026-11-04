@@ -41,7 +41,7 @@ from fastapi import BackgroundTasks, Depends, File, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from . import gateway as g, jobs, network, store as s, media_registry, ark_video, hifly_resource_preview, hifly_render
+from . import gateway as g, jobs, network, store as s, media_registry, ark_video, h3_video, hifly_resource_preview, hifly_render
 
 MAX_FILE = 500 * 1024 * 1024
 MAX_JSON = 4 * 1024 * 1024
@@ -87,6 +87,14 @@ OPTIONS['text_avatar'].update(subtitle_position=['bottom','middle'],subtitle_siz
 # endpoints accepts rate. Editing a voice changes that asset for future uses.
 VOICE_PARAMETER_LIMITS = {'rate': (0.5, 2.0), 'volume': (0.1, 2.0), 'pitch': (0.1, 2.0)}
 MODELS = {'text_image': 'qwen-image-2.0-pro', 'image_edit': 'qwen-image-2.0-pro'}
+UNFINISHED_RUN_STATUSES = ('queued', 'preparing', 'submitting', 'running', 'unknown', 'archive_failed')
+
+
+def _failed_video_run(run):
+    tool = run.get('tool')
+    failed = run.get('status') == 'failed' or (run.get('status') == 'interrupted' and not run.get('task_id'))
+    return (tool in TOOLS and TOOLS[tool][2] == 'video' and tool != 'compose'
+            and failed and not run.get('asset_ids') and not run.get('result'))
 
 
 class StudioError(ValueError):
@@ -128,7 +136,7 @@ def _base(provider, value):
     return value.rstrip('/')
 
 
-MEDIA_CONFIG_KEYS = ('bindings', 'ark_video_migrated', 'hifly_digital_migrated',
+MEDIA_CONFIG_KEYS = ('bindings', 'ark_video_migrated', 'h3_video_migrated', 'hifly_digital_migrated',
                      'media_registry_models', 'studio_services', 'models',
                      'providers', 'media_registry_providers')
 
@@ -187,7 +195,7 @@ def validate_binding(tool, value):
     if value.startswith('media:'):
         media_registry.choice(tool, value[6:]);return
     if tool in media_registry.VIDEO_TOOLS:
-        raise ValueError('AI 视频只允许绑定火山方舟官方 Seedance')
+        raise ValueError('AI 视频需要绑定已上架的视频模型')
     if value == 'service:' + TOOLS[tool][1]:return
     if tool not in ('text_image','image_edit'):raise ValueError('此功能需要绑定对应媒体 API，不能绑定文本或图片模型')
     m,p=g.model_record(value)
@@ -200,10 +208,10 @@ def selection(tool, model_id=None):
         return '' if value == '' else 'service:hifly'
     if tool in media_registry.VIDEO_TOOLS:
         value = model_id or s.config('bindings',{}).get(tool)
-        if value is None:return ark_video.DEFAULT_MODEL
+        if value is None:return h3_video.DEFAULT_MODEL
         if value == '':return ''
-        if value.startswith('media:') and any(m['id'] == value[6:] and (m.get('provider_id') == 'ark' or m.get('published')) for m in media_registry.models()):return value
-        return ark_video.DEFAULT_MODEL
+        if value.startswith('media:') and any(m['id'] == value[6:] and tool in m['tools'] and (m.get('provider_id') == h3_video.PROVIDER or m.get('published')) for m in media_registry.models()):return value
+        return h3_video.DEFAULT_MODEL
     return model_id or s.config('bindings',{}).get(tool) or 'service:'+TOOLS[tool][1]
 
 
@@ -467,6 +475,9 @@ def _provider_preview(asset, *, cover=False):
 def _public(obj, models=None, owner=None):
     if obj.get('asset_type') in ('image', 'video'):obj={**obj,'compat':COMPAT[obj['asset_type']]}
     out = {k: v for k, v in obj.items() if k not in {'local_file', 'original_file', 'remote', 'provider_resource_id', 'provider_preview', 'service_scope', 'upload_scope', 'upload_until', 'voice_edit_until', 'snapshot', 'result', 'batch', 'batch_submission_done', 'busy_until', 'prompt_original'}}
+    if obj.get('kind') == 'studio_run' and not obj.get('archived') and _failed_video_run(obj):
+        out['can_delete_failure'] = True
+        out['can_retry_failure'] = bool(obj.get('snapshot') and not obj.get('retry_run_id'))
     if owner and obj.get('kind') == 'studio_asset' and obj.get('asset_type') in ('avatar', 'voice'):
         out['resource_renamable'] = not (obj.get('visibility') == 'public' or obj.get('archived') or obj.get('deleted'))
     if obj.get('snapshot'):
@@ -655,7 +666,7 @@ def _validate(owner, data, complete=False):
     _text(data.get('title', ''), '标题', 200, True)
     inputs, options = data.get('input', {}), data.get('options', {})
     if data.get('model_id') is not None and not isinstance(data['model_id'], str):raise StudioError('模型编号无效')
-    chosen=(selection(tool, data.get('model_id')) or ark_video.DEFAULT_MODEL) if tool in media_registry.VIDEO_TOOLS else data.get('model_id') or ''
+    chosen=(selection(tool, data.get('model_id')) or h3_video.DEFAULT_MODEL) if tool in media_registry.VIDEO_TOOLS else data.get('model_id') or ''
     if chosen is not None and not isinstance(chosen,str):raise StudioError('模型编号无效')
     if chosen and TOOLS[tool][1] == 'hifly':
         validate_binding(tool, chosen)
@@ -676,11 +687,14 @@ def _validate(owner, data, complete=False):
             allowed = {'audio_id', 'image_id'}
             required = ['audio_id', 'image_id']
     limits = {}
+    is_h3 = False
     if tool in media_registry.VIDEO_TOOLS and chosen and chosen.startswith('media:'):
         model, _ = media_registry.choice(tool, chosen[6:], active=complete)
         limits = media_registry.REFERENCE_LIMITS.get(model['family'], {})
         allowed.update({'image_ids', 'video_ids', 'audio_ids'})
-        if model.get('provider_id') == 'ark':allowed.update({'reference_mode', 'remote_references', 'draft_run', 'frame_slots'})
+        is_h3 = model.get('provider_id') == h3_video.PROVIDER
+        if model.get('provider_id') == 'ark' or is_h3:
+            allowed.update({'reference_mode', 'remote_references', 'draft_run', 'frame_slots'})
     if tool=='text_image' and bound_image(tool,chosen):
         allowed.update({'image_id','image_ids'})
         limits={'image': image_reference_limit(tool, chosen)}
@@ -781,7 +795,7 @@ def _validate(owner, data, complete=False):
         if key not in inputs:
             continue
         ids = inputs[key]
-        if not isinstance(ids, list) or len(ids) > limits.get(kind, 0) or len(ids) != len(set(map(str, ids))):
+        if not isinstance(ids, list) or len(ids) > (50 if is_h3 else limits.get(kind, 0)) or len(ids) != len(set(map(str, ids))):
             raise StudioError('参考素材数量超过当前模型支持范围：' + kind)
         for id in ids:
             _asset(owner, _text(id, '参考素材ID', 128), kind, tool)
@@ -789,7 +803,12 @@ def _validate(owner, data, complete=False):
             durations=[_asset(owner,id,kind,tool).get('duration') for id in ids]
             if any(not d for d in durations) or sum(durations)>limits['duration']:
                 raise StudioError('参考素材总时长超过模型限制，或素材时长尚未验证：'+kind)
-    if limits.get('image') and inputs.get('image_id') and len(set([inputs['image_id'],*(inputs.get('image_ids') or [])]))>limits['image']:
+    if is_h3:
+        try:
+            h3_video.validate(model, inputs, options, lambda id, kind: _asset(owner, id, kind, tool), complete=complete)
+        except ValueError as exc:
+            raise StudioError(str(exc)) from None
+    if not is_h3 and limits.get('image') and inputs.get('image_id') and len(set([inputs['image_id'],*(inputs.get('image_ids') or [])]))>limits['image']:
         raise StudioError('主图与参考图合计超过当前模型上限')
     if inputs.get('image_ids') and inputs.get('image_id') and inputs['image_id'] != inputs['image_ids'][0]:
         raise StudioError('首张参考图与主图不一致')
@@ -1193,20 +1212,49 @@ def _ark_payload(owner, run, model, service):
     return ark_video.payload(owner, model, inputs, opts, refs, resolve, sample_task=sample_task)
 
 
+def _h3_api(service, method, path, payload=None):
+    if service.get('id') != h3_video.PROVIDER or service['base_url'] != h3_video.BASE_URL:
+        raise StudioError('OAIREGBOX 服务地址无效')
+    key = g.cipher().decrypt(service['secret'].encode()).decode()
+    return _request(method, h3_video.BASE_URL + path, headers={'Authorization': 'Bearer ' + key}, payload=payload)
+
+
+def _h3_payload(owner, run, model):
+    inputs, opts = run['snapshot']['input'], run['snapshot']['options']
+    def lookup(id, kind):
+        return _asset(owner, id, kind, run['tool'])
+    refs = h3_video.validate(model, inputs, opts, lookup, complete=True)
+    def resolve(ref):
+        if 'url' in ref:
+            return ref['url']
+        asset = lookup(ref['id'], ref['kind'])
+        data = base64.b64encode(_path(owner, asset['local_file']).read_bytes()).decode()
+        return f"data:{asset['mime_type']};base64,{data}"
+    return h3_video.payload(model, inputs, opts, refs, resolve)
+
+
 def migrate_video_draft(owner, draft):
     if draft.get('tool') not in media_registry.VIDEO_TOOLS:return draft
     chosen = selection(draft['tool'], draft.get('model_id'))
     if chosen == (draft.get('model_id') or ''):return draft
-    # Only obsolete routes are migrated. Current official drafts keep all their settings.
+    if not chosen:return draft
     opts = dict(draft.get('options', {}))
     if 'aspect_ratio' in opts:opts['ratio'] = opts.pop('aspect_ratio')
     if isinstance(opts.get('resolution'), str):opts['resolution'] = opts['resolution'].lower()
     if opts.get('resolution') == '4k':opts.pop('resolution')
-    allowed = ark_video.options({'family': 'seedance-2.5'})
+    model, _ = media_registry.choice(draft['tool'], chosen[6:], active=False)
+    allowed = media_registry.options(model)
     opts = {k:v for k,v in opts.items() if k in allowed and v in allowed[k]}
+    inputs = dict(draft.get('input', {}))
+    if model['provider_id'] == h3_video.PROVIDER:
+        if inputs.get('reference_mode') not in h3_video.MODES:
+            inputs['reference_mode'] = 'reference'
+        inputs.pop('draft_run', None)
+        if inputs.get('reference_mode') == 'text' and opts.get('ratio') == 'adaptive':
+            opts.pop('ratio')
     return s.put(owner, 'studio_draft', {**draft, 'model_id': chosen, 'options': opts,
-                 'input': {**draft.get('input', {}), 'reference_mode': 'reference'},
-                 'migration_notice': '原中转视频模型已改为官方Seedance 2.5，素材与提示词已保留；请检查参数后再生成。'}, draft['id'], expected=draft['version'])
+                 'input': inputs,
+                 'migration_notice': '视频模型已更新，提示词与参考素材已保留。请核对创作方式和参数后再生成。'}, draft['id'], expected=draft['version'])
 
 
 def migrate_video_bindings():
@@ -1292,11 +1340,11 @@ def generate(owner, data, enqueue=None):
     # BEGIN IMMEDIATE + deterministic key protects retries across workers/processes.
     with s.LOCK:
         try:
-            previous = _object(owner, id, 'studio_run')
+            previous = s.get(owner, id)
         except s.Missing:
             previous = None
         if previous:
-            if previous['draft_id'] != data.get('draft_id') or previous['draft_version'] != data['version']:
+            if previous['kind'] != 'studio_run' or previous['draft_id'] != data.get('draft_id') or previous['draft_version'] != data['version']:
                 raise s.Conflict('request_id已用于另一份草稿版本')
             return _public(previous)
         draft = _object(owner, _text(data.get('draft_id'), 'draft_id', 128), 'studio_draft')
@@ -1308,6 +1356,8 @@ def generate(owner, data, enqueue=None):
             raise StudioError('旧模型及参数已保留；当前功能使用飞影 API v2，请重新选择飞影并核对素材后确认生成')
         clean = {k: v for k, v in draft.items() if k in {'tool', 'title', 'input', 'options', 'model_id', 'brand_id', 'profile_id', 'source_ids'}}
         clean['model_id']=selection(draft['tool'],draft.get('model_id'))
+        if draft['tool'] in media_registry.VIDEO_TOOLS and draft.get('model_id') and clean['model_id'] != draft['model_id']:
+            raise StudioError('草稿所用的视频模型已下架，请刷新草稿并确认新型号后再生成')
         _validate(owner, clean, complete=True)
         prompt_original=None
         if draft['tool']=='image_edit':
@@ -1336,7 +1386,7 @@ def generate(owner, data, enqueue=None):
                 if len(image_ids)+1>media_registry.REFERENCE_LIMITS[model['family']]['image']:
                     raise StudioError('参考图已达模型上限，无法再加入区域标注图；请减少一张参考图')
         elif draft['tool'] in media_registry.VIDEO_TOOLS:
-            raise StudioError('请先选择火山方舟官方 Seedance 模型')
+            raise StudioError('请先选择可用的视频模型')
         elif image_model:
             validate_binding(draft['tool'],image_model)
             m,service=g.model_record(image_model);provider='images'
@@ -1357,16 +1407,101 @@ def generate(owner, data, enqueue=None):
             version = c.execute('SELECT version FROM objects WHERE id=? AND owner=?', (draft['id'], owner)).fetchone()
             if not version or version['version'] != data['version']:
                 raise s.Conflict('草稿已更新，请重新确认')
-            for row in c.execute("SELECT * FROM objects WHERE owner=? AND kind='studio_run'", (owner,)):
-                existing = s.unpack(row)
-                if existing['draft_id'] == draft['id'] and existing['draft_version'] == draft['version'] and existing['status'] in ('queued', 'preparing', 'submitting', 'running', 'unknown', 'archive_failed'):
-                    return _public(existing)
+            existing = _unfinished_draft_run(c, owner, draft['id'], draft['version'])
+            if existing:
+                return _public(existing)
             c.execute('INSERT INTO objects VALUES (?,?,?,?,?,?)', (id, owner, 'studio_run', json.dumps(record, ensure_ascii=False), 1, s.now()))
     if enqueue is None:
         jobs.POOL.submit(_work, owner, id)
     else:
         enqueue(owner, id)
     return _public(s.get(owner, id))
+
+
+def _unfinished_draft_run(c, owner, draft_id, version):
+    statuses = ','.join('?' for _ in UNFINISHED_RUN_STATUSES)
+    row = c.execute(f"""SELECT * FROM objects WHERE owner=? AND kind='studio_run'
+        AND json_extract(data,'$.draft_id')=? AND json_extract(data,'$.draft_version')=?
+        AND json_extract(data,'$.status') IN ({statuses}) ORDER BY updated DESC LIMIT 1""",
+        (owner, draft_id, version, *UNFINISHED_RUN_STATUSES)).fetchone()
+    return s.unpack(row) if row else None
+
+
+def delete_failed_run(owner, id):
+    with s.conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT * FROM objects WHERE id=? AND owner=? AND kind='studio_run'", (id, owner)).fetchone()
+        if not row:
+            raise s.Missing('生成记录不存在')
+        run = s.unpack(row)
+        if not _failed_video_run(run):
+            raise s.Conflict('只能删除没有成品的失败视频记录')
+        if run.get('busy_until', 0) > time.time():
+            raise s.Conflict('后台正在收尾，请稍后删除')
+        if not run.get('archived'):
+            now = s.now()
+            c.execute("UPDATE objects SET data=json_set(data,'$.archived',json('true'),'$.trashed_at',?),version=version+1,updated=? WHERE id=?",
+                      (now, now, id))
+            c.execute('INSERT INTO audit VALUES (?,?,?,?,?)', (s.uid(), owner, 'delete_failed_studio_run', id, now))
+    return {'id': id, 'archived': True}
+
+
+def retry_failed_run(owner, id, data, enqueue=None):
+    _strict(data, ('confirmed',))
+    if data.get('confirmed') is not True:
+        raise StudioError('重跑会提交新的生成任务，请确认可能产生的费用')
+    new_id = s.digest('studio-run-retry:' + owner + ':' + id)
+    with s.conn() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row = c.execute("SELECT * FROM objects WHERE id=? AND owner=? AND kind='studio_run'", (id, owner)).fetchone()
+        if not row:
+            raise s.Missing('生成记录不存在')
+        original = s.unpack(row)
+        if original.get('archived') or not _failed_video_run(original):
+            raise s.Conflict('请选择仍可见、没有成品的失败视频记录')
+        if original.get('busy_until', 0) > time.time():
+            raise s.Conflict('后台正在收尾，请稍后重跑')
+        existing = c.execute('SELECT * FROM objects WHERE id=? AND owner=?', (new_id, owner)).fetchone()
+        if existing:
+            previous_retry = s.unpack(existing)
+            if previous_retry.get('archived'):
+                raise s.Conflict('这条记录已重跑过，后续失败请从最新一条重跑')
+            return _public(previous_retry)
+        snap = original.get('snapshot')
+        if not isinstance(snap, dict) or not original.get('draft_id') or not _integer(original.get('draft_version')):
+            raise s.Conflict('该历史任务缺少可重跑的输入，请从草稿重新生成')
+        if _unfinished_draft_run(c, owner, original['draft_id'], original['draft_version']):
+            raise s.Conflict('同一草稿版本还有进行中或待核查的任务，请先查看原任务')
+        tool, provider = original['tool'], original['provider']
+        bindings = s.config('bindings', {})
+        if tool in bindings and not bindings[tool]:
+            raise StudioError('此功能已停用，请联系管理员绑定服务')
+        if tool in media_registry.VIDEO_TOOLS:
+            if not original.get('model_id'):
+                raise StudioError('旧视频模型已停用，请在草稿选择当前模型后生成')
+            _, service = _wavespeed_service(original['model_id'], tool)
+            if service['id'] != provider:
+                raise StudioError('原模型服务已变更，请在草稿选择当前模型后生成')
+        elif provider == 'hifly' and snap.get('model_id') in (None, '', 'service:hifly'):
+            service = _service(provider)
+        else:
+            raise StudioError('旧视频服务已停用，请从草稿重新生成')
+        if _scope(provider, service) != original.get('service_scope'):
+            raise StudioError('原任务的服务账号已变更，请核对后从草稿重新生成')
+        _validate(owner, snap, complete=True)
+        created = s.now()
+        record = {key: original[key] for key in ('title', 'tool', 'provider', 'draft_id', 'draft_version',
+                  'snapshot', 'service_scope', 'model_id', 'flow_id', 'origin_task_id') if key in original}
+        record.update(status='queued', request_id='retry:' + id, confirmed_at=created, created=created,
+                      task_id=None, asset_ids=[], retry_of=id)
+        c.execute('INSERT INTO objects VALUES (?,?,?,?,?,?)', (new_id, owner, 'studio_run', json.dumps(record, ensure_ascii=False), 1, created))
+        c.execute("UPDATE objects SET data=json_set(data,'$.retry_run_id',?),version=version+1 WHERE id=?",
+                  (new_id, id))
+    if enqueue is None:
+        jobs.POOL.submit(_work, owner, new_id)
+    else:
+        enqueue(owner, new_id)
+    return _public(s.get(owner, new_id))
 
 
 def _claim(owner, id):
@@ -1376,7 +1511,7 @@ def _claim(owner, id):
         if not row:
             raise s.Missing('生成记录不存在')
         value = json.loads(row['data'])
-        if value.get('busy_until', 0) > time.time():
+        if value.get('archived') or value.get('busy_until', 0) > time.time():
             return False
         value['busy_until'] = time.time() + 3600
         c.execute('UPDATE objects SET data=?,version=version+1 WHERE id=?', (json.dumps(value, ensure_ascii=False), id))
@@ -1401,6 +1536,19 @@ def _hifly_transition(owner, id, status):
 def _poll(run, service):
     task = quote(_text(run.get('task_id'), '供应商任务ID', 500), safe='')
     provider = run['provider']
+    if provider == h3_video.PROVIDER:
+        value = _h3_api(service, 'GET', h3_video.TASKS + '/' + task)
+        status = str(value.get('status', '')).lower()
+        if status in ('completed', 'succeeded', 'success'):
+            entries = value.get('data')
+            fallback = entries[0].get('url') if isinstance(entries, list) and entries and isinstance(entries[0], dict) else None
+            url = value.get('video_url') or fallback
+            if isinstance(url, str) and url.startswith('https://'):
+                return 'succeeded', {'asset_type': 'video', 'urls': [url]}
+            return 'unknown', {'error': 'OAIREGBOX 已完成任务，暂未返回可下载的成片地址，请核查原任务。'}
+        if status in ('failed', 'cancelled', 'canceled'):
+            return 'failed', {'error': 'OAIREGBOX 视频任务失败或已取消，请在平台核对原任务详情。'}
+        return ('running' if status in ('queued', 'submitted', 'pending', 'running', 'processing', 'in_progress', 'starting') else 'unknown'), {}
     if provider == 'ark':
         value = _ark_api(service, 'GET', ark_video.TASKS + '/' + quote(task, safe=''))
         status = value.get('status')
@@ -1749,7 +1897,7 @@ def _work(owner, id, batch_refresh=False):
             run=_update(owner,id,result={'asset_type':'image','data_uri':uri},status='running')
             _archive(owner,run)
             return
-        if run['provider'] in ('wavespeed','ark'):
+        if run['provider'] in ('wavespeed', 'ark', h3_video.PROVIDER):
             model,service=_wavespeed_service(run['model_id'],run['tool'],active=bool(not run.get('task_id') and not run.get('result')))
         else:service = _service(run['provider'])
         if _scope(run['provider'], service) != run['service_scope']:
@@ -1776,6 +1924,9 @@ def _work(owner, id, batch_refresh=False):
         if run['provider']=='ark':
             payload = _ark_payload(owner,run,model,service)
             path = ark_video.TASKS
+        elif run['provider'] == h3_video.PROVIDER:
+            payload = _h3_payload(owner, run, model)
+            path = h3_video.TASKS
         elif run['provider']=='wavespeed':
             payload=_wavespeed_payload(owner,run,model,service)
             path='/api/v3/'+model['api_model_id']
@@ -1786,14 +1937,22 @@ def _work(owner, id, batch_refresh=False):
         else:
             _update(owner, id, status='submitting')
         phase = 'submit'
-        value = _ark_api(service,'POST',path,payload) if run['provider']=='ark' else _wavespeed_api(service,'POST',path,payload) if run['provider']=='wavespeed' else _api(run['provider'], 'POST', path, payload, service, asynchronous)
+        if run['provider'] == h3_video.PROVIDER:
+            value = _h3_api(service, 'POST', path, payload)
+        else:
+            value = _ark_api(service,'POST',path,payload) if run['provider']=='ark' else _wavespeed_api(service,'POST',path,payload) if run['provider']=='wavespeed' else _api(run['provider'], 'POST', path, payload, service, asynchronous)
         if run['provider'] == 'aliyun' and run['tool'] in ('text_image', 'image_edit'):
             urls = [c['image'] for choice in value['output']['choices'] for c in choice['message']['content'] if c.get('image')]
             run = _update(owner, id, result={'asset_type': 'image', 'urls': urls}, status='running', provider_request_id=value.get('request_id'))
             phase = 'archive'
             _archive(owner, run)
         else:
-            task = value['id'] if run['provider'] in ('wavespeed','ark') else value['response']['id'] if run['provider'] == 'shotstack' else value['output']['task_id'] if run['provider'] == 'aliyun' else value['task_id']
+            if run['provider'] == h3_video.PROVIDER:
+                task = value.get('task_id') or value.get('id')
+                if type(task) is int and task > 0:
+                    task = str(task)
+            else:
+                task = value['id'] if run['provider'] in ('wavespeed','ark') else value['response']['id'] if run['provider'] == 'shotstack' else value['output']['task_id'] if run['provider'] == 'aliyun' else value['task_id']
             _update(owner, id, task_id=_text(task, '供应商任务ID', 500), status='running', submitted_at=s.now(), error=None)
     except PendingUpload as exc:
         if s.get(owner, id)['status'] != 'cancelled':
@@ -1854,7 +2013,7 @@ def tick():
         rows = [(row['owner'], s.unpack(row)) for row in c.execute("SELECT * FROM objects WHERE kind='studio_run'")]
     count = 0
     for owner, run in rows:
-        if run.get('provider') not in ('ark', 'hifly') or run.get('status') in ('succeeded', 'failed', 'cancelled', 'expired'):
+        if run.get('provider') not in ('ark', 'hifly', h3_video.PROVIDER) or run.get('status') in ('succeeded', 'failed', 'cancelled', 'expired'):
             continue
         if not run.get('task_id') or run.get('busy_until', 0) > time.time():
             continue
@@ -2161,6 +2320,34 @@ def _background_enqueue(background_tasks, fn):
     return None
 
 
+VIDEO_PROMPT_KIND = 'studio_video_prompt'
+
+
+def _save_video_prompt(owner, data, id=None):
+    fields = ('title', 'category', 'body')
+    _strict(data, (*fields, 'version') if id else fields)
+    record = {
+        field: _text(data.get(field), label, limit).strip()
+        for field, label, limit in zip(fields, ('提示词名称', '分类', '提示词正文'), (80, 32, 10000))
+    }
+    with s.LOCK:
+        if id:
+            _object(owner, id, VIDEO_PROMPT_KIND)
+            if not _integer(data.get('version')):
+                raise StudioError('缺少提示词版本，请重新打开提示词库')
+        return s.put(owner, VIDEO_PROMPT_KIND, record, id, data.get('version'))
+
+
+def _archive_video_prompt(owner, id, data):
+    _strict(data, ('version',))
+    if not _integer(data.get('version')):
+        raise StudioError('缺少提示词版本，请重新打开提示词库')
+    with s.LOCK:
+        prompt = _object(owner, id, VIDEO_PROMPT_KIND)
+        s.put(owner, VIDEO_PROMPT_KIND, {**prompt, 'archived': True}, id, data['version'])
+    return {'ok': True}
+
+
 def register(app, user, admin, error):
     """Mount on an existing FastAPI app; dependencies receive existing auth users."""
     def invoke(fn, *args):
@@ -2182,6 +2369,22 @@ def register(app, user, admin, error):
     from . import local_compose
     local_compose.register(app, user, invoke)
 
+    @app.get('/api/studio/video-prompts')
+    def video_prompts(u=Depends(user)):
+        return {'items': [item for item in s.list_(u['id'], VIDEO_PROMPT_KIND) if not item.get('archived')]}
+
+    @app.post('/api/studio/video-prompts')
+    def create_video_prompt(data: dict, u=Depends(user)):
+        return invoke(_save_video_prompt, u['id'], data)
+
+    @app.patch('/api/studio/video-prompts/{id}')
+    def update_video_prompt(id: str, data: dict, u=Depends(user)):
+        return invoke(_save_video_prompt, u['id'], data, id)
+
+    @app.post('/api/studio/video-prompts/{id}/archive')
+    def archive_video_prompt(id: str, data: dict, u=Depends(user)):
+        return invoke(_archive_video_prompt, u['id'], id, data)
+
     @app.get('/api/studio/catalog')
     @s.config_snapshot(MEDIA_CONFIG_KEYS, locked=True)
     def catalog(u=Depends(user)):
@@ -2201,7 +2404,7 @@ def register(app, user, admin, error):
                 ready=bool(selected and selected['configured'])
                 model=None
                 options=selected['options'] if selected else {}
-                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':[], 'model':model,'configured':ready,'binding':binding,'status':'ready' if ready else 'unconfigured','reason':'请在管理后台配置火山方舟官方API Key并开通Seedance模型' if not ready else '', 'verification':'documented_not_live','requires_confirmation':True})
+                tools.append({'id':id,'title':title,'provider':provider,'output_type':kind,'required':required,'options':options,'models':model_choices(id),'optional':[], 'model':model,'configured':ready,'binding':binding,'status':'ready' if ready else 'unconfigured','reason':(selected or {}).get('reason') or ('请选择已上架的视频模型' if not ready else ''), 'verification':'documented_not_live','requires_confirmation':True})
                 continue
             if binding.startswith('media:'):
                 selected=next((m for m in model_choices(id) if m['id']==binding),None)
@@ -2388,7 +2591,8 @@ def register(app, user, admin, error):
         with s.conn() as c:
             rows = c.execute("""SELECT id,kind,version,updated,
                 json_replace(data,'$.result.data_uri',length(json_extract(data,'$.result.data_uri'))>0) AS data
-                FROM objects WHERE owner=? AND kind='studio_run' ORDER BY updated DESC""", (u['id'],)).fetchall()
+                FROM objects WHERE owner=? AND kind='studio_run'
+                AND json_extract(data,'$.archived') IS NOT 1 ORDER BY updated DESC""", (u['id'],)).fetchall()
             configured = c.execute("SELECT value FROM config WHERE key='models'").fetchone()
             models = json.loads(configured['value']) if configured else []
         return {'items': [_public(s.unpack(row), models) for row in rows]}
@@ -2396,6 +2600,14 @@ def register(app, user, admin, error):
     @app.post('/api/studio/runs/{id}/refresh')
     def refresh_run(id: str, background_tasks: BackgroundTasks, u=Depends(user)):
         return invoke(refresh, u['id'], id, _background_enqueue(background_tasks, lambda owner, run_id: _work(owner, run_id, True)))
+
+    @app.delete('/api/studio/runs/{id}')
+    def delete_run(id: str, u=Depends(user)):
+        return invoke(delete_failed_run, u['id'], id)
+
+    @app.post('/api/studio/runs/{id}/retry')
+    def retry_run(id: str, data: dict, background_tasks: BackgroundTasks, u=Depends(user)):
+        return invoke(retry_failed_run, u['id'], id, data, _background_enqueue(background_tasks, _work))
 
     @app.post('/api/studio/runs/{id}/cancel')
     def cancel_run(id: str, u=Depends(user)):

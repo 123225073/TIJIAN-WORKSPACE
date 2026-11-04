@@ -23,7 +23,13 @@ def _number(value, label, minimum=0, maximum=3600):
 
 
 def _shape(value):
-    if not isinstance(value, dict) or len(json.dumps(value, ensure_ascii=False)) > 300000:
+    if not isinstance(value, dict):
+        raise ValueError('成片项目格式无效或内容过长')
+    try:
+        size = len(json.dumps(value, ensure_ascii=False, allow_nan=False))
+    except ValueError:
+        raise ValueError('成片项目含无效数值') from None
+    if size > 300000:
         raise ValueError('成片项目格式无效或内容过长')
     if not isinstance(value.get('scenes', []), list) or len(value.get('scenes', [])) > 20:
         raise ValueError('主轨最多 20 个片段')
@@ -84,6 +90,33 @@ def _enabled(item):
     return value
 
 
+def _music_clip(owner, music, total):
+    if music is None or music == {}:
+        return None
+    if not isinstance(music, dict):
+        raise ValueError('背景音乐格式无效')
+    if not _enabled(music):
+        return None
+    _, path, metadata = _asset(owner, music.get('asset_id'), {'audio'})
+    volume = _number(music.get('volume', .2), '音乐音量', 0, 2)
+    if not any(field in music for field in ('start', 'trim', 'length')):
+        # Older projects repeat the entire file throughout the film.
+        return dict(path=path, volume=volume, start=0, trim=0, length=total, loop=True)
+    start = _number(music.get('start', 0), '音乐在时间轴的起点')
+    duration = metadata.get('duration', 0)
+    if duration <= 0:
+        raise ValueError('无法读取背景音乐时长，请检查素材')
+    trim = _number(music.get('trim', 0), '音乐素材起点', 0, duration)
+    length = _number(music.get('length'), '音乐保留时长', .001)
+    if trim >= duration or trim + length > duration + .001:
+        raise ValueError('背景音乐裁剪超出素材时长，请调整保留范围')
+    visible_length = min(length, total - start, duration - trim)
+    if visible_length < .001:
+        return None
+    return dict(path=path, volume=volume, start=start, trim=trim,
+                length=visible_length, loop=False)
+
+
 def _validated(owner, project):
     data = _shape(project)
     clip_to_duration = data.get('clip_to_duration', False)
@@ -93,7 +126,7 @@ def _validated(owner, project):
     if not scenes:
         raise ValueError('请至少添加一个主轨画面')
     ratio, resolution = data.get('aspect_ratio', '9:16'), data.get('resolution', '1080p')
-    if ratio not in RATIOS or resolution not in ('720p', '1080p'):
+    if not isinstance(ratio, str) or ratio not in RATIOS or resolution not in ('720p', '1080p'):
         raise ValueError('请选择支持的画面比例和清晰度')
     # Project edit timestamps remain in the original timeline.  Speed is
     # applied to the finished picture and mixed sound together, so every
@@ -156,17 +189,7 @@ def _validated(owner, project):
         if fit not in ('cover', 'contain', 'crop', 'none'):
             raise ValueError('画面适配方式无效')
         b_roll.append(dict(path=path, kind=asset['asset_type'], start=start, trim=trim, length=length, fit=fit))
-    music = data.get('music')
-    if music:
-        if not isinstance(music, dict):
-            raise ValueError('背景音乐格式无效')
-        if not _enabled(music):
-            music = None
-    if music:
-        _, music_path, _ = _asset(owner, music.get('asset_id'), {'audio'})
-        music = dict(path=music_path, volume=_number(music.get('volume', .2), '音乐音量', 0, 2))
-    else:
-        music = None
+    music = _music_clip(owner, data.get('music'), total)
     intro = data.get('intro') or {}
     if not isinstance(intro, dict):
         raise ValueError('片头设置无效')
@@ -194,7 +217,9 @@ def _validated(owner, project):
     hide_during_intro = style.get('hide_during_intro', False)
     if not isinstance(hide_during_intro, bool):
         raise ValueError('字幕片头显示设置无效')
-    if font not in FONTS or size not in ('small', 'medium', 'large') or position not in ('bottom', 'upper') or not re.fullmatch(r'#[0-9A-Fa-f]{6}', color) or not re.fullmatch(r'#[0-9A-Fa-f]{6}', stroke_color):
+    if (not isinstance(font, str) or font not in FONTS or size not in ('small', 'medium', 'large')
+            or position not in ('bottom', 'upper')
+            or any(not isinstance(c, str) or not re.fullmatch(r'#[0-9A-Fa-f]{6}', c) for c in (color, stroke_color))):
         raise ValueError('字幕字体、颜色或位置无效')
     segments = video_composition.parse_srt(data.get('srt', '') if _enabled(style) else '', 3600 if clip_to_duration else total, max_chars=500)
     if clip_to_duration:
@@ -270,6 +295,11 @@ def _fit(width, height, fit):
     return f'scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1'
 
 
+def _file_input(path, *options):
+    # FFmpeg applies protocol_whitelist only to the next input.
+    return [*options, '-protocol_whitelist', 'file,pipe', '-i', str(path)]
+
+
 def _execute(cmd, cwd, event, timeout):
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
@@ -302,11 +332,11 @@ def render(owner, project, output, progress, event):
         for i, scene in enumerate(data['scenes']):
             progress(f'正在准备主轨片段 {i+1}/{len(data["scenes"])}')
             segment = work / f'segment-{i:02}.mp4'
-            cmd = [ff, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe']
-            cmd += (['-loop', '1', '-framerate', '30', '-i', str(scene['path'])] if scene['kind'] == 'image'
-                    else ['-ss', str(scene['trim']), '-i', str(scene['path'])])
+            cmd = [ff, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y']
+            cmd += (_file_input(scene['path'], '-loop', '1', '-framerate', '30') if scene['kind'] == 'image'
+                    else _file_input(scene['path'], '-ss', str(scene['trim'])))
             if scene['voice']:
-                cmd += ['-i', str(scene['voice'])]
+                cmd += _file_input(scene['voice'])
             if not scene['has_audio']:
                 cmd += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
             audio_index = 0 if scene['has_audio'] else (2 if scene['voice'] else 1)
@@ -314,33 +344,39 @@ def render(owner, project, output, progress, event):
                        f"[{audio_index}:a:0]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,volume={scene['volume']},apad,atrim=0:{scene['length']},asetpts=PTS-STARTPTS[a0]"]
             if scene['voice']:
                 filters += [f"[1:a:0]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,volume={scene['voice_volume']},apad,atrim=0:{scene['length']},asetpts=PTS-STARTPTS[a1]",
-                            '[a0][a1]amix=inputs=2:duration=first:normalize=0[a]']
+                            '[a0][a1]amix=inputs=2:duration=first:normalize=0[mixed]']
             else:
-                filters += ['[a0]anull[a]']
+                filters += ['[a0]anull[mixed]']
+            filters += ['[mixed]alimiter=limit=.98:level=false:latency=true[a]' if scene['voice'] or scene['volume'] > 1
+                        else '[mixed]anull[a]']
             cmd += ['-filter_complex', ';'.join(filters), '-map', '[v]', '-map', '[a]', '-t', str(scene['length']),
                     '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
                     '-b:a', '192k', '-threads', '2', str(segment)]
             _execute(cmd, work, event, timeout)
             paths.append(segment)
         progress('正在合成补充画面、字幕和声音')
-        cmd = [ff, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe']
+        cmd = [ff, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y']
         for path in paths:
-            cmd += ['-i', str(path)]
+            cmd += _file_input(path)
         for clip in data['b_roll']:
-            cmd += (['-loop', '1', '-framerate', '30', '-t', str(clip['length']), '-i', str(clip['path'])]
-                    if clip['kind'] == 'image' else ['-ss', str(clip['trim']), '-t', str(clip['length']), '-i', str(clip['path'])])
-        music_index = len(paths) + len(data['b_roll']) if data['music'] else None
-        if data['music']:
-            cmd += ['-stream_loop', '-1', '-i', str(data['music']['path'])]
-        overlay_index = len(paths) + len(data['b_roll']) + (1 if data['music'] else 0) if data['overlay'] else None
+            timing = ['-t', str(clip['length'])]
+            cmd += (_file_input(clip['path'], '-loop', '1', '-framerate', '30', *timing) if clip['kind'] == 'image'
+                    else _file_input(clip['path'], '-ss', str(clip['trim']), *timing))
+        music = data['music']
+        music_index = len(paths) + len(data['b_roll'])
+        if music:
+            cmd += (_file_input(music['path'], '-stream_loop', '-1') if music['loop']
+                    else _file_input(music['path'], '-ss', str(music['trim']), '-t', str(music['length'])))
+        overlay_index = music_index + int(bool(music))
         if data['overlay']:
-            cmd += ['-loop', '1', '-framerate', '30', '-t', str(data['overlay']['start'] + data['overlay']['duration']), '-i', str(data['overlay']['path'])]
+            cmd += _file_input(data['overlay']['path'], '-loop', '1', '-framerate', '30',
+                               '-t', str(data['overlay']['start'] + data['overlay']['duration']))
         filters = [''.join(f'[{i}:v:0][{i}:a:0]' for i in range(len(paths))) + f'concat=n={len(paths)}:v=1:a=1[basev][basea]']
         last = 'basev'
         for i, clip in enumerate(data['b_roll']):
             idx = len(paths) + i
             filters += [f"[{idx}:v:0]{_fit(w,h,clip['fit'])},fps=30,setpts=PTS-STARTPTS+{clip['start']}/TB[b{i}]",
-                        f"[{last}][b{i}]overlay=0:0:eof_action=pass:repeatlast=0:enable='between(t,{clip['start']},{clip['start']+clip['length']})'[v{i}]"]
+                        f"[{last}][b{i}]overlay=0:0:eof_action=pass:repeatlast=0:enable='gte(t,{clip['start']})*lt(t,{clip['start']+clip['length']})'[v{i}]"]
             last = f'v{i}'
         if data['overlay']:
             filters += [f'[{overlay_index}:v:0]scale={w}:{h},format=rgba[title]',
@@ -351,9 +387,13 @@ def render(owner, project, output, progress, event):
             filters += [f'[{last}]ass=subtitles.ass[composedv]']
         else:
             filters += [f'[{last}]null[composedv]']
-        if data['music']:
-            filters += [f"[{music_index}:a:0]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,volume={data['music']['volume']},atrim=0:{total},asetpts=PTS-STARTPTS[music]",
-                        '[basea][music]amix=inputs=2:duration=first:normalize=0[composeda]']
+        if music:
+            delay_samples = round(music['start'] * 48000)
+            filters += [f"[{music_index}:a:0]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,"
+                        f"volume={music['volume']},atrim=duration={music['length']},asetpts=PTS-STARTPTS,"
+                        f"adelay={delay_samples}S:all=1[music]",
+                        '[basea][music]amix=inputs=2:duration=first:normalize=0,'
+                        'alimiter=limit=.98:level=false:latency=true[composeda]']
         else:
             filters += ['[basea]anull[composeda]']
         speed = data['playback_speed']
