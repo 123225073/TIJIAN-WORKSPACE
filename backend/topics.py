@@ -164,6 +164,8 @@ def _delivery_payload(platform, data, old=None, owner=None):
 
 def _delivery(owner, id):
     item = _owned(owner, id, 'studio_delivery')
+    if item.get('matrix_content_id'):
+        raise s.Conflict('请从内容矩阵原稿编辑此公众号发布稿')
     if item.get('flow_id'):
         flow = _owned(owner, item['flow_id'], 'studio_flow')
         if flow.get('topic_id') != item.get('topic_id'):
@@ -342,7 +344,7 @@ def register(app, user, error):
             _owned(u['id'], topic_id, 'studio_topic')
         flow = _owned(u['id'], flow_id, 'studio_flow') if flow_id else None
         return {'items': [x for x in s.list_(u['id'], 'studio_delivery')
-                          if not x.get('archived') and not x.get('deleted')
+                          if not x.get('archived') and not x.get('deleted') and not x.get('matrix_content_id')
                           and x.get('flow_id', '') == flow_id
                           and (not topic_id or x['topic_id'] == topic_id)
                           and (not flow or x['topic_id'] == flow.get('topic_id'))]}

@@ -63,6 +63,10 @@ def start(owner,title,fn,inputs=None):
                 all_failed=counted and result['failed']>0 and result['success']==0
                 summary=f"成功 {result['success']} 篇 · 失败 {result['failed']} 篇" if counted else '已完成'
                 if counted and result.get('douyin'):summary=f"成功 {result['success']} 条 · 失败 {result['failed']} 条"
+                if item.get('input',{}).get('action')=='matrix_publication' and isinstance(result,dict):
+                    submitted,failed=result.get('submitted',0),result.get('failed',0)
+                    all_failed=submitted==0 and failed>0
+                    summary=f'已提交 {submitted} 个平台 · 未提交 {failed} 个平台；发布结果以平台回执为准'
                 if isinstance(result,dict) and result.get('radar'):summary=f"新增 {result['added']} 条 · 检查 {len(result['sources'])} 个信源 · {result['failed']} 个需处理"
                 cancelled=event.is_set() or item.get('status')=='cancelled'
                 s.put(owner,'job',{**item,'status':'cancelled' if cancelled else 'failed' if all_failed else 'done','progress':'已取消' if cancelled else summary,'result':result,'finished_at':s.now()},j['id'])

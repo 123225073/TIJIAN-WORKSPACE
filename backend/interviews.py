@@ -112,7 +112,8 @@ def register(app,user):
             old=None if creating else (owned(u['id'],data['id'],'studio_flow') if data.get('id') else next(iter(s.list_(u['id'],'studio_flow')),None))
             if data.get('version')!=(old['version'] if old else 0):raise s.Conflict('创作主题已在其他页面更新，请刷新后重试')
             fields=bounded(data,{'brand_id','profile_id','content_id','visual_id','cover_id','video_id','audio_id','brief','last_draft','last_draft_tool','topic_id','stage','tool_path','platform','assembled','creation_channel'})
-            if fields.get('creation_channel','') not in {'','wechat','xiaohongshu','moments','video','avatar'}:raise ValueError('创作分支无效')
+            from .content_matrix import CHANNELS
+            if fields.get('creation_channel','') not in set(CHANNELS) | {'','moments','video','avatar'}:raise ValueError('创作分支无效')
             if old and 'creation_channel' not in data and 'creation_channel' in old:fields['creation_channel']=old['creation_channel']
             # Handoff provenance is server-owned and survives normal step saves.
             for key in ('source_outcome_id', 'source_version', 'source_task_id', 'delivery_id'):

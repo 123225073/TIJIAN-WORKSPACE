@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from html import escape
 
 from . import upstream
 from .writing_methods import publish_body
@@ -14,6 +15,7 @@ OPTIONS = {
     'line_height': {'1.6', '1.8', '2.0'},
     'paragraph_gap': {'8', '12', '18'},
     'accent': {'forest', 'blue', 'ink'},
+    'template': {'editorial', 'classic'},
 }
 ACCENTS = {'forest': '#087f5b', 'blue': '#315ed6', 'ink': '#303b3d'}
 LIST = re.compile(r'<(?:ol|ul)\b[^>]*>(.*?)</(?:ol|ul)>', re.S)
@@ -29,7 +31,7 @@ def style(value=None):
     if not isinstance(value, dict) or set(value) - set(OPTIONS):
         raise ValueError('公众号排版设置无效')
     result = {**DEFAULT, **value}
-    if any(not isinstance(result[key], str) or result[key] not in choices for key, choices in OPTIONS.items()):
+    if any(not isinstance(result[key], str) or result[key] not in OPTIONS[key] for key in result):
         raise ValueError('公众号排版设置无效')
     return result
 
@@ -91,4 +93,20 @@ def render(body, settings=None):
             return f'<span style="font-size:{value}px;">'
         return match.group(0)
 
-    return INLINE_STYLE.sub(inline_style, output)
+    output = INLINE_STYLE.sub(inline_style, output)
+    if chosen.get('template') == 'editorial':
+        return ('<section style="padding:22px 18px;background:#f9f6ed;color:#253732;">'
+                '<p style="font-size:11px;font-weight:700;letter-spacing:2px;color:#326254;margin:0 0 14px;">行业观察</p>'
+                '<p style="width:28px;border-top:2px solid #ae8953;margin:0 0 18px;"></p>' + output + '</section>')
+    return output
+
+
+def document(body, settings, title='', author=''):
+    heading = ''
+    if title:
+        heading = ('<header style="padding:16px 18px 10px;color:#17332d;">'
+                   '<h1 style="font-family:Songti SC,SimSun,serif;font-size:30px;line-height:1.35;margin:0;">'
+                   + escape(title) + '</h1>'
+                   + (f'<p style="font-size:13px;color:#4c665e;">{escape(author)}</p>' if author else '')
+                   + '</header>')
+    return heading + render(body, settings)

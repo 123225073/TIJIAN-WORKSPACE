@@ -1,4 +1,4 @@
-import ipaddress, socket, re
+import ipaddress, socket, re, time
 from datetime import datetime,timezone,timedelta,date
 from urllib.parse import urlsplit, urljoin
 import httpx
@@ -22,6 +22,7 @@ def public_target(url):
 
 def fetch(url):
     # Validate every redirect and bound bytes; never fetch arbitrary embedded media.
+    deadline=time.monotonic()+60
     with httpx.Client(timeout=25,follow_redirects=False,trust_env=False,headers={'User-Agent':'Mozilla/5.0 TijianResearch/0.1'}) as c:
         for _ in range(5):
             target,headers,extensions=public_target(url)
@@ -34,11 +35,12 @@ def fetch(url):
                 data=bytearray()
                 for chunk in r.iter_bytes():
                     data.extend(chunk)
+                    if time.monotonic()>deadline:raise ValueError('公开页面读取超时')
                     if len(data)>4_000_000:raise ValueError('页面超过4MB读取上限')
                 return bytes(data).decode(r.encoding or 'utf-8',errors='replace'),url
     raise ValueError('页面重定向次数过多')
 
-def article(url):
+def article(url, *, require_body=False):
     text,final=fetch(url)
     soup=BeautifulSoup(text,'html.parser')
     reject_blocked(soup,final)
@@ -54,7 +56,10 @@ def article(url):
     specific=soup.select_one('#js_content,article,.note-content,.RichContent-inner')
     if any(host==x or host.endswith('.'+x) for x in ['mp.weixin.qq.com','xiaohongshu.com','weibo.com','zhihu.com','douyin.com']) and not specific:
         raise ValueError('未读取到文章正文，可能遇到平台验证、访问限制或页面失效；可打开原文确认，或导入文稿。未保存验证页面')
-    content=specific or soup.find('main') or soup.body or soup
+    main=soup.find('main')
+    if require_body and not specific and not (main and main.find('p')) and len(soup.find_all('p')) < 3:
+        raise ValueError('未识别到公开文章正文，请核对作品链接或选择视频类型')
+    content=specific or main or soup.body or soup
     title=(soup.select_one('#activity-name') or soup.find('h1') or soup.title)
     body=content.get_text('\n',strip=True)
     if len(body)<100 or ('环境异常' in body[:1000] and len(body)<2000):raise ValueError('未获得有效正文，可能需要平台登录；可粘贴文章或导入文稿')

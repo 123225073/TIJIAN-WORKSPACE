@@ -6,6 +6,7 @@ import {Studio,STUDIO_NAV} from './Studio';
 import LoginPage from './LoginPage';
 import TaskWorkspace from './TaskWorkspace';
 import BenchmarkStudio from './BenchmarkStudio';
+import {PublishAccounts} from './MatrixPublish';
 import OperationFeedback,{JobFeedback,activeJob} from './OperationFeedback';
 import ArticleImages from './ArticleImages';
 import {useProfileDefault,profileScope,profileUnavailable,unavailableProfileOption,taskProfileInitial,profileChoiceKey,readProfileChoice,writeProfileChoice} from './profile-defaults';
@@ -33,7 +34,7 @@ type Field={key:string;label:string;type?:string;options?:{value:string;label:st
 type Form={title:string;description?:string;fields:Field[];submit:string;action:(data:any)=>Promise<any>};
 const NAV=[['home','今日工作',PanelsTopLeft],['radar','行业雷达',Radio],['benchmark','对标研究',ScanLine],['content','内容中心',PenLine],['identity','我的 IP',UserRound],['knowledge','知识库',BookOpen],['review','数据复盘',ChartNoAxesCombined],['records','资料管理',FolderOpen],['settings','设置中心',Settings2]] as const;
 const STUDIO_GROUPS=[
- {label:'开始',items:[['studio/home','首页',PanelsTopLeft],['studio/flow','一站式创作',Layers3]]},
+ {label:'开始',items:[['studio/home','首页',PanelsTopLeft],['studio/flow','内容矩阵',Layers3]]},
  {label:'找方向',items:[['benchmark','灵感与对标',Compass],['studio/topics','选题库',BookOpen]]},
  {label:'内容创作',items:[['studio/text','文案创作',FileText],['studio/image','图片创作',PenLine],['studio/video','AI 视频',Film],['studio/avatar/text','数字人视频',UserRound],['studio/compose','视频剪辑',Layers3]]},
  {label:'我的资料',items:[['knowledge','个人知识库',BookOpen],['studio/brand','我的 IP',UserRound],['studio/works','作品与素材',FolderOpen]]},
@@ -42,6 +43,9 @@ const MODES=[{value:'qa',label:'知识问答'},{value:'daily',label:'日常沟�
 const PURPOSES=[['qa','知识问答'],['daily','日常沟通'],['writing','内容创作'],['research','资料研究'],['benchmark','对标分析'],['topics','选题策划'],['profile','定位访谈'],['knowledge','知识整理'],['retrieval','搜索辅助']];
 const STATUS:Record<string,string>={draft:'草稿',review:'待审核',final:'已定稿',accepted:'已确认',pending:'待处理',ready:'正文已获取',summary:'仅摘要',queued:'等待执行',running:'进行中',done:'已完成',failed:'失败',cancelled:'已取消',interrupted:'已中断',published:'已发布',resolved:'已处理',rejected:'已忽略'};
 const fmt=(date:string)=>date?new Date(date).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'时间未知';
+import {flowOrigin} from './flow-navigation';
+import './matrix-navigation.css';
+
 const go=(path:string)=>{location.hash=path};
 function Badge({value,warning=false}:{value:string;warning?:boolean}){return <span className={'badge '+(warning?'warning':'')}>{STATUS[value]||value}</span>}
 function Empty({icon:Icon=FolderOpen,title,description,action}:{icon?:any;title:string;description:string;action?:React.ReactNode}){return <div className="empty"><Icon size={32} strokeWidth={1.2}/><h3>{title}</h3><p>{description}</p>{action}</div>}
@@ -52,7 +56,7 @@ export default function App(){
  const [error,setError]=useState(''),[toast,setToast]=useState(''),[busy,setBusy]=useState(false),[form,setFormState]=useState<Form|null>(null),[accountMenu,setAccountMenu]=useState(false);
  const [searchOpen,setSearchOpen]=useState(false);
  const [profile,setProfile]=useProfileDefault(state?.objects.filter(x=>x.kind==='profile'&&!x.archived)||[],profileScope(state),'new-task',undefined,!!state&&state.complete!==false);
- const [sidebarWidth,setSidebarWidth]=useState(()=>Number(localStorage.getItem('tijian-sidebar-width'))||238),[sidebarHidden,setSidebarHidden]=useState(()=>localStorage.getItem('tijian-sidebar-hidden')==='1'),[sidebarCompact,setSidebarCompact]=useState(()=>localStorage.getItem('tijian-sidebar-compact')==='1');
+ const [sidebarWidth,setSidebarWidth]=useState(()=>Number(localStorage.getItem('tijian-sidebar-width'))||198),[sidebarHidden,setSidebarHidden]=useState(()=>localStorage.getItem('tijian-sidebar-hidden')==='1'),[sidebarCompact,setSidebarCompact]=useState(()=>localStorage.getItem('tijian-sidebar-compact')==='1');
  const [openGroups,setOpenGroups]=useState<string[]>(()=>{try{return JSON.parse(localStorage.getItem('tijian-nav-groups')||'["开始","找方向","内容创作","我的资料"]')}catch{return ['开始','找方向','内容创作','我的资料']}});
  const resizeRef=useRef<{x:number;width:number}|null>(null);
  const toggleSidebar=()=>{if(sidebarHidden){setSidebarHidden(false);localStorage.setItem('tijian-sidebar-hidden','0')}else setSidebarCompact(v=>{localStorage.setItem('tijian-sidebar-compact',v?'0':'1');return !v})};
@@ -120,14 +124,19 @@ export default function App(){
  if(!auth)return <LoginPage onLogin={()=>{setState(null);setAuth(true)}}/>;
  if(!state)return <div className="boot"><div className="brand-mark">Ⅱ</div><h2>{error?'工作区暂时无法打开':'正在打开工作区'}</h2>{error?<><p role="alert">{error}</p><button onClick={()=>{setError('');void refresh()}}>重新连接</button><button onClick={()=>{setAuth(false);setToken('')}}>返回登录</button></>:<LoaderCircle className="spin"/>}</div>;
  const [page,id]=route.split('?')[0].split('/');const current=get(id);const isAdmin=page==='admin';
- const title=page==='studio'?(STUDIO_NAV.find(x=>x[0]===route.split('?')[0])?.[1]||'创作工作台'):page==='benchmark'?'灵感与对标':page==='task'?(current?.title||'任务工作区'):(page==='settings'||page==='accounts')?'设置中心':page==='tasks'?'任务中心':isAdmin?'管理后台':NAV.find(x=>x[0]===page)?.[1]||'今日工作';
+ const title=page==='studio'?(STUDIO_NAV.find(x=>x[0]===route.split('?')[0])?.[1]||'创作工作台'):page==='benchmark'?'灵感与对标':page==='publish-accounts'?'发布账号管理':page==='task'?(current?.title||'任务工作区'):(page==='settings'||page==='accounts')?'设置中心':page==='tasks'?'任务中心':isAdmin?'管理后台':NAV.find(x=>x[0]===page)?.[1]||'今日工作';
  const jobs=list('job');const activeJobs=jobs.filter(x=>['queued','running'].includes(x.status));const pending=list('issue').filter(x=>x.status==='pending');
  const tools={route,action,run,refresh,refreshItems,update,editItem,newItem,openTask,promptTask,importForm,urlForm,downloadFile,setForm,setError,setToast,list,get,opts,profile,profileSkipped:profile===''&&readProfileChoice(profileChoiceKey(profileScope(state),'new-task'))==='',state};
+ const matrixOrigin=flowOrigin(route);
+ const matrixParams=new URLSearchParams(matrixOrigin.split('?')[1]||'');
+ const matrixStep=Number(matrixParams.get('step')??'1');
+ const matrixStage=matrixParams.get('view')==='accounts'?5:Math.max(1,Math.min(5,matrixStep));
+ const matrixLink=(step:string,view='')=>{const query=new URLSearchParams();const work=matrixParams.get('work');if(work)query.set('work',work);query.set('step',step);if(view)query.set('view',view);return 'studio/flow?'+query};
  return <div className={'shell studio-shell'+(sidebarHidden?' sidebar-is-hidden':sidebarCompact?' sidebar-is-compact':'')} style={{'--sidebar-width':sidebarWidth+'px'} as React.CSSProperties}>
  <aside className="sidebar"><div className="wordmark"><span className="brand-mark"><i/><i/></span><div>梯世界<span>CONTENT STUDIO</span></div></div><div className="workspace-label"><span className="tiny-dot"/>电梯行业内容工作台</div><button className="search-button" onClick={()=>setSearchOpen(true)}><Search size={16}/><span>搜索资料与作品</span><kbd>⌃ K</kbd></button>
- <div className="sidebar-scroll"><nav aria-label="工作台导航">{STUDIO_GROUPS.map(group=><div className="studio-nav-group" key={group.label}><button className="studio-nav-heading" onClick={()=>toggleGroup(group.label)} aria-expanded={openGroups.includes(group.label)}>{group.label}<ChevronDown size={13}/></button>{(sidebarCompact||openGroups.includes(group.label))&&group.items.map(([key,label,Icon])=><button key={key} title={label} aria-label={label} className={route===key||(key==='studio/avatar/text'&&route.startsWith('studio/avatar/'))?'active':''} onClick={()=>go(key)}><Icon size={17} strokeWidth={1.6}/><span>{label}</span></button>)}</div>)}</nav></div>
+ <div className="sidebar-scroll"><nav aria-label="工作台导航">{STUDIO_GROUPS.map(group=><div className="studio-nav-group" key={group.label}><button className="studio-nav-heading" onClick={()=>toggleGroup(group.label)} aria-expanded={openGroups.includes(group.label)}>{group.label}<ChevronDown size={13}/></button>{(sidebarCompact||openGroups.includes(group.label))&&group.items.map(([key,label,Icon])=><div key={key} className="studio-nav-item"><button title={label} aria-label={label} className={route===key||(key==='studio/flow'&&matrixOrigin)||(key==='studio/avatar/text'&&route.startsWith('studio/avatar/'))?'active':''} onClick={()=>go(key)}><Icon size={17} strokeWidth={1.6}/><span>{label}</span></button>{key==='studio/flow'&&!sidebarCompact&&<div className="matrix-nav-steps" aria-label="内容矩阵步骤">{([['1','IP 与选题'],['2','内容母版'],['3','选择平台'],['4','平台创作'],['5','发布与账号']] as const).map(([step,name],i)=><a key={step} href={'#'+matrixLink(step)} aria-current={matrixOrigin&&Number(step)===matrixStage?'step':undefined}><span>0{i+1}</span>{name}</a>)}</div>}</div>)}</div>)}</nav></div>
  <div className="sidebar-bottom"><button className="account-control" onClick={()=>setAccountMenu(!accountMenu)}><span className="avatar">{state.user.name[0]}</span><span className="account-name">{state.user.name}<small>创作工作台</small></span><MoreHorizontal size={18}/></button>{accountMenu&&<div className="account-menu"><button onClick={()=>{go('studio/about');setAccountMenu(false)}}><Settings2 size={16}/>关于与更新</button><button onClick={()=>{go('studio/memory-settings');setAccountMenu(false)}}><BookOpen size={16}/>记忆与整理设置</button>{state.user.role==='admin'&&<a className="button" href="/admin.html"><ShieldCheck size={16}/>打开管理后台</a>}<button onClick={()=>action(async()=>{await api('/auth/logout',{});setToken('');setAuth(false)},'')}><LogOut size={16}/>退出登录</button></div>}</div></aside>
- <div className="studio-sidebar-resizer" role="separator" aria-label="拖动调整侧边栏宽度；双击恢复默认" aria-orientation="vertical" tabIndex={0} onPointerDown={beginResize} onPointerMove={resize} onPointerUp={()=>{resizeRef.current=null}} onDoubleClick={()=>{setSidebarHidden(false);setSidebarCompact(false);setSidebarWidth(238);localStorage.setItem('tijian-sidebar-width','238');localStorage.setItem('tijian-sidebar-hidden','0');localStorage.setItem('tijian-sidebar-compact','0')}} onKeyDown={e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){const n=Math.max(160,Math.min(360,sidebarWidth+(e.key==='ArrowLeft'?-20:20)));setSidebarCompact(false);setSidebarWidth(n);localStorage.setItem('tijian-sidebar-width',String(n));localStorage.setItem('tijian-sidebar-compact','0')}}}/>
+ <div className="studio-sidebar-resizer" role="separator" aria-label="拖动调整侧边栏宽度；双击恢复默认" aria-orientation="vertical" tabIndex={0} onPointerDown={beginResize} onPointerMove={resize} onPointerUp={()=>{resizeRef.current=null}} onDoubleClick={()=>{setSidebarHidden(false);setSidebarCompact(false);setSidebarWidth(198);localStorage.setItem('tijian-sidebar-width','198');localStorage.setItem('tijian-sidebar-hidden','0');localStorage.setItem('tijian-sidebar-compact','0')}} onKeyDown={e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){const n=Math.max(160,Math.min(360,sidebarWidth+(e.key==='ArrowLeft'?-20:20)));setSidebarCompact(false);setSidebarWidth(n);localStorage.setItem('tijian-sidebar-width',String(n));localStorage.setItem('tijian-sidebar-compact','0')}}}/>
  <section className="workspace"><header className="topbar"><div className="breadcrumb"><button className="studio-sidebar-toggle" onClick={toggleSidebar} aria-label={sidebarHidden||sidebarCompact?'展开完整目录':'收成图标目录'} title={sidebarHidden||sidebarCompact?'展开完整目录':'收成图标目录'}><PanelsTopLeft size={17}/></button><span>创作空间</span>{route.split('?')[0]!=='studio/flow'&&<><ChevronRight size={13}/><strong>{title}</strong></>}</div><div className="top-actions"><CurrentActivity key={state.user.id} route={route} userId={state.user.id} objects={state.objects}/><button className="quiet" onClick={()=>go('studio/works')}><span className={'status-dot '+(activeJobs.length?'live':'')}/>{activeJobs.length?'进行中 '+activeJobs.length:'作品与素材'}</button></div></header>
  <main className={'page-area '+(page==='task'?'task-area':'')}>
  {error&&<div className="error-banner"><AlertTriangle size={17}/><span>{error}</span><button onClick={()=>window.dispatchEvent(new CustomEvent('operation-recover',{cancelable:true,detail:{error,route}}))}>定位并处理</button><button className="icon-button" onClick={()=>setError('')} aria-label="关闭错误"><X size={16}/></button></div>}
@@ -138,6 +147,7 @@ export default function App(){
  {page==='home'&&<Today {...tools}/>}
  {page==='radar'&&<RadarPage {...tools}/>}
  {page==='benchmark'&&<BenchmarkStudio t={tools}/>}
+ {page==='publish-accounts'&&<PublishAccounts/>}
  {page==='studio'&&<Studio key={profileScope(state)} t={tools} route={route}/>}
  {page==='content'&&<Contents {...tools}/>}
  {page==='task'&&current&&!current.archived&&<TaskWorkspace key={profileScope(state)+':'+id} task={current} {...tools}/>}

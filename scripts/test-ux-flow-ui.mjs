@@ -107,13 +107,12 @@ try{
   assert((await page.locator('.st-flow-context').innerText()).includes('第 3 步'),label+' 缺少返回主线入口');
   if(label==='AI 视频'){
    const videoRoute=new URL(page.url()).hash.slice(1);
-   await page.getByRole('button',{name:'视频设置',exact:true}).click();
+   await page.getByRole('region',{name:'视频设置',exact:true}).waitFor();
    await page.getByRole('link',{name:'管理素材',exact:true}).click();
    await page.locator('.st-library-tabs').waitFor();
    assert((await page.locator('.st-flow-context button').innerText()).includes('返回AI 视频'));
    await page.locator('.st-flow-context button').click();
-   await page.getByRole('button',{name:'视频设置',exact:true}).click();
-   await page.getByRole('dialog',{name:'视频设置',exact:true}).getByRole('button',{name:'完成设置'}).click();
+   await page.getByRole('region',{name:'视频设置',exact:true}).waitFor();
    assert.equal(new URL(page.url()).hash.slice(1),videoRoute,'管理素材返回后应保留视频草稿和主线来源');
   }
   await page.locator('.st-flow-context button').click();

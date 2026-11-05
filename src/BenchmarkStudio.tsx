@@ -3,6 +3,7 @@ import {api, type Item} from './api';
 import './benchmark-studio.css';
 import {BenchmarkTechnicalSettings, type BenchmarkPreferences} from './BenchmarkSettings';
 import {IndustryDiscovery} from './RadarSources';
+import BenchmarkLink from './BenchmarkLink';
 
 // Mount user view in discovery; mount the two named exports ONLY in admin.html.
 const root:CSSProperties={maxWidth:1400,margin:'0 auto',padding:'24px 24px 80px',color:'var(--ts-text, #23302e)'};
@@ -68,6 +69,7 @@ export default function BenchmarkStudio({t}:{t:Tools}){
   <header className="bv-header"><div><span>DISCOVER / BENCHMARK</span><h1>灵感与对标</h1><p>看同行、看行业，找到值得讲给客户的内容。</p></div><div className="bv-head-count"><strong>{accounts.length}</strong><span>已添加账号</span><i/><strong>{items.length}</strong><span>已保存样本</span></div></header>
   <nav className="bv-paths" aria-label="发现内容"><button type="button" className={section==='peers'?'active':''} aria-pressed={section==='peers'} onClick={()=>setSection('peers')}><span>01 · 看同行</span><strong>同行账号与最近作品</strong><small>粘贴账号链接，获取作品，找到自己的创作角度。</small></button><button type="button" className={section==='industry'?'active':''} aria-pressed={section==='industry'} onClick={()=>setSection('industry')}><span>02 · 看行业</span><strong>行业资讯与平台热点</strong><small>关注信源、阅读资讯，都在本页完成。</small></button></nav>
   <div hidden={section!=='peers'}>
+  {owner&&<BenchmarkLink key={owner} tikhubReady={ready('tikhub')}/>}
   <div role="status" aria-live="polite" style={{...subtle,marginBottom:14}}>{busy?'正在处理，请勿重复提交付费请求。':notice}</div>
   {failure&&<p role="alert" style={{...panel,color:'#982f2f'}}>{failure}</p>}
   <div className="bv-section-head"><div><h2>对标账号</h2><p>选择已保存账号继续研究，或添加一个新账号。</p></div><span>{accounts.length} 个账号</span></div>

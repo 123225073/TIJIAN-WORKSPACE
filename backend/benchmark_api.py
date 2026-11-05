@@ -461,6 +461,9 @@ def reference(owner, data):
 
 def register(app, user, admin, error):
     """Register before SPA fallback. No changes to app.py are required in this module."""
+    from . import benchmark_link
+    benchmark_link.register(app, user)
+
     def guarded(owner, fn, data):
         lock = owner_lock(owner)
         if not lock.acquire(blocking=False):

@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState,type DragEvent} from 'react';
 import {Image as ImageIcon,UploadCloud,X,ArrowLeftRight} from 'lucide-react';
 import {api} from './api';
-import {AssetThumbnail} from './AssetPicker';
+import {AssetThumbnail,ImageLibraryField} from './AssetPicker';
 import {videoFrameKey,videoFrameRefs,videoFrameSlots} from './video-inputs';
 import './video-frame-references.css';
 
@@ -50,7 +50,8 @@ export default function VideoFrameReferences(props:any){
    <div className={'video-frame-preview'+(ref?' selected':'')}>{asset?<AssetThumbnail asset={asset}/>:ref?<span>已选择外部图片<br/>{ref.title||ref.url}</span>:<><ImageIcon size={27}/><span>{'添加'+label(role)+'图片'}</span></>}</div>
    {ref&&<p className="video-frame-name">{label(role)} · {asset?.title||ref.title||'外部图片'}</p>}
    <button type="button" className="video-frame-upload" disabled={busy||!!uploading} onClick={()=>{target.current=role;file.current?.click()}}><UploadCloud size={15}/>{uploading===role?'上传中…':(ref?'替换':'上传')+label(role)}</button>
-   <select aria-label={'选择'+label(role)+'素材'} disabled={busy||!!uploading} value={ref?.id||''} onChange={e=>{if(e.target.value)choose(role,e.target.value)}}><option value="">从素材库选择{label(role)}</option>{pictures.map((a:any)=><option key={a.id} value={a.id} disabled={Object.entries(slots).some(([k,v])=>k!==role&&v==='id:'+a.id)}>{a.title||'未命名图片'}</option>)}</select>
+   <ImageLibraryField label={'从素材库选择'+label(role)} value={ref?.id||''} disabled={busy||!!uploading}
+    items={pictures.filter((a:any)=>!Object.entries(slots).some(([k,v])=>k!==role&&v==='id:'+a.id))} onSelect={id=>choose(role,id)}/>
   </article>})}</div>
   {roles.length===2&&slots.first_frame&&slots.last_frame&&<button className="video-frame-swap" type="button" disabled={busy||!!uploading} onClick={()=>update({frame_slots:{first_frame:slots.last_frame,last_frame:slots.first_frame}})}><ArrowLeftRight size={14}/>交换首帧与尾帧</button>}
   {!!extras.length&&<div className="video-frame-extras"><strong>以下素材不适用于当前方式，请移除后生成</strong>{extras.map((ref:any,i:number)=><div key={i}><span>{allAssets.find(a=>a.id===ref.id)?.title||ref.title||'额外素材'}</span><button type="button" disabled={busy||!!uploading} aria-label={'移除'+(allAssets.find(a=>a.id===ref.id)?.title||ref.title||'额外素材')} onClick={()=>removeExtra(ref)}>移除</button></div>)}</div>}

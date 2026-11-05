@@ -79,7 +79,7 @@ export default function TishijieHome({drafts,t}:{drafts:any[];t:any}){
    {error&&<p className="tw-chat-error" role="alert">{error}</p>}
   </section>
   <div className="tw-starters" aria-label="试试这些创作话题">{starters.map(x=><button type="button" key={x} disabled={busy} onClick={()=>{setQuestion(x);setError('');input.current?.focus()}}>{x}<ArrowRight size={13} aria-hidden="true"/></button>)}</div>
-  <a className="tw-flow-entry" href="#studio/flow"><span className="tw-flow-icon"><Layers3 size={22} aria-hidden="true"/></span><div><strong>一站式创作</strong><span>按步骤完成一件作品：选题 → 内容 → 素材 → 交付</span></div><span className="tw-flow-action">进入工作流 <ArrowRight size={17} aria-hidden="true"/></span></a>
+  <a className="tw-flow-entry" href="#studio/flow"><span className="tw-flow-icon"><Layers3 size={22} aria-hidden="true"/></span><div><strong>内容矩阵</strong><span>确定 IP 与选题，写好母版，再按平台创作</span></div><span className="tw-flow-action">进入工作流 <ArrowRight size={17} aria-hidden="true"/></span></a>
   <nav className="tw-tools" aria-label="直接打开创作工具">{tools.map(({name,description,href,Icon},i)=><a href={href} key={name} className={'tw-tool tw-tool-'+i}><span className="tw-tool-icon"><Icon size={23} strokeWidth={1.6} aria-hidden="true"/></span><strong>{name}</strong><p>{description}</p><ArrowRight className="tw-tool-arrow" size={16} aria-hidden="true"/></a>)}</nav>
   <small className="tw-concept-credit">背景为 AI 建筑概念图</small>
  </section><section className="tw-materials" aria-labelledby="tw-materials-title">

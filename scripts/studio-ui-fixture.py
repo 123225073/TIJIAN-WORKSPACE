@@ -22,6 +22,12 @@ illustrations.generate=test_image
 g.select=lambda *args,**kwargs:'fixture-text'
 def generate(model,messages,probe=False):
     prompt=messages[0]['content']
+    if '可独立发布的完整文章' in prompt:
+        topic=json.loads(messages[1]['content'])['选题']['title']
+        body='## 先核对现场\n\n'+('【隔离测试】请把井道测量记录和安装范围放在一起核对，再确认报价包含哪些服务。\n\n'*9)
+        text=json.dumps({'title':topic+' · 隔离测试文章','body':body},ensure_ascii=False)
+        for i in range(1,len(text)+1,3):streaming.emit('delta',text[:i]);time.sleep(.02)
+        return text
     if '需求识别器' in prompt:
         data=json.loads(messages[1]['content']);text=data['最新用户请求']
         action='image' if '生成' in text and '图片' in text else 'video' if '生成视频' in text else 'chat' if '怎么用' in text or text=='你好' else 'text'

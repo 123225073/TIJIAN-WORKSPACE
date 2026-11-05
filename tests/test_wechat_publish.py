@@ -610,3 +610,106 @@ def test_unrecognized_local_image_blocks_draft_creation(client, monkeypatch, ima
     })
     assert result.status_code == 400 and '无法识别的本地图片' in result.json()['detail']
     assert '/media/uploadimg' not in calls and '/draft/add' not in calls
+
+
+def test_matrix_source_topic_version_and_legacy_handoff_are_checked(client, monkeypatch):
+    owner, linked, account = _prepared(client)
+    original = store.put(owner, 'content', {'title': '核对电梯选型', 'body': '原稿'})
+    flow = store.put(owner, 'studio_flow', {'topic_id': linked['topic_id'], 'source_outcome_id': original['id']})
+    content = store.put(owner, 'content', {'flow_id': flow['id'], 'imported_from': original['id'],
+                        'format': '公众号文章', 'title': original['title'], 'body': original['body'],
+                        'wechat_style': {'font_size': '17'}})
+    linked = store.put(owner, 'studio_delivery', {**linked, 'flow_id': flow['id'], 'source_ids': [content['id']]}, linked['id'])
+    flow = store.put(owner, 'studio_flow', {**flow, 'content_id': content['id'], 'delivery_id': linked['id']}, flow['id'])
+    path = '/api/wechat-publish/matrix/' + flow['id'] + '/' + content['id']
+    assert client.get(path).status_code == 200
+    request = {'version': content['version'], 'cover_asset_id': linked['cover_asset_id'], 'summary': ''}
+    prepared = client.post(path, json=request)
+    assert prepared.status_code == 200, prepared.text
+    delivery = prepared.json()
+    assert delivery['topic_id'] == linked['topic_id']
+    assert delivery['wechat_style']['template'] == 'editorial'
+    assert client.patch('/api/studio/deliveries/' + delivery['id'], json={
+        'version': delivery['version'], 'body': '不应覆盖原稿',
+    }).status_code == 409
+    assert [row['id'] for row in client.get('/api/studio/deliveries', params={'flow_id': flow['id']}).json()['items']] == [linked['id']]
+    calls = []
+
+    def remote(method, path, **kwargs):
+        calls.append((path, kwargs.get('payload')))
+        return {'media_id': 'cover'} if path == '/material/add_material' else {'media_id': 'draft'}
+
+    monkeypatch.setattr(wechat_publish, '_request', remote)
+    # Imported or pre-fix snapshots are also checked at the point of use.
+    altered = store.put(owner, 'studio_delivery', {**delivery, 'body': '错误正文'}, delivery['id'])
+    sync_url = '/api/wechat-publish/drafts/' + delivery['id']
+    assert client.post(sync_url, json={'version': altered['version'], 'account_id': account['id']}).status_code == 409
+    assert calls == []
+    delivery = client.post(path, json=request).json()
+    assert client.post(sync_url, json={'version': delivery['version'], 'account_id': account['id']}).status_code == 200
+    assert '原稿' in calls[-1][1]['articles'][0]['content']
+    assert '行业观察' in calls[-1][1]['articles'][0]['content']
+    publish_url = '/api/wechat-publish/publish/' + delivery['id']
+    payload = {'confirmed': True, 'account_id': account['id']}
+    assert client.post(publish_url, json=payload).status_code == 409
+    assert client.post(publish_url, json={**payload, 'version': delivery['version'] - 1}).status_code == 409
+    other = store.put(owner, 'studio_topic', {'title': '另一个选题'})
+    store.put(owner, 'studio_flow', {**flow, 'topic_id': other['id']}, flow['id'])
+    assert client.post(publish_url, json={**payload, 'version': delivery['version']}).status_code in (404, 409)
+    assert [item[0] for item in calls] == ['/material/add_material', '/draft/add']
+
+
+@pytest.mark.parametrize('action', ['draft', 'publish'])
+def test_wechat_post_survives_crash_after_provider_acceptance_without_replay(client, monkeypatch, action):
+    owner, delivery, account = _prepared(client)
+    calls = []
+
+    def remote(method, path, **kwargs):
+        calls.append(path)
+        return {'publish_id': 'external-publish'} if path == '/freepublish/submit' else {'media_id': 'external-media'}
+
+    monkeypatch.setattr(wechat_publish, '_request', remote)
+    sync_url = '/api/wechat-publish/drafts/' + delivery['id']
+    data = {'account_id': account['id'], 'version': delivery['version']}
+    if action == 'publish':
+        assert client.post(sync_url, json=data).status_code == 200
+    url = sync_url if action == 'draft' else '/api/wechat-publish/publish/' + delivery['id']
+    target = '/draft/add' if action == 'draft' else '/freepublish/submit'
+    payload = data if action == 'draft' else {**data, 'confirmed': True}
+    save = wechat_publish._save_record
+
+    def lose_receipt(owner, old, values):
+        if values['status'] == ('draft' if action == 'draft' else 'publishing'):
+            raise store.Conflict('测试模拟本机回执写入中断')
+        return save(owner, old, values)
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(wechat_publish, '_save_record', lose_receipt)
+        assert client.post(url, json=payload).status_code == 409
+    records = client.get('/api/wechat-publish/records/' + delivery['id']).json()['items']
+    assert records[0]['status'] == 'uncertain'
+    assert client.post(url, json=payload).status_code == 400
+    assert calls.count(target) == 1
+
+
+def test_definitive_wechat_rejection_keeps_draft_retryable(client, monkeypatch):
+    _, delivery, account = _prepared(client)
+    rejected = {'/draft/add', '/freepublish/submit'}
+
+    def remote(method, path, **kwargs):
+        if path in rejected:
+            rejected.remove(path)
+            raise wechat_publish.WechatRejected('微信接口错误 48001')
+        return {'publish_id': 'retried-publish'} if path == '/freepublish/submit' else {'media_id': 'retried-media'}
+
+    monkeypatch.setattr(wechat_publish, '_request', remote)
+    sync_url = '/api/wechat-publish/drafts/' + delivery['id']
+    data = {'account_id': account['id'], 'version': delivery['version']}
+    assert client.post(sync_url, json=data).status_code == 400
+    assert client.get('/api/wechat-publish/records/' + delivery['id']).json()['items'] == []
+    assert client.post(sync_url, json=data).status_code == 200
+    publish_url = '/api/wechat-publish/publish/' + delivery['id']
+    payload = {**data, 'confirmed': True}
+    assert client.post(publish_url, json=payload).status_code == 400
+    assert client.get('/api/wechat-publish/records/' + delivery['id']).json()['items'][0]['status'] == 'draft'
+    assert client.post(publish_url, json=payload).json()['status'] == 'publishing'

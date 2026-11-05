@@ -1,7 +1,7 @@
 import json
 import re
 from fastapi import Depends
-from . import store as s,jobs,network,upstream,gateway as g,library
+from . import store as s,jobs,network,upstream,gateway as g,library,content_matrix as matrix
 from .speech_helper import speech_from_content, conversion_input, speech_generation_request
 
 _DRAFT_KINDS = {'studio_text_draft', 'studio_draft'}
@@ -77,9 +77,9 @@ def _scope_objects(owner):
     # as list_ so legacy setdefault precedence is unchanged.
     fields = ('flow_id', 'origin_task_id', 'task_id', 'draft_id', 'studio_draft_id',
               'run_id', 'job_id', 'media_outcomes', 'asset_ids', 'status',
-              'input_draft_id', 'input_task_id', 'result_content_id')
+              'input_draft_id', 'input_task_id', 'result_content_id', 'topic_id', 'creation_channel')
     paths = ["'$." + key + "'" for key in fields[:10]] + [
-        "'$.input.draft_id'", "'$.input.task_id'", "'$.result.content_id'"]
+        "'$.input.draft_id'", "'$.input.task_id'", "'$.result.content_id'", "'$.topic_id'", "'$.creation_channel'"]
     with s.conn() as c:
         rows = c.execute(
             'SELECT id,kind,version,json_extract(data,' + ','.join(paths) + ') AS scope '
@@ -109,7 +109,7 @@ def _sync_flow_outputs(owner, flow_id=None):
         if obj['kind'] == 'task' and flow_id is None:
             for ident in (obj.get('media_outcomes') or {}).values():
                 bindings.setdefault(ident, ('origin_task_id', obj['id']))
-    outputs = {}
+    outputs, branches = {}, {}
     for obj in objects.values():
         if obj['kind'] not in {'job', 'studio_run'}:
             continue
@@ -119,6 +119,9 @@ def _sync_flow_outputs(owner, flow_id=None):
         outputs[obj['id']] = binding
         if obj['kind'] == 'job' and obj.get('status') == 'done' and obj.get('result_content_id'):
             outputs[obj['result_content_id']] = binding
+            draft = objects.get(obj.get('input_draft_id') or obj.get('draft_id'))
+            if draft and draft.get('topic_id') and draft.get('creation_channel') in matrix.CHANNELS:
+                branches[obj['result_content_id']] = {'topic_id': draft['topic_id'], 'creation_channel': draft['creation_channel']}
         if obj['kind'] == 'studio_run':
             outputs.update({ident: binding for ident in obj.get('asset_ids') or []})
     for obj in objects.values():
@@ -129,7 +132,7 @@ def _sync_flow_outputs(owner, flow_id=None):
             # Callers retain LOCK; fetch the full owned record only when writing
             # a repair, preserving content and optimistic version/history checks.
             obj = s.get(owner, obj['id'])
-            s.put(owner, obj['kind'], {**obj, binding[0]: binding[1]}, obj['id'], obj['version'])
+            s.put(owner, obj['kind'], {**obj, binding[0]: binding[1], **branches.get(obj['id'], {})}, obj['id'], obj['version'])
 
 
 def _copy(owner, obj, flow_id, source_map=None):
@@ -283,7 +286,7 @@ def _install_flow_routes(app, user):
                 topic_id, channel = candidate.get('topic_id'), candidate.get('creation_channel')
                 if not isinstance(topic_id, str) or not topic_id or len(topic_id) > 128:
                     raise ValueError('请同时提供有效选题和创作渠道')
-                if not isinstance(channel, str) or channel not in {'wechat', 'xiaohongshu', 'moments', 'video', 'avatar'}:
+                if not isinstance(channel, str) or channel not in set(matrix.CHANNELS) | {'moments', 'video', 'avatar'}:
                     raise ValueError('请同时提供有效选题和创作渠道')
                 _live(owner, topic_id, {'studio_topic'})
                 binding = candidate
@@ -310,7 +313,7 @@ def _install_flow_routes(app, user):
             result = call(**({'id': ident} if old else {}), data=payload, u={'id': owner})
             if flow_id or task_id:
                 result = s.put(owner, result['kind'], {**result, **binding, **({'flow_id': flow_id} if flow_id else {'origin_task_id': task_id}),
-                               **{k: old[k] for k in ('imported_from', 'imported_version') if old and k in old}},
+                               **{k: old[k] for k in ('imported_from', 'imported_version', 'matrix_master_version', 'matrix_request') if old and k in old}},
                                result['id'], result['version'])
             return result
 
@@ -431,6 +434,158 @@ def _install_flow_routes(app, user):
     @app.post('/api/studio/flows/{flow_id}/drafts')
     def flow_draft_create(flow_id: str, data: dict, u=Depends(user)):
         return save_draft(u['id'], data, flow_id)
+
+    def matrix_jobs(owner, flow_id):
+        with s.conn() as c:
+            rows = c.execute("""SELECT id,updated,
+                json_extract(data,'$.status') AS status,json_extract(data,'$.error') AS error,
+                json_extract(data,'$.input.draft_id') AS draft_id,
+                json_extract(data,'$.result.content_id') AS content_id,
+                json_extract(data,'$.input.creation_request') AS request_id
+                FROM objects WHERE owner=? AND kind='job' AND json_extract(data,'$.flow_id')=?
+                AND json_extract(data,'$.archived') IS NOT 1 ORDER BY updated DESC""", (owner, flow_id)).fetchall()
+        return [dict(row) for row in rows]
+
+    @app.get('/api/studio/flows/{flow_id}/matrix')
+    def flow_matrix(flow_id: str, u=Depends(user)):
+        owner = u['id']
+        with s.LOCK:
+            flow = _flow(owner, flow_id)
+            _sync_flow_outputs(owner, flow_id)
+            master = matrix.get_master(owner, flow)
+            drafts = [draft for draft in flow_draft_list(owner, flow_id, 'text')
+                      if draft.get('topic_id') == master['topic_id'] and draft.get('creation_channel') in matrix.CHANNELS]
+            by_draft = {draft['id']: draft for draft in drafts}
+            result = []
+            for job in matrix_jobs(owner, flow_id):
+                draft = by_draft.get(job['draft_id'])
+                if not draft:
+                    continue
+                if job.get('content_id'):
+                    try:
+                        content = _live(owner, job['content_id'], {'content'})
+                    except s.Missing:
+                        job['content_id'] = ''
+                    else:
+                        job['title'] = content.get('title', '')
+                        job['content_version'] = content['version']
+                        job['content'] = content
+                result.append({**job, 'platform': draft['creation_channel'],
+                               'master_version': draft.get('matrix_master_version')})
+            linked = None
+            if flow.get('source_outcome_id') and flow.get('delivery_id') and flow.get('content_id'):
+                try:
+                    delivery = _live(owner, flow['delivery_id'], {'studio_delivery'})
+                    content = _live(owner, flow['content_id'], {'content'})
+                except s.Missing:
+                    pass
+                else:
+                    if (delivery.get('flow_id') == flow_id and delivery.get('topic_id') == master['topic_id']
+                            and content.get('flow_id') == flow_id and content.get('imported_from') == flow['source_outcome_id']):
+                        linked = {'id': content['id'], 'title': content.get('title', ''), 'topic_id': delivery['topic_id'],
+                                  'platform': delivery.get('platform', '')}
+            master_job = next((job for job in s.list_(owner, 'job')
+                               if job.get('input', {}).get('action') == 'matrix_master'
+                               and job['input'].get('flow_id') == flow_id
+                               and job['input'].get('topic_id') == master['topic_id']), None)
+            return {'master': master, 'runs': result, 'linked': linked, 'master_job': master_job}
+
+    @app.put('/api/studio/flows/{flow_id}/matrix')
+    def save_flow_matrix(flow_id: str, data: dict, u=Depends(user)):
+        with s.LOCK:
+            return matrix.save_master(u['id'], _flow(u['id'], flow_id), data)
+
+    @app.post('/api/studio/flows/{flow_id}/matrix/write-master')
+    def write_flow_master(flow_id: str, data: dict, u=Depends(user)):
+        owner = u['id']
+        request_id = data.get('request_id')
+        if (set(data) - {'topic_id', 'version', 'request_id', 'direct'} or not {'topic_id', 'version', 'request_id'} <= set(data)
+                or type(data['version']) is not int or type(data.get('direct', False)) is not bool
+                or not isinstance(request_id, str) or not re.fullmatch(r'[0-9a-f-]{36}', request_id)):
+            raise ValueError('母版生成参数无效')
+        with s.LOCK:
+            flow = _flow(owner, flow_id)
+            master = matrix.get_master(owner, flow)
+            if not master['topic_id'] or data['topic_id'] != master['topic_id'] or data['version'] != master['version']:
+                raise s.Conflict('母版或选题已更新，请刷新后重试')
+            inputs = {**data, 'action': 'matrix_master', 'flow_id': flow_id}
+            for job in s.list_(owner, 'job'):
+                request = job.get('input', {})
+                if request.get('action') != 'matrix_master' or request.get('flow_id') != flow_id or request.get('topic_id') != master['topic_id']:
+                    continue
+                if request.get('request_id') == request_id or job['status'] in {'queued', 'running'}:
+                    return job
+            topic = _live(owner, master['topic_id'], {'studio_topic'})
+            profile = _live(owner, flow['profile_id'], {'profile'}) if flow.get('profile_id') else {}
+            sources = []
+            for source_id in topic.get('source_ids', [])[:6]:
+                try:
+                    sources.append(_live(owner, source_id, {'source'}))
+                except s.Missing:
+                    continue
+            model = g.select(owner, 'writing')
+            from . import capabilities
+            method = capabilities.for_platform(capabilities.snapshot('writing', owner), 'wechat')
+
+            def run(progress, event):
+                progress('正在根据选题撰写完整文章')
+                if event.is_set():
+                    raise InterruptedError('母版生成已取消')
+                body = matrix.write_master(model, topic, profile, sources, method)
+                if event.is_set():
+                    raise InterruptedError('母版生成已取消')
+                result = {'body': body, 'capabilities': method['metadata']}
+                if data.get('direct'):
+                    with s.LOCK:
+                        latest = _flow(owner, flow_id)
+                        result['master'] = matrix.save_master(owner, latest, {
+                            'topic_id': topic['id'], 'version': master['version'],
+                            'body': body, 'platforms': master['platforms'],
+                        })
+                return result
+
+            return jobs.start(owner, '内容母版 · ' + topic['title'][:80], run, inputs)
+
+    @app.post('/api/studio/flows/{flow_id}/matrix/generate')
+    def generate_flow_matrix(flow_id: str, data: dict, u=Depends(user)):
+        owner = u['id']
+        platform = data.get('platform')
+        request_id = data.get('request_id')
+        if (set(data) != {'platform', 'master_version', 'topic_id', 'request_id'} or not isinstance(platform, str)
+                or platform not in matrix.CHANNELS or not isinstance(request_id, str)
+                or not re.fullmatch(r'[0-9a-f-]{36}', request_id)):
+            raise ValueError('平台创作提交参数无效')
+        with s.LOCK:
+            flow = _flow(owner, flow_id)
+            master = matrix.get_master(owner, flow)
+            if (not master['topic_id'] or data['topic_id'] != master['topic_id']
+                    or type(data['master_version']) is not int or data['master_version'] != master['version']):
+                raise s.Conflict('母版或选题已更新，请先核对并保存')
+            if not master['body'].strip() or platform not in master['platforms']:
+                raise ValueError('请保存母版正文并勾选要生成的平台')
+            topic = _live(owner, master['topic_id'], {'studio_topic'})
+            request = s.digest(f'matrix-run:{flow_id}:{master["id"]}:{master["version"]}:{platform}:{request_id}')
+            drafts = [draft for draft in flow_draft_list(owner, flow_id, 'text')
+                      if draft.get('topic_id') == master['topic_id'] and draft.get('creation_channel') == platform]
+            draft_ids = {draft['id'] for draft in drafts}
+            for job in matrix_jobs(owner, flow_id):
+                if job['request_id'] == request or job['draft_id'] in draft_ids and job['status'] in {'queued', 'running'}:
+                    return {'id': job['id'], 'status': job['status']}
+            format_name, words, _ = matrix.CHANNELS[platform]
+            brief = matrix.request_brief(topic['title'], master, platform)
+            draft = next((d for d in drafts if d.get('matrix_request') == request), None)
+            if not draft:
+                draft = save_draft(owner, {'title': f'{format_name} · {topic["title"][:48]}', 'tool': 'text',
+                    'topic_id': topic['id'], 'creation_channel': platform,
+                    'input': {'brief': brief, 'format': format_name, 'target_words': words},
+                    'profile_id': flow.get('profile_id', ''), 'brand_id': flow.get('brand_id', '')}, flow_id)
+                draft = s.put(owner, draft['kind'], {**draft, 'matrix_master_version': master['version'],
+                              'matrix_request': request}, draft['id'], expected=draft['version'])
+            result = endpoint('/api/studio/text/generate', 'POST').dependant.call(u=u, data={
+                'flow_id': flow_id, 'draft_id': draft['id'], 'brief': brief, 'format': format_name,
+                'target_words': words, 'profile_id': draft.get('profile_id', ''),
+                'brand_id': draft.get('brand_id', ''), 'request_id': request})
+            return {'id': result['id'], 'status': result['status']}
 
     def flow_speech(owner, flow_id, content_id=''):
         row = _flow(owner, flow_id)

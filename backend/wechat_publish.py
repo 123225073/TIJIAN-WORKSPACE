@@ -14,7 +14,7 @@ import httpx
 from fastapi import Depends, Response
 from PIL import Image
 
-from . import gateway, media_studio, store, wechat_layout
+from . import flow_deliverables, gateway, media_studio, store, wechat_layout
 
 BASE = 'https://api.weixin.qq.com/cgi-bin'
 PUBLIC_IP_URL = 'https://checkip.amazonaws.com'
@@ -25,6 +25,10 @@ LOCAL_IMAGE = re.compile(
     r'(?:[ \t]+(?:"[^"\n]*"|\'[^\'\n]*\'|\([^()\n]*\)))?[ \t]*\)'
 )
 IMAGE_START = re.compile(r'!\[[^\]\n]*\]\(')
+
+
+class WechatRejected(ValueError):
+    """The requested mutation was not submitted or WeChat rejected it explicitly."""
 
 
 def _accounts(owner):
@@ -52,6 +56,8 @@ def _json(response):
     if not isinstance(value, dict):
         raise ValueError('微信接口返回格式异常（应为 JSON 对象）')
     code = value.get('errcode', 0)
+    if type(code) is not int or code < 0:
+        raise ValueError('微信未返回明确处理结果，请核查公众号后台')
     if code:
         hint = {40164: '请把本机的公网出口 IP 加入公众号接口 IP 白名单',
                 40125: 'AppSecret 无效或已重置。请核对所选公众号的 AppID，在“修改连接”中填写对应的最新 AppSecret，保存后测试连接；IP 白名单不能解决此错误',
@@ -67,7 +73,7 @@ def _json(response):
                     address = None
                 if address and address.is_global:
                     hint += f'；微信识别的出口 IP：{address}'
-        raise ValueError(f'微信接口错误 {code}：{hint}')
+        raise WechatRejected(f'微信接口错误 {code}：{hint}')
     return value
 
 
@@ -117,7 +123,10 @@ def _public_egress_ip():
 
 
 def _request(method, path, *, account, owner, payload=None, files=None, params=None):
-    token = _token(owner, account)
+    try:
+        token = _token(owner, account)
+    except ValueError as exc:
+        raise WechatRejected(str(exc)) from None
     try:
         with httpx.Client(timeout=30, trust_env=False) as client:
             response = client.request(method, BASE + path, params={'access_token': token, **(params or {})}, json=payload, files=files)
@@ -147,7 +156,8 @@ def _token(owner, account, *, fresh=False):
 
 def _image(owner, asset_id, *, inline=False):
     asset = store.get(owner, asset_id)
-    if asset['kind'] != 'studio_asset' or asset.get('asset_type') != 'image' or asset.get('status') != 'ready':
+    if (asset['kind'] != 'studio_asset' or asset.get('asset_type') != 'image' or asset.get('status') != 'ready'
+            or asset.get('archived') or asset.get('deleted')):
         raise ValueError('请选择本账号已保存的图片素材')
     path = media_studio._path(owner, asset.get('local_file'))
     try:
@@ -243,7 +253,7 @@ def _record(owner, delivery_id, account_id):
 
 def _delivery(owner, delivery_id):
     item = store.get(owner, delivery_id)
-    if item['kind'] != 'studio_delivery' or item.get('platform') != 'wechat' or item.get('archived'):
+    if item['kind'] != 'studio_delivery' or item.get('platform') != 'wechat' or item.get('archived') or item.get('deleted'):
         raise ValueError('请选择本账号的公众号发布稿')
     return item
 
@@ -259,13 +269,116 @@ def _save_record(owner, old, values):
                      old['id'] if old else None, expected=old['version'] if old else None)
 
 
+def _matrix_article(owner, flow_id, content_id):
+    flow = flow_deliverables._live(owner, flow_id, 'studio_flow')
+    content = flow_deliverables._live(owner, content_id, 'content')
+    if content.get('flow_id') != flow_id:
+        raise store.Missing('当前作品中没有这份公众号稿')
+    if (content.get('creation_channel') or content.get('platform')) != 'wechat':
+        # Older AI-dialogue handoffs put the channel on the linked delivery.
+        if (flow.get('content_id') != content_id or not flow.get('source_outcome_id')
+                or content.get('imported_from') != flow['source_outcome_id'] or not flow.get('delivery_id')):
+            raise store.Missing('当前作品中没有这份公众号稿')
+        linked = _delivery(owner, flow['delivery_id'])
+        if linked.get('flow_id') != flow_id or content_id not in linked.get('source_ids', []):
+            raise store.Missing('当前作品中没有这份公众号稿')
+    topic, _ = flow_deliverables.Scope(owner, flow).topic(content)
+    if not topic or topic != flow.get('topic_id'):
+        raise store.Conflict('公众号稿件与当前作品选题不一致，请返回原选题后再操作')
+    return content, topic
+
+
+def _matrix_delivery_id(owner, flow_id, content):
+    return store.digest(f"matrix-wechat:{owner}:{flow_id}:{content['id']}:{content['version']}")[:32]
+
+
+def _matrix_fields(content):
+    style = wechat_layout.style(content.get('wechat_style'))
+    style.setdefault('template', 'editorial')
+    return {'title': str(content.get('title') or '').strip(), 'body': str(content.get('body') or '').strip(),
+            'author': str(content.get('author') or ''), 'wechat_style': style}
+
+
+def _require_current_matrix_version(owner, delivery):
+    if delivery.get('matrix_content_id'):
+        content, topic = _matrix_article(owner, delivery['flow_id'], delivery['matrix_content_id'])
+        if content['version'] != delivery['matrix_content_version'] or topic != delivery.get('topic_id'):
+            raise store.Conflict('公众号稿件有新版本，请从当前已保存文稿重新准备发布')
+        if (delivery['id'] != _matrix_delivery_id(owner, delivery['flow_id'], content)
+                or any(delivery.get(key) != value for key, value in _matrix_fields(content).items())):
+            raise store.Conflict('公众号发布稿与已保存文稿不一致，请重新准备发布')
+    elif delivery.get('flow_id'):
+        flow = flow_deliverables._live(owner, delivery['flow_id'], 'studio_flow')
+        if delivery.get('topic_id') != flow.get('topic_id'):
+            raise store.Conflict('公众号稿件与当前作品选题不一致，请返回原选题后再操作')
+
+
+def _reserve_write(owner, delivery, account, old, snapshot):
+    with store.LOCK:
+        current = _delivery(owner, delivery['id'])
+        if current['version'] != delivery['version']:
+            raise store.Conflict('发布稿已修改，请先保存并重新核对')
+        _require_current_matrix_version(owner, current)
+        # Save before the request. A crash after WeChat accepts must leave a
+        # visible guard against a second submission, even without a receipt.
+        return _save_record(owner, old, {'delivery_id': delivery['id'], 'account_id': account['id'],
+                           'status': 'uncertain', 'snapshot': snapshot, 'publish_id': ''})
+
+
 def register(app, user):
+    @app.get('/api/wechat-publish/matrix/{flow_id}/{content_id}')
+    def matrix_article(flow_id: str, content_id: str, u=Depends(user)):
+        owner = u['id']
+        content, _ = _matrix_article(owner, flow_id, content_id)
+        ident = _matrix_delivery_id(owner, flow_id, content)
+        try:
+            item = _delivery(owner, ident)
+        except store.Missing:
+            item = None
+        return {'delivery': item, 'version': content['version'], 'title': content.get('title', ''),
+                'cover_asset_id': content.get('cover_asset_id', ''), 'summary': content.get('summary', '')}
+
+    @app.post('/api/wechat-publish/matrix/{flow_id}/{content_id}')
+    def prepare_matrix_article(flow_id: str, content_id: str, data: dict, u=Depends(user)):
+        owner = u['id']
+        if set(data) != {'version', 'cover_asset_id', 'summary'} or type(data.get('version')) is not int:
+            raise ValueError('请从当前已保存文稿准备公众号发布')
+        with LOCK, store.LOCK:
+            content, topic = _matrix_article(owner, flow_id, content_id)
+            if content['version'] != data['version']:
+                raise store.Conflict('文稿版本已经变化，请刷新后核对')
+            fields = _matrix_fields(content)
+            summary = data.get('summary')
+            cover = data.get('cover_asset_id')
+            if not fields['title'] or len(fields['title']) > 32 or not fields['body'] or len(fields['author']) > 64:
+                raise ValueError('请保存完整正文、32 字内标题和 64 字内作者')
+            if not isinstance(summary, str) or len(summary) > 120 or not isinstance(cover, str) or not cover:
+                raise ValueError('请选择封面，摘要须在 120 字以内')
+            _image(owner, cover)
+            ident = _matrix_delivery_id(owner, flow_id, content)
+            values = {'platform': 'wechat', 'status': 'draft', 'flow_id': flow_id,
+                      'topic_id': topic, 'matrix_content_id': content_id, 'matrix_content_version': content['version'],
+                      'summary': summary.strip(), 'cover_asset_id': cover, **fields}
+            try:
+                old = _delivery(owner, ident)
+            except store.Missing:
+                old = None
+            if old and all(old.get(key) == value for key, value in values.items()):
+                return old
+            if old and any(row.get('delivery_id') == ident and row.get('status') in ('publishing', 'published', 'uncertain')
+                           for row in store.list_(owner, 'wechat_publish_record')):
+                raise store.Conflict('该版本已提交发布，请先查询原发布结果')
+            return store.put(owner, 'studio_delivery', values, ident, expected=old['version'] if old else None)
+
     @app.post('/api/wechat-publish/preview')
     def preview_article(data: dict, u=Depends(user)):
         body = data.get('body', '')
         if not isinstance(body, str) or len(body) > 200000:
             raise ValueError('正文格式或长度不正确')
-        return {'html': wechat_layout.render(_preview_images(body), data.get('wechat_style'))}
+        title, author = data.get('title', ''), data.get('author', '')
+        if not isinstance(title, str) or not isinstance(author, str):
+            raise ValueError('标题或作者格式无效')
+        return {'html': wechat_layout.document(_preview_images(body), data.get('wechat_style'), title[:500], author[:64])}
 
     @app.get('/api/wechat-publish/public-ip')
     def public_ip(response: Response, u=Depends(user)):
@@ -326,14 +439,16 @@ def register(app, user):
     @app.get('/api/wechat-publish/records/{delivery_id}')
     def records(delivery_id: str, u=Depends(user)):
         _delivery(u['id'], delivery_id)
-        return {'items': [x for x in store.list_(u['id'], 'wechat_publish_record') if x.get('delivery_id') == delivery_id]}
+        return {'items': [x for x in store.list_(u['id'], 'wechat_publish_record')
+                          if x.get('delivery_id') == delivery_id and x.get('status') != 'not_synced']}
 
     @app.post('/api/wechat-publish/drafts/{delivery_id}')
     def sync_draft(delivery_id: str, data: dict, u=Depends(user)):
         with LOCK:
             owner = u['id']
             delivery = _delivery(owner, delivery_id)
-            if delivery['version'] != data.get('version'):
+            _require_current_matrix_version(owner, delivery)
+            if type(data.get('version')) is not int or delivery['version'] != data['version']:
                 raise store.Conflict('发布稿已修改，请先保存并重新核对')
             account = _account(owner, data.get('account_id'))
             if not account.get('enabled', True):
@@ -354,7 +469,8 @@ def register(app, user):
             if failed_revision and (data.get('confirmed_retry') is not True or snapshot == old.get('snapshot')):
                 raise ValueError('微信确认发布失败后，请先修改并保存发布稿，再明确确认重新同步')
             if old and old.get('status') == 'draft' and old.get('snapshot') == snapshot:
-                return old
+                return old if old.get('delivery_version') == delivery['version'] else _save_record(
+                    owner, old, {'delivery_version': delivery['version']})
             media_id = old.get('thumb_media_id') if old and not failed_revision and old.get('cover_asset_id') == delivery['cover_asset_id'] else ''
             if not media_id:
                 cover = _image(owner, delivery['cover_asset_id'])
@@ -369,6 +485,7 @@ def register(app, user):
             article = {'title': delivery['title'].strip(), 'author': delivery.get('author', ''), 'digest': delivery.get('summary', '').strip(),
                        'content': _article_html(owner, account, delivery['body'], delivery.get('wechat_style')), 'thumb_media_id': media_id,
                        'need_open_comment': 0, 'only_fans_can_comment': 0}
+            reserved = _reserve_write(owner, delivery, account, old, snapshot)
             try:
                 if old and not failed_revision and old.get('draft_media_id'):
                     _request('POST', '/draft/update', owner=owner, account=account,
@@ -377,19 +494,15 @@ def register(app, user):
                 else:
                     result = _request('POST', '/draft/add', owner=owner, account=account, payload={'articles': [article]})
                     draft_id = result.get('media_id')
-                    if not draft_id:
-                        _save_record(owner, old, {'delivery_id': delivery_id, 'account_id': account['id'],
-                                                  'status': 'uncertain', 'snapshot': snapshot})
+                    if not isinstance(draft_id, str) or not draft_id:
                         raise ValueError('公众号未返回草稿编号，请到公众号后台核查')
-            except ValueError as exc:
-                if '结果可能已生效' in str(exc):
-                    _save_record(owner, old, {'delivery_id': delivery_id, 'account_id': account['id'],
-                                              'status': 'uncertain', 'snapshot': snapshot, 'draft_media_id': old.get('draft_media_id', '') if old else ''})
+            except WechatRejected:
+                _save_record(owner, reserved, old or {'status': 'not_synced'})
                 raise
             previous = list(old.get('publish_history') or []) if old else []
             if failed_revision:
                 previous.append({key: old.get(key) for key in ('status', 'snapshot', 'publish_id', 'draft_media_id', 'submitted_at', 'checked_at', 'article_url')})
-            saved = _save_record(owner, old, {'delivery_id': delivery_id, 'account_id': account['id'],
+            saved = _save_record(owner, reserved, {'delivery_id': delivery_id, 'account_id': account['id'],
                           'status': 'draft', 'snapshot': snapshot, 'draft_media_id': draft_id,
                           'cover_asset_id': delivery['cover_asset_id'], 'thumb_media_id': media_id,
                           'delivery_version': delivery['version'], 'synced_at': store.now(), 'publish_id': '',
@@ -404,26 +517,31 @@ def register(app, user):
         with LOCK:
             owner = u['id']
             delivery = _delivery(owner, delivery_id)
+            _require_current_matrix_version(owner, delivery)
+            if (delivery.get('matrix_content_id') or 'version' in data) and (
+                    type(data.get('version')) is not int or delivery['version'] != data['version']):
+                raise store.Conflict('发布稿已修改，请重新打开并核对当前版本')
             account = _account(owner, data.get('account_id'))
             if not account.get('enabled', True):
                 raise ValueError('此公众号连接已停用')
             record = _record(owner, delivery_id, account['id'])
+            if record and record.get('status') == 'uncertain':
+                raise ValueError('原微信请求结果待人工核查，请先查看公众号后台')
             if not record or record.get('status') != 'draft':
                 raise ValueError('请先将当前发布稿同步到公众号草稿箱')
             if record.get('snapshot') != _snapshot(delivery) or delivery['version'] != record.get('delivery_version'):
                 raise ValueError('发布稿已更改，请重新同步并核对草稿')
+            reserved = _reserve_write(owner, delivery, account, record, record['snapshot'])
             try:
                 result = _request('POST', '/freepublish/submit', owner=owner, account=account,
                                   payload={'media_id': record['draft_media_id']})
-            except ValueError as exc:
-                if '结果可能已生效' in str(exc):
-                    _save_record(owner, record, {'status': 'uncertain'})
+            except WechatRejected:
+                _save_record(owner, reserved, record)
                 raise
             publish_id = result.get('publish_id')
-            if not publish_id:
-                _save_record(owner, record, {'status': 'uncertain'})
+            if not ((isinstance(publish_id, str) and publish_id) or (type(publish_id) is int and publish_id > 0)):
                 raise ValueError('微信未返回发布任务编号，请到公众号后台核查')
-            saved = _save_record(owner, record, {'status': 'publishing', 'publish_id': publish_id, 'submitted_at': store.now()})
+            saved = _save_record(owner, reserved, {'status': 'publishing', 'publish_id': publish_id, 'submitted_at': store.now()})
             store.audit(owner, 'submit_wechat_publish', delivery_id)
             return saved
 

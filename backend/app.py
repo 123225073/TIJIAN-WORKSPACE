@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.31.7','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.32.2','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -535,12 +535,12 @@ def export(id:str,format:str='md',include_metadata:bool=False,u=Depends(user)):
         # Upstream converts editorial Markdown; strip active HTML before conversion.
         body=re.sub(r'<[^>]*>','',body)
         from . import wechat_layout
-        html=wechat_layout.render(body,obj.get('wechat_style'))
-        if include_metadata:
-            from html import escape
-            title=escape(str(obj.get('title') or ''))
-            author=escape(str(obj.get('author') or ''))
-            html=f'<header><h1>{title}</h1>'+ (f'<p>作者：{author}</p>' if author else '') +'</header>'+html
+        title=str(obj.get('title') or '') if include_metadata else ''
+        author=str(obj.get('author') or '') if include_metadata else ''
+        settings=obj.get('wechat_style')
+        if not settings and obj.get('format') in ('公众号文章','公众号'):
+            settings={'template':'editorial'}
+        html=wechat_layout.document(body,settings,title,author)
         return Response(html,media_type='text/html',headers={'Content-Disposition':'attachment; filename="article.html"','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src https: data:"})
     if include_metadata:
         def literal(value):
@@ -868,6 +868,10 @@ media_studio.register(app,user,admin,error)
 from . import local_asr
 local_asr.register(app,user)
 benchmark_api.register(app,user,admin,error)
+from . import matrix_publish
+matrix_publish.register(app,user)
+from . import matrix_publication
+matrix_publication.register(app,user)
 from . import workflows
 WORKFLOWS=workflows.register(app,user,error)
 from . import flow_deliverables

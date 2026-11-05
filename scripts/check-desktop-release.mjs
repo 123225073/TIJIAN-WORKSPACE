@@ -49,20 +49,13 @@ try{
   return draft.id;
  })()`);
  await call('Page.reload');
- const generate=view.getByRole('button',{name:'立即生成',exact:true});
- await generate.waitFor({timeout:20000});
- await generate.click();
- await view.getByRole('alert').filter({hasText:'不支持参考视频'}).waitFor();
- console.log('Verified packaged H3 submission guard');
+ const videoSettings=view.getByRole('region',{name:'视频设置',exact:true});
+ await videoSettings.getByText('MiniMax H3 Pro · 2K',{exact:true}).waitFor({timeout:20000});
+ if(await view.locator('.mw-panel .video-settings').count()!==1||await view.locator('.mw-results .video-settings').count())throw Error('Video settings must remain in the left creation pane');
+ if(await view.getByLabel('生成模型',{exact:true}).count())throw Error('AI video must use the fixed model');
  if(await view.getByText('用场景模板整理要求',{exact:true}).count())throw Error('Legacy scene form still appears');
- if(await view.getByLabel('生成模型',{exact:true}).count())throw Error('Model selector should open inside video settings');
- await view.getByRole('button',{name:'视频设置',exact:true}).click();
- const videoSettings=view.getByRole('dialog',{name:'视频设置',exact:true});
- const picker=videoSettings.getByLabel('生成模型',{exact:true});
- if(await picker.locator('option[value^="media:"]').count()!==4)throw Error('Expected four video models in the dropdown');
- await picker.selectOption('media:minimax-h3-pro-768p');
+ if(await videoSettings.getByLabel('视频时长').inputValue()!=='7')throw Error('Old draft parameters were not restored');
  await view.screenshot({path:path.join(dir,'video-settings.png')});
- await videoSettings.getByRole('button',{name:'完成设置',exact:true}).click();
  const convert=view.getByRole('button',{name:'转换为 MiniMax H3 官方模板',exact:true});
  const h3Fixture='subject_definitions: The input video provides camera movement.\nsummary: Elevator doors open.\nretention_analysis: Use <Video 1> for motion.\ndetailed_description: [Shot 1] The elevator doors slowly slide open.\noverall_soundscape: Soft mechanical movement.\nnon_diegetic_music: N/A';
  await view.route('**/api/studio/prompt/optimize',async route=>{
@@ -77,7 +70,7 @@ try{
  await view.unroute('**/api/studio/prompt/optimize');
  if(!h3Draft)throw Error('H3 draft missing');
  await view.screenshot({path:path.join(dir,'video-workbench.png')});
- console.log('Verified H3 dropdown, conversion and undo');
+ console.log('Verified fixed H3 model, inline settings, conversion and undo');
 
  phase='video prompt library';
  const openPromptLibrary=()=>view.getByRole('button',{name:'提示词库',exact:true}).click();
@@ -122,6 +115,34 @@ try{
  if(!chatReady)throw Error('Packaged blank chat did not open');
  const blankChat=await evaluate(`(async()=>{const id=location.hash.split('/')[1],state=await fetch('/api/state/updates?ids='+id,{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}}).then(r=>r.json()),task=state.items.find(x=>x.id===id);return task?.initial_text===''&&task.messages.length===0&&document.querySelector('.aw-composer textarea')?.value===''})()`);
  if(!blankChat)throw Error('Packaged blank entry created a message or nonempty composer');
+ phase='content matrix';
+ await evaluate(`(async()=>{
+  const headers={Authorization:'Bearer '+sessionStorage.getItem('tijian-session'),'Content-Type':'application/json'};
+  const request=async(path,body)=>{const response=await fetch('/api'+path,{headers,...(body?{method:'POST',body:JSON.stringify(body)}:{})});if(!response.ok)throw Error(path+' '+response.status);return response.json()};
+  const topic=await request('/studio/topics',{title:'核对家用梯井道尺寸',source_ids:[]});
+  const flow=await request('/studio/flow',{new:true,version:0,brief:topic.title,stage:1,topic_id:topic.id});
+  const matrix=await request('/studio/flows/'+flow.id+'/matrix');
+  const publish=await request('/studio/matrix-publish/config');
+  if(matrix.master.topic_id!==topic.id||!publish.items?.some(item=>item.platform==='website'))throw Error('Packaged matrix state or publication settings missing');
+  location.hash='studio/flow?work='+flow.id+'&step=1';
+ })()`);
+ await view.getByLabel('内容矩阵步骤').getByRole('link',{name:'内容母版'}).waitFor({timeout:20000});
+ await view.getByLabel('今天想讲什么？').waitFor();
+ await view.getByRole('button',{name:'确定主题，进入母版'}).click();
+ await view.getByRole('button',{name:'按选题生成文章'}).waitFor();
+ await view.getByRole('button',{name:'直接撰写正文'}).click();
+ const master=view.getByRole('article',{name:'母版正文',exact:true}).getByRole('textbox');
+ await master.fill('独立验收底稿。现场尺寸需以实测为准。');
+ await view.getByRole('button',{name:'下一步，选择平台'}).click();
+ await view.getByRole('checkbox',{name:/微信公众号/}).waitFor();
+ await view.screenshot({path:path.join(dir,'content-matrix.png')});
+ phase='publication accounts';
+ await view.getByLabel('内容矩阵步骤').getByRole('link',{name:'发布与账号'}).click();
+  await view.getByRole('button',{name:'账号管理',exact:true}).click();
+ await view.getByRole('heading',{name:'发布账号管理',exact:true}).waitFor();
+ await view.getByRole('button',{name:'官网 / 品牌博客',exact:true}).click();
+ await view.getByRole('region',{name:'官网 / 品牌博客连接'}).getByText('待配置连接').waitFor();
+ await view.screenshot({path:path.join(dir,'publish-accounts.png')});
  phase='OAIREGBOX admin';
  await view.goto(new URL('/admin.html',view.url()).href);
  await view.getByRole('button',{name:'视频、图片与数字人模型',exact:true}).click();
@@ -132,7 +153,7 @@ try{
  await view.locator('.mr-list article').first().getByRole('button',{name:'功能',exact:true}).click();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'文生视频'}).waitFor();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'图生视频'}).waitFor();
- const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
+ const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
  fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify(result));
  console.log(JSON.stringify({...result,dir}));
  await call('Browser.close').catch(()=>{});

@@ -1,4 +1,6 @@
 // Match the local Ark request contract; changing a mode never discards a user's files.
+export const WORKBENCH_VIDEO_MODEL='media:minimax-h3-pro-2k';
+export const WORKBENCH_VIDEO_MODEL_TITLE='MiniMax H3 Pro · 2K';
 export const videoModes:Record<string,{label:string;hint:string}>={
  text:{label:'文字生视频',hint:'只需描述画面、动作和镜头，不使用参考素材。'},
  first_frame:{label:'首帧生视频',hint:'需要 1 张图片作为开场画面，再描述画面如何运动。'},

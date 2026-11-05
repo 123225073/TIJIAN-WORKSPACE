@@ -2,7 +2,7 @@
 // become a spoken adaptation. Keep this contract aligned with speech_helper.py.
 const speechLabels=new Set(['口播','口播稿','口播脚本','朗读正文','旁白','spoken','script']);
 const productionLabels=new Set(['标题','发布标题','视频标题','文章标题','摘要','发布文案','分镜','分镜脚本','画面','画面建议','封面建议','封面提示词','制作说明','拍摄建议','话题标签']);
-const speechFormat=(source:any)=>['口播脚本','视频脚本'].includes(source?.format);
+const speechFormat=(source:any)=>['口播脚本','视频脚本','短视频脚本'].includes(source?.format);
 
 // 0.30.0 and earlier could append this request-only rule to the generated
 // title, truncated to 60 characters. Match the full distinctive signature;

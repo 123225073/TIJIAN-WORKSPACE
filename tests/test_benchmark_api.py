@@ -51,6 +51,141 @@ def post(c, route, data):
     return c.post(b.PREFIX + route, json=data)
 
 
+def await_link_job(response, owner='alice'):
+    assert response.status_code == 200, response.text
+    job = response.json()
+    until = time.monotonic() + 8
+    while time.monotonic() < until:
+        current = s.get(owner, job['id'])
+        if current['status'] not in ('queued', 'running'):
+            return current
+        time.sleep(.02)
+    pytest.fail('link benchmark job did not finish')
+
+
+def test_link_benchmark_preserves_raw_and_hands_off_owned_correction(client, monkeypatch):
+    from backend import benchmark_link as links
+    client.headers['Authorization'] = 'alice'
+    url = 'https://example.test/article'
+    original = '这栋楼原计划安装2台电梯。现场踏堪要先核对图纸，之后再商量安装条件。'
+    corrected = original.replace('踏堪', '踏勘')
+    monkeypatch.setattr(links.network, 'article', lambda address, **kw: {
+        'title': '对标文章', 'body': original, 'url': address,
+    })
+    payload = {'url': '分享文章 '+url+'。', 'kind': 'article', 'request_id': 'link-article-request'}
+    fetched = await_link_job(post(client, '/link', payload))
+    assert fetched['status'] == 'done', fetched
+    source_id = fetched['result']['source_id']
+    assert post(client, '/link', payload).json()['id'] == fetched['id']
+    monkeypatch.setattr(g, 'select', lambda *a: 'local-test-model')
+    monkeypatch.setattr(g, 'generate', lambda *a: json.dumps({'text': original.replace('2台', '3台')}))
+    correct_url = '/link/'+source_id+'/correct'
+    assert post(client, correct_url, {'request_id':'link-correct-unclear'}).status_code == 400
+    rejected = await_link_job(post(client, correct_url, {'request_id':'link-correct-bad', 'confirmed':True}))
+    assert rejected['status'] == 'failed'
+    assert s.get('alice', source_id)['body'] == original
+    monkeypatch.setattr(g, 'generate', lambda *a: json.dumps({'text': corrected}))
+    outcome = await_link_job(post(client, correct_url, {'request_id':'link-correct-good', 'confirmed':True}))
+    assert outcome['status'] == 'done', outcome
+    source = client.get(b.PREFIX+'/link').json()['items'][0]
+    assert (source['body'], source['benchmark_corrected'], source['url']) == (original, corrected, url)
+    ref = '/link/'+source_id+'/reference'
+    assert post(client, ref, {'version': source['version']-1, 'variant': 'raw'}).status_code == 409
+    raw = post(client, ref, {'version':source['version'], 'variant':'raw'}).json()
+    assert raw['source_id'] == source_id
+    selected = post(client, ref, {'version':source['version'], 'variant':'corrected'}).json()['source_id']
+    assert s.get('alice', selected)['body'] == corrected
+    assert s.get('alice', selected)['original_source_id'] == source_id
+    edited = s.put('alice', 'source', {**source, 'body': '个人知识库里的后续编辑'}, source_id)
+    assert client.get(b.PREFIX+'/link').json()['items'][0]['body'] == original
+    raw_snapshot = post(client, ref, {'version':edited['version'], 'variant':'raw'}).json()['source_id']
+    assert s.get('alice', raw_snapshot)['body'] == original
+    client.headers['Authorization'] = 'bob'
+    assert client.get(b.PREFIX+'/link').json()['items'] == []
+    assert post(client, ref, {'version':source['version'], 'variant':'corrected'}).status_code == 404
+
+
+def test_video_fetch_rechecks_redirect_and_does_not_use_caption(tmp_path, monkeypatch):
+    from backend import benchmark_link as links
+    from threading import Event
+    checked = []
+
+    def target(url):
+        checked.append(url)
+        if '127.0.0.1' in url:
+            raise ValueError('blocked')
+        return url, {}, {}
+
+    monkeypatch.setattr(links.network, 'public_target', target)
+    transport = httpx.MockTransport(lambda _: httpx.Response(302, headers={'location':'http://127.0.0.1/secret'}))
+    with httpx.Client(transport=transport, follow_redirects=False) as http:
+        with pytest.raises(ValueError, match='blocked'):
+            links.open_video_response(http, 'https://example.test/video', tmp_path/'video', Event(), time.monotonic()+5, True)
+    assert checked == ['https://example.test/video','http://127.0.0.1/secret']
+    page = tmp_path/'video.html'
+    page.write_text('<title>影片</title><video><source src="/clip.mp4"></video>', encoding='utf-8')
+    assert links.page_video(page, 'https://example.test/watch')[1] == ['https://example.test/clip.mp4']
+    page.write_text('<title>视频发布说明</title><p>这只是发布说明</p>', encoding='utf-8')
+    with pytest.raises(ValueError, match='未提供可读取的媒体文件'):
+        links.download_page_video(None, page, 'https://example.test/watch', Event(), time.monotonic()+5)
+
+
+def test_video_link_falls_back_to_nested_public_media_after_broken_first_candidate(tmp_path, monkeypatch):
+    from backend import benchmark_link as links
+    from threading import Event
+
+    page = tmp_path/'source.html'
+    page.write_text('''<title>电梯现场</title><video src="/broken.mp4"></video>
+        <script type="application/ld+json">{"@graph":[{"@type":["VideoObject"],"contentUrl":"/clip.mp4"}]}</script>''', encoding='utf-8')
+    monkeypatch.setattr(links.network, 'public_target', lambda url: (url, {}, {}))
+    requests = []
+
+    def serve(request):
+        requests.append(request.url.path)
+        if request.url.path == '/broken.mp4':
+            return httpx.Response(404)
+        return httpx.Response(200, headers={'content-type':'video/mp4'}, content=b'video-content')
+
+    with httpx.Client(transport=httpx.MockTransport(serve)) as http:
+        assert links.download_page_video(http, page, 'https://example.test/watch', Event(), time.monotonic()+5) == '电梯现场'
+    assert requests == ['/broken.mp4', '/clip.mp4']
+    assert page.read_bytes() == b'video-content'
+
+
+def test_video_link_uses_confirmed_tikhub_once_and_saves_asr_not_caption(client, monkeypatch):
+    from backend import benchmark_link as links
+    setup(client)
+    requested = []
+
+    def resolver(path, params):
+        requested.append((path, params))
+        return {'aweme_detail':video(desc='只有发布说明')}
+
+    def download(_client, url, target, *_):
+        assert url == 'https://example.test/never-download.mp4'
+        target.write_bytes(b'\0\0\0\0ftypmock')
+        return url, False
+
+    monkeypatch.setattr(b, 'tikhub', resolver)
+    monkeypatch.setattr(links, 'open_video_response', download)
+    monkeypatch.setattr(links.local_asr, 'available', lambda: ('whisper', 'local-model'))
+    monkeypatch.setattr(links.hifly_render, 'ffmpeg', lambda: 'ffmpeg')
+    monkeypatch.setattr(links.media_studio, '_ffprobe', lambda: 'ffprobe')
+    monkeypatch.setattr(links.media_studio, '_metadata', lambda *_: {'duration':3})
+    monkeypatch.setattr(links.local_asr, 'transcribe_file', lambda *_: '1\n00:00:00,000 --> 00:00:01,000\n实测语音\n')
+    payload = {'url':'https://v.douyin.com/abc/', 'kind':'video', 'tikhub':True, 'request_id':'video-lookup-unique'}
+    assert post(client, '/link', payload).status_code == 400
+    assert requested == []
+    payload['confirmed'] = True
+    outcome = await_link_job(post(client, '/link', payload))
+    assert outcome['status'] == 'done', outcome
+    source = s.get('alice', outcome['result']['source_id'])
+    assert source['body'] == '实测语音' and source['benchmark_link_kind'] == 'video'
+    assert source['title'] == '只有发布说明'
+    assert post(client, '/link', payload).json()['id'] == outcome['id']
+    assert requested == [('douyin/web/fetch_one_video_by_share_url', {'share_url':payload['url']})]
+
+
 def analysis_result(response, owner='alice'):
     assert response.status_code == 200, response.text
     job = response.json()

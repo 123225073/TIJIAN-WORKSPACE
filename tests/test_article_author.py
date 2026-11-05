@@ -1,5 +1,6 @@
 """Article metadata through real local routes; model and WeChat boundaries intercepted."""
 import json
+import re
 
 import pytest
 
@@ -28,7 +29,7 @@ def test_content_metadata_save_export_and_empty_author(client):
     assert '独立' not in body_only.text and '作者' not in body_only.text
     assert client.get(url).text == saved['body']
     html = client.get(url, params={'format': 'html', 'include_metadata': True}).text
-    assert '<h1>独立 &lt;标题&gt;</h1>' in html
+    assert re.search(r'<h1(?:\s[^>]*)?>独立 &lt;标题&gt;</h1>', html)
     assert '作者 &lt;script&gt;&amp;' in html and '<script>' not in html
     md = client.get(url, params={'include_metadata': True}).text
     assert md.startswith('# 独立 \\<标题\\>\n\n作者：作者 \\<script\\>&\n\n')

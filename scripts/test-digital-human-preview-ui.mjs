@@ -108,7 +108,10 @@ for a in s.list_(owner, 'studio_asset'):
  await page.getByRole('button',{name:'人物照片创建',exact:true}).evaluate(node=>node.click());
  await dialog().waitFor({state:'detached'});
  assert.equal(await page.locator('.st-human-media-preview').count(),0);
- await page.getByLabel('人物照片',{exact:false}).selectOption(asset('image').id);
+ await page.getByRole('button',{name:'选择人物照片',exact:true}).click();
+ const photos=page.getByRole('dialog',{name:'选择人物照片',exact:true});
+ await photos.getByLabel('搜索图片素材').fill(asset('image').title);
+ await photos.getByRole('button',{name:'使用这张图片'}).click();
  const imageDraft=await saved(['image_id']);assert(!imageDraft.input.video_id);
  checks.push('switch-source-closes-old-preview-and-clears-other-material');
  await enlarge().click();await dialog().waitFor();

@@ -2,7 +2,7 @@ import VideoPlayer from './VideoPlayer';
 import {useEffect, useRef, useState, type ClipboardEvent, type DragEvent} from 'react';
 import {AudioLines, ClipboardPaste, Film, Image as ImageIcon, LoaderCircle, UploadCloud, X} from 'lucide-react';
 import {api,getToken} from './api';
-import {AssetThumbnail} from './AssetPicker';
+import {AssetThumbnail,ImageLibraryField} from './AssetPicker';
 import {pastedImages,readClipboardImages} from './image-clipboard';
 import './media-references.css';
 
@@ -170,10 +170,12 @@ export default function MediaReferences({draft, model, assets, update, reload, b
      onDragLeave={()=>setDragging(null)} onDrop={e=>drop(e,kind)}>
      <UploadCloud size={17}/><span>{uploading&&uploadKind.current===kind?'上传中…':'上传'+(kind==='image'?'图片':kind==='video'?'视频':'音频')}</span>
     </button>{kind==='image'&&<button ref={pasteButton} type="button" className="media-refs-paste" aria-label="粘贴截图或图片" disabled={busy||uploading||selected(kind).length>=(limits[kind]||0)} onClick={()=>void pasteFromButton()} title="复制图片后点击；也可聚焦此按钮后按 Ctrl+V"><ClipboardPaste size={16}/><span>粘贴图片</span><kbd>Ctrl+V</kbd></button>}</div>
-    {library?<select className="video-library-select" aria-label={'从素材库选择'+label} value="" disabled={busy||uploading||selected(kind).length+remoteCount(kind)>=(limits[kind]||0)} onChange={e=>add(kind,e.target.value)}>
+    {kind==='image'&&<ImageLibraryField label={'从素材库选择'+label} items={assets.filter(asset=>asset.asset_type==='image'&&asset.status==='ready'&&!selected(kind).includes(asset.id))}
+     disabled={busy||uploading||selected(kind).length+remoteCount(kind)>=(limits[kind]||0)} onSelect={id=>add(kind,id)}/>}
+    {library&&kind!=='image'?<select className="video-library-select" aria-label={'从素材库选择'+label} value="" disabled={busy||uploading||selected(kind).length+remoteCount(kind)>=(limits[kind]||0)} onChange={e=>add(kind,e.target.value)}>
      <option value="">从素材库选择{label}</option>
      {assets.filter(asset=>asset.asset_type===kind&&asset.status==='ready'&&!selected(kind).includes(asset.id)).map(asset=><option key={asset.id} value={asset.id}>{asset.title||asset.name||'未命名素材'}</option>)}
-    </select>:<p className="media-refs-hint">{kind==='image'?'支持拖入图片，也可按 Ctrl+V 粘贴':'支持拖入本地文件或素材库素材'}</p>}
+    </select>:!library&&<p className="media-refs-hint">{kind==='image'?'支持拖入图片，也可按 Ctrl+V 粘贴':'支持拖入本地文件或素材库素材'}</p>}
     <div className="media-refs-selected">{selected(kind).map((id,i)=>{
      const asset=assets.find(a=>a.id===id);
      return <div className={'media-ref-card '+kind} key={id} title={asset?.title||id}>

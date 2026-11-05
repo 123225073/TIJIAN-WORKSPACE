@@ -3,13 +3,13 @@ import DOMPurify from 'dompurify';
 import {api,getToken} from './api';
 import {linkScroll} from './usePairedScroll';
 
-export type WechatStyle={font_size:string;line_height:string;paragraph_gap:string;accent:string};
+export type WechatStyle={font_size:string;line_height:string;paragraph_gap:string;accent:string;template?:string};
 export const defaultWechatStyle:WechatStyle={font_size:'16',line_height:'1.8',paragraph_gap:'12',accent:'forest'};
 
 const LOCAL_SRC=/src="(\/api\/(?:studio\/assets\/[a-f0-9]{32,64}\/file|illustrations\/[a-f0-9]{32}\/file))"/g;
 const imageData=async(blob:Blob)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(Error('正文图片预览失败'));reader.readAsDataURL(blob)});
 
-export default function WechatLayoutProof({body,settings,editorScroll}:{body:string;settings:WechatStyle;editorScroll?:{current:HTMLElement|null}}){
+export default function WechatLayoutProof({body,settings,editorScroll,title,author}:{body:string;settings:WechatStyle;editorScroll?:{current:HTMLElement|null};title?:string;author?:string}){
  const [html,setHtml]=useState(''),[status,setStatus]=useState('正在准备公众号排版…'),[error,setError]=useState('');
  const stopScroll=useRef<(()=>void)|undefined>(undefined);
  useEffect(()=>()=>stopScroll.current?.(),[]);
@@ -19,7 +19,7 @@ export default function WechatLayoutProof({body,settings,editorScroll}:{body:str
   const timer=setTimeout(async()=>{
    setStatus('正在更新排版预览…');setError('');
    try{
-    const result=await api('/wechat-publish/preview',{body,wechat_style:settings});
+    const result=await api('/wechat-publish/preview',{body,wechat_style:settings,title,author});
     let output=String(result.html||'');
     for(const path of new Set(Array.from(output.matchAll(LOCAL_SRC),match=>match[1]))){
      let data=images.current.get(path);
@@ -34,10 +34,10 @@ export default function WechatLayoutProof({body,settings,editorScroll}:{body:str
    }catch(e){if(live){setError(e instanceof Error?e.message:'排版预览失败');setStatus('')}}
   },450);
   return()=>{live=false;clearTimeout(timer)};
- },[body,settings.font_size,settings.line_height,settings.paragraph_gap,settings.accent]);
+ },[body,title,author,settings.font_size,settings.line_height,settings.paragraph_gap,settings.accent,settings.template]);
  const document=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><style>html{background:#fff}body{max-width:680px;margin:0 auto;padding:20px 24px;box-sizing:border-box;font-family:'PingFang SC','Microsoft YaHei',sans-serif}img{max-width:100%}</style></head><body>${html||'<p style="color:#839589">填写正文后可查看公众号排版</p>'}</body></html>`;
  return <div className="wa-layout-proof">
-  <div className="wa-proof-head"><strong>公众号排版预览</strong><small>在左侧直接编辑，保存后用于草稿同步</small></div>
+  <div className="wa-proof-head"><strong>公众号排版预览</strong><small>保存修改后可同步当前排版</small></div>
   <p className="wa-proof-status" role="status">{error||status}</p>
   <iframe title="公众号排版预览" className="wa-proof-frame" sandbox="allow-same-origin" onLoad={e=>{stopScroll.current?.();const target=e.currentTarget.contentDocument?.scrollingElement;if(editorScroll?.current&&target)stopScroll.current=linkScroll(editorScroll.current,target as HTMLElement)}} srcDoc={document}/>
   <small className="wa-proof-note">预览与同步使用同一排版规则。微信编辑器仍可能调整个别样式；同步后请在公众号后台核对。</small>

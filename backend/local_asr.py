@@ -168,6 +168,26 @@ def correct_srt(owner, raw, reference, progress, event):
     return candidate,changed
 
 
+def transcribe_file(source, begin, length, progress, event, program, components):
+    with tempfile.TemporaryDirectory(prefix='tijian-asr-') as tmp:
+        wav = Path(tmp) / 'audio.wav'
+        output = Path(tmp) / 'captions'
+        progress('正在提取本地音频')
+        run_process([program, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', '-i', str(source),
+                     '-ss', str(begin), '-t', str(length), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(wav)], event, max(120, length * 3))
+        progress('正在本机识别语音，完成后请校对字幕')
+        binary, model = components
+        run_process([str(binary), '-m', model.name, '-f', str(wav), '-l', 'zh', '-osrt', '-of', str(output),
+                     '-ml', '30', '-ng'], event, min(7200, max(300, length * 30)), cwd=str(model.parent))
+        result = output.with_suffix('.srt')
+        if not result.is_file() or result.stat().st_size > 1_000_000:
+            raise ValueError('识别没有返回可用字幕，请检查音轨或手动导入')
+        try:
+            return validate_srt(result.read_text(encoding='utf-8-sig'), length)
+        except UnicodeError:
+            raise ValueError('识别字幕编码无效，请重试') from None
+
+
 def start(owner, asset_id, start_time=0, end_time=None, ai_correct=False):
     from . import media_studio as media
     components = available()
@@ -204,46 +224,28 @@ def start(owner, asset_id, start_time=0, end_time=None, ai_correct=False):
     def transcribe(progress, event):
         if media._object(owner, asset_id, 'studio_asset')['version'] != version:
             raise ValueError('素材已发生变化，请重新选择后识别')
-        with tempfile.TemporaryDirectory(prefix='tijian-asr-') as tmp:
-            wav = Path(tmp) / 'audio.wav'
-            output = Path(tmp) / 'captions'
-            progress('正在提取本地音频')
-            run_process([program, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', '-i', str(source),
-                         '-ss', str(begin), '-t', str(length), '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', str(wav)], event, max(120, length * 3))
-            progress('正在本机识别语音，完成后请校对字幕')
-            binary, model = components
-            # Use a relative model path on Windows; input/output paths are kept
-            # in the private temporary directory and removed after the task.
-            run_process([str(binary), '-m', model.name, '-f', str(wav), '-l', 'zh', '-osrt', '-of', str(output),
-                         '-ml', '30', '-ng'], event, min(7200, max(300, length * 30)), cwd=str(model.parent))
-            result = output.with_suffix('.srt')
-            if not result.is_file() or result.stat().st_size > 1_000_000:
-                raise ValueError('识别没有返回可用字幕，请检查音轨或手动导入')
+        value = transcribe_file(source, begin, length, progress, event, program, components)
+        current = media._object(owner, asset_id, 'studio_asset')
+        if current['version'] != version or not source.is_file() or (source.stat().st_size, source.stat().st_mtime_ns) != signature:
+            raise ValueError('素材在识别期间发生变化，结果未应用')
+        result={'asset_id':asset_id,'asset_version':version,'start_time':begin,'end_time':end,'srt':value,
+                'raw_srt':value,'correction_status':'not_requested','reference_used':bool(reference)}
+        if ai_correct:
+            # Persist usable recognition before a network call, even when
+            # the model fails, times out or the application is interrupted.
+            progress('识别完成，正在准备 AI 校对', result)
             try:
-                value = validate_srt(result.read_text(encoding='utf-8-sig'), length)
-            except UnicodeError:
-                raise ValueError('识别字幕编码无效，请重试') from None
-            current = media._object(owner, asset_id, 'studio_asset')
-            if current['version'] != version or not source.is_file() or (source.stat().st_size, source.stat().st_mtime_ns) != signature:
-                raise ValueError('素材在识别期间发生变化，结果未应用')
-            result={'asset_id':asset_id,'asset_version':version,'start_time':begin,'end_time':end,'srt':value,
-                    'raw_srt':value,'correction_status':'not_requested','reference_used':bool(reference)}
-            if ai_correct:
-                # Persist usable recognition before a network call, even when
-                # the model fails, times out or the application is interrupted.
-                progress('识别完成，正在准备 AI 校对', result)
-                try:
-                    candidate,changed=correct_srt(owner,value,reference,progress,event)
-                    result.update(correction_status='review' if changed else 'corrected',candidate_srt=candidate,
-                                  correction_message='校对涉及数字变化，请对照原视频确认' if changed else '已完成 AI 校对，请核对专有名词')
-                    if not changed: result['srt']=candidate
-                except InterruptedError: raise
-                except Exception:
-                    result.update(correction_status='failed',correction_message='AI 校对暂不可用，已保留本机识别结果，可重试校对')
-                current=media._object(owner,asset_id,'studio_asset')
-                if current['version']!=version or not source.is_file() or (source.stat().st_size,source.stat().st_mtime_ns)!=signature:
-                    raise ValueError('素材在校对期间发生变化，结果未应用')
-            return result
+                candidate,changed=correct_srt(owner,value,reference,progress,event)
+                result.update(correction_status='review' if changed else 'corrected',candidate_srt=candidate,
+                              correction_message='校对涉及数字变化，请对照原视频确认' if changed else '已完成 AI 校对，请核对专有名词')
+                if not changed: result['srt']=candidate
+            except InterruptedError: raise
+            except Exception:
+                result.update(correction_status='failed',correction_message='AI 校对暂不可用，已保留本机识别结果，可重试校对')
+            current=media._object(owner,asset_id,'studio_asset')
+            if current['version']!=version or not source.is_file() or (source.stat().st_size,source.stat().st_mtime_ns)!=signature:
+                raise ValueError('素材在校对期间发生变化，结果未应用')
+        return result
     return jobs.start(owner, '本地字幕识别', transcribe, {'action': 'local_asr', 'asset_id': asset_id, 'asset_version': version, 'start_time': begin, 'end_time': end,'ai_correct':bool(ai_correct)})
 
 
