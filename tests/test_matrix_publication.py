@@ -73,6 +73,19 @@ def test_single_publish_does_not_submit_other_selected_platform(client, monkeypa
     assert sent == ['website'] and preview(client, flow, items[1:])[0]['ready']
 
 
+def test_preview_distinguishes_native_website_and_unconnected_social_platform(client, monkeypatch):
+    owner, flow, items, sent = prepared(client, monkeypatch)
+    website_key = matrix_publish.config_key(owner, 'website')
+    store.set_config(website_key, {**store.config(website_key, {}), 'mode': 'wordpress'})
+    store.set_config(matrix_publish.config_key(owner, 'zhihu'), {})
+    website, social = preview(client, flow, items)
+    assert website['ready'] and website['connection_kind'] == 'wordpress'
+    assert website['destination'].startswith('WordPress 官网 · https://')
+    assert not social['ready'] and social['connection_kind'] == 'gateway'
+    assert '尚未接入原生发文' in social['reason'] and '官方后台' in social['reason']
+    assert sent == []
+
+
 def test_changed_document_or_destination_invalidates_preview_before_write(client, monkeypatch):
     owner, flow, items, sent = prepared(client, monkeypatch)
     rows = preview(client, flow, items)

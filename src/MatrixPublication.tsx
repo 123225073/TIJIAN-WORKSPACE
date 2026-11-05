@@ -4,9 +4,10 @@ import {api} from './api';
 import {matrixChannels} from './flow-navigation';
 import AssetPicker,{AssetThumbnail} from './AssetPicker';
 import type {Asset} from './ResourcePreview';
+import {publishingAccess} from './publishPlatforms';
 
 export type PublicationItem={platform:string;content_id:string;content_version:number};
-type PlanItem=PublicationItem&{title:string;ready:boolean;reason?:string;plan_key:string;destination?:string;account_id?:string;cover_asset_id?:string;summary?:string;checkable?:boolean;receipt?:{status:string;url?:string}};
+type PlanItem=PublicationItem&{title:string;ready:boolean;reason?:string;plan_key:string;destination?:string;connection_kind?:'wechat'|'wordpress'|'gateway';account_id?:string;cover_asset_id?:string;summary?:string;checkable?:boolean;receipt?:{status:string;url?:string}};
 type PublicationJob={id:string;status:string;progress?:string;error?:string;result?:{items:(PublicationItem&{receipt?:{status:string;url?:string};error?:string})[]}};
 const states:Record<string,string>={published:'已发布',publishing:'平台正在处理',accepted:'发布服务已接收',draft:'平台草稿已建立',sending:'正在提交',unknown:'结果待核查',uncertain:'结果待核查',failed:'发布失败',removed:'已下架'};
 const label=(id:string)=>matrixChannels.find(row=>row.id===id)?.label||id;
@@ -81,8 +82,8 @@ export default function MatrixPublication({flowId,items,dirty=false,compact=fals
   </div>}
   {!items.length&&<p>所选平台还没有生成文稿，请先完成平台创作。</p>}
   {rows.map(row=><div className="matrix-publication-row" key={row.platform}>
-   <div><strong>{label(row.platform)}</strong>{!compact&&<p>{row.title} <small>v{row.content_version}</small></p>}<small>{row.receipt?(states[row.receipt.status]||row.receipt.status):row.ready?'已就绪 · '+row.destination:row.reason}</small></div>
-   <div>{row.receipt?.url&&/^https:\/\//i.test(row.receipt.url)&&<a href={row.receipt.url} target="_blank" rel="noreferrer">查看发布结果 ↗</a>}<button className="primary" disabled={busy||running||dirty||!row.ready} onClick={()=>void publish([row])}><Send size={14}/>{row.receipt?'已有发布记录':'发布到'+label(row.platform)}</button></div>
+   <div><strong>{label(row.platform)}</strong>{!compact&&<p>{row.title} <small>v{row.content_version}</small></p>}<small>{row.receipt?(row.connection_kind==='gateway'&&row.receipt.status==='published'?'自定义服务确认已发布':states[row.receipt.status]||row.receipt.status):row.ready?'已就绪 · '+row.destination:row.reason}</small></div>
+   <div>{!row.ready&&!row.receipt&&publishingAccess[row.platform]&&<a href={publishingAccess[row.platform].links[0].url} target="_blank" rel="noopener noreferrer">前往官方后台 ↗</a>}{row.receipt?.url&&/^https:\/\//i.test(row.receipt.url)&&<a href={row.receipt.url} target="_blank" rel="noreferrer">查看发布结果 ↗</a>}<button className="primary" disabled={busy||running||dirty||!row.ready} onClick={()=>void publish([row])}><Send size={14}/>{row.receipt?'已有发布记录':row.connection_kind==='gateway'?'提交到自定义服务':'发布到'+label(row.platform)}</button></div>
   </div>)}
   {dirty&&<p role="status">请先保存文稿修改，再提交当前版本。</p>}
   {job&&<div role="status" className="matrix-publication-status">

@@ -318,14 +318,20 @@ def register(app,user,admin,error):
                 from .writing_methods import publish_body
                 text=publish_body(text)
                 title=old['title'] if old else user_brief.split('\n',1)[0][:60]
-                # Only a clearly marked first line is metadata. Never remove a
-                # natural opening sentence or a later section heading.
-                heading=re.match(r'\A[ \t]*(?:\r?\n[ \t]*)*(?:#{1,2}[ \t]+(?!标题[：:])([^\r\n]+)|(?:\*\*)?标题[：:](?:\*\*)?[ \t]*(.+?)(?:\*\*)?)[ \t]*(?:\r?\n|\Z)',text) if content_format!='口播脚本' else None
+                # Preserve the original WeChat contract: only an initial single
+                # H1 is metadata, and everything after that line stays verbatim.
+                # Other platform forms use the explicit title label requested by
+                # writing_request(); an ordinary Markdown H2 is always content.
+                from .writing_methods import FORM_PLATFORMS
+                from .platform_writing import PLATFORM_WRITING
+                h1=re.match(r'\A#[ \t]+([^\r\n]*\S[^\r\n]*)[ \t]*(?:\r?\n|\Z)',text) if content_format=='公众号文章' else None
+                labeled=re.match(r'\A(?:\*\*)?标题[：:](?:\*\*)?[ \t]*(.+?)(?:\*\*)?[ \t]*(?:\r?\n|\Z)',text) if FORM_PLATFORMS.get(content_format) in PLATFORM_WRITING else None
+                heading=h1 or labeled
                 if heading:
-                    candidate=(heading.group(1) or heading.group(2)).strip().strip('*').strip()
+                    candidate=heading.group(1).strip().strip('*').strip()
                     if candidate and len(candidate)<=120:
                         title=candidate
-                        text=text[heading.end():].lstrip('\r\n')
+                        text=text[heading.end():] if h1 else text[heading.end():].lstrip('\r\n')
                 if content_format=='口播脚本' and text.lstrip().startswith('{'):
                     # Some providers return structured output despite the plain
                     # speech contract. Preserve their raw response for inspection.

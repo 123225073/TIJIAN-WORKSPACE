@@ -4,7 +4,7 @@ import {readerArticleText} from './wechat-rich';
 import {imageStyleTemplates,pictureStyleById,socialStyles} from './picture-styles';
 
 type Slot={index:number;status:string;request_id:string;prompt?:string;job_id?:string;draft_id?:string;version?:number;run_id?:string;asset_id?:string;error?:string;attempt:number};
-export type SocialBatch={id:string;owner:string;content_id:string;flow_id:string;body:string;title:string;brand_id:string;profile_id:string;ratio:string;actual_ratio?:string;parameter_notice?:string;style:string;style_prompt?:string;purpose?:'article'|'social';model_id:string;options:any;slots:Slot[];attached:string[]};
+export type SocialBatch={id:string;activity_created?:string;owner:string;content_id:string;flow_id:string;body:string;title:string;brand_id:string;profile_id:string;ratio:string;actual_ratio?:string;parameter_notice?:string;style:string;style_prompt?:string;purpose?:'article'|'social';model_id:string;options:any;slots:Slot[];attached:string[]};
 type Session={owner:string;token:string};
 export const socialBatchKey=(owner:string,id:string)=>'social-picture-batch:'+owner+':'+id;
 export const readSocialBatch=(key:string):SocialBatch|null=>JSON.parse(localStorage.getItem(key)||'null');
@@ -27,7 +27,7 @@ export async function startSocialBatch(key:string,content:any,ratio:string,count
  const tool=catalog.tools?.find((t:any)=>t.id==='text_image'),model=tool?.models?.find((m:any)=>m.id===tool.binding&&m.configured);
  if(!model||tool.enabled===false)throw Error('请先在设置中配置默认生图模型。');
  const plan=imagePlan(model.options||{},{requested_ratio:ratio});
- const batch:SocialBatch={id:crypto.randomUUID(),owner:session.owner,content_id:content.id,flow_id:content.flow_id||'',body,title:content.title||'文案配图',brand_id:content.brand_id||'',profile_id:content.profile_id||'',ratio,actual_ratio:plan.actual||'模型默认',parameter_notice:plan.notice,style:styleId,style_prompt:style.prompt,...(purpose==='article'?{purpose}:{}),model_id:model.id,options:plan.options,slots:Array.from({length:count},(_,index)=>({index,status:'new',request_id:crypto.randomUUID(),attempt:1})),attached:[]};
+ const batch:SocialBatch={id:crypto.randomUUID(),activity_created:new Date().toISOString(),owner:session.owner,content_id:content.id,flow_id:content.flow_id||'',body,title:content.title||'文案配图',brand_id:content.brand_id||'',profile_id:content.profile_id||'',ratio,actual_ratio:plan.actual||'模型默认',parameter_notice:plan.notice,style:styleId,style_prompt:style.prompt,...(purpose==='article'?{purpose}:{}),model_id:model.id,options:plan.options,slots:Array.from({length:count},(_,index)=>({index,status:'new',request_id:crypto.randomUUID(),attempt:1})),attached:[]};
  write(key,batch);return batch;
 })}
 const draftsPath=(b:SocialBatch)=>b.flow_id?'/studio/flows/'+encodeURIComponent(b.flow_id)+'/drafts':'/studio/drafts';

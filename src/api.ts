@@ -7,6 +7,7 @@ export const hasToken=()=>!!token;
 export const getToken=()=>token;
 export const setToken=(value:string)=>{token=value;sessionStorage.setItem(sessionKey,value);if(!value&&!adminSession)void (window as any).tijianDesktop?.rememberLogin({action:'clear'}).catch(()=>{});};
 const operationLabel=(path:string)=>{
+ if(path.endsWith('/illustrations/placement'))return '安排文章插图';
  if(path.includes('/article-illustration-prompt'))return '构思文章配图';
  if(path.includes('/article-illustrations'))return '生成文章配图';
  if(path==='/studio/generate')return '生成媒体作品';

@@ -7,6 +7,7 @@ import MatrixPublication from './MatrixPublication';
 import PlatformIcon from './PlatformIcon';
 import ArticleRichEditor from './ArticleRichEditor';
 import Markdown from './Markdown';
+import MatrixImageBatch from './MatrixImageBatch';
 
 type Master={id:string;flow_id:string;topic_id:string;body:string;platforms:string[];version:number};
 type MatrixRun={id:string;draft_id:string;status:string;platform:string;master_version?:number;content_id?:string;content_version?:number;content?:any;title?:string;error?:string};
@@ -132,6 +133,7 @@ export default function ContentMatrix({flowId,topicId,topicTitle,view,editor,cha
    {view==='accounts'?<PublishAccounts embedded/>:<MatrixPublication flowId={flowId} items={publicationItems}/>}
   </>:<>
    {!editor&&<header className="matrix-document-header"><div><h2>平台文稿</h2><p>基于母版 v{master.version}，为 {selected.length} 个平台分别创作。文稿下方可单独发布。</p></div><button className="primary" disabled={busy||!selected.some(item=>!pending(item.id))} onClick={()=>generate(selected.filter(item=>!pending(item.id)).map(item=>item.id))}><Sparkles size={15}/>{publicationItems.length?'重新生成所选文稿':'生成所选平台文稿'}</button></header>}
+   <MatrixImageBatch key={flowId+':'+topicId} flowId={flowId} topicId={topicId} targets={selected.flatMap(item=>{const run=latest(item.id);return run?.content_id?[{platform:item.id,label:item.label,content_id:run.content_id}]:[]})} disabled={busy}/>
    <nav className="cf-matrix-tabs" aria-label="平台文稿">{selected.map(item=>{const run=runs.find(run=>run.platform===item.id);return <button type="button" key={item.id} aria-pressed={shown?.id===item.id} onClick={()=>{setActive(item.id);if(editor&&item.id!==channel)editPlatform(item.id,master,latest(item.id))}}><PlatformIcon platform={item.id} size={17}/>{item.label}<small>{run?labels[run.status]: '待生成'}</small></button>})}</nav>
    {!selected.length&&<p>请先在「选择平台」中勾选要创作的平台。</p>}
    {!editor&&shown&&<section className="matrix-platform-document" aria-label={shown.label+'文稿'}>

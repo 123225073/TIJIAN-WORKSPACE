@@ -27,7 +27,7 @@ export function markdownToEditorHtml(value:string){
   chip.contentEditable='false';chip.className='wa-image-chip';
   chip.dataset.waImage=image.getAttribute('src')||'';
   chip.dataset.waAlt=image.getAttribute('alt')||'正文图片';
-  chip.textContent='▧  '+chip.dataset.waAlt;
+  chip.setAttribute('aria-label','正文配图');
   image.replaceWith(chip);
  }
  // Raw instructions never enter rendered HTML. DOM setters escape their data

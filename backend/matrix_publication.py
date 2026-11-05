@@ -34,6 +34,7 @@ def plan(owner, data):
                'content_version': content['version'], 'title': content.get('title', ''), 'ready': False}
         try:
             if platform == 'wechat':
+                row['connection_kind'] = 'wechat'
                 account = wechat_publish._account(owner, item.get('account_id'))
                 if not account.get('enabled') or not account.get('secret'):
                     raise ValueError('请启用公众号账号')
@@ -64,9 +65,13 @@ def plan(owner, data):
                     raise ValueError('此版本已有发布记录，请核查原任务')
             else:
                 config = store.config(matrix_publish.config_key(owner, platform), {})
+                native = platform == 'website' and config.get('mode') == 'wordpress'
+                row['connection_kind'] = 'wordpress' if native else 'gateway'
                 if not config.get('enabled') or not config.get('secret') or not config.get('endpoint'):
-                    raise ValueError('请先在发布账号中配置并启用此平台')
-                row.update(config_revision=config['revision'], destination=config['endpoint'])
+                    raise ValueError('请先配置并启用你的 WordPress 官网或兼容发布服务' if platform == 'website'
+                                     else '此平台尚未接入原生发文；可去官方后台发布，或配置已有的兼容发布服务')
+                row.update(config_revision=config['revision'],
+                           destination=('WordPress 官网 · ' if native else '自定义发布服务 · ') + config['endpoint'])
                 ident = store.digest(f'matrix-publish:{owner}:{platform}:{flow_id}:{content["id"]}:{content["version"]}')
                 try:
                     row['receipt'] = matrix_publish.public_receipt(store.get(owner, ident))

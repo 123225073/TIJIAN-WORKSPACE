@@ -82,15 +82,20 @@ try{
   if(await target.evaluate(node=>'disabled' in node)){const original=await target.evaluate(node=>node.disabled);await target.evaluate(node=>node.disabled=true);await scan(prefix+'-disabled',scope);await cdp.send('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:['hover']});await scan(prefix+'-disabled-hover',scope);await cdp.send('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});await target.evaluate((node,value)=>node.disabled=value,original)}
   await target.evaluate(node=>node.removeAttribute('id'));
  };
- await go('task/'+ids.task,'.agent-fields dd');
- await page.locator('.agent-result details:not(.profile-recovery)').evaluate(node=>node.open=true);
- const proposal=await scan('profile-proposal-default','.agent-result',true);report.proposal=proposal.entries.filter(x=>/agent-fields.*dd/.test(x.selector));
- assert(report.proposal.length>=5,'five seeded profile fields');
- if(expectRed){assert(report.proposal.some(x=>x.contrast<1.5),'baseline must reproduce pale surface and near-white profile text');report.passed=true;persist();console.log(JSON.stringify({baseline_reproduced:true,profile:report.proposal,directory}));}
+ if(expectRed){
+  // Historical CSS baseline mode intentionally targets the former proposal UI.
+  await go('task/'+ids.task,'.agent-fields dd');
+  await page.locator('.agent-result details:not(.profile-recovery)').evaluate(node=>node.open=true);
+  const proposal=await scan('profile-proposal-default','.agent-result',true);report.proposal=proposal.entries.filter(x=>/agent-fields.*dd/.test(x.selector));
+  assert(report.proposal.length>=5,'five seeded profile fields');
+  assert(report.proposal.some(x=>x.contrast<1.5),'baseline must reproduce pale surface and near-white profile text');report.passed=true;persist();console.log(JSON.stringify({baseline_reproduced:true,profile:report.proposal,directory}));
+ }
  else{
-  await controlStates('proposal-secondary','.agent-result .button-row button:nth-child(2)','.agent-result');
-  await controlStates('proposal-primary','.agent-result .primary','.agent-result');
-  await page.locator('.agent-result .button-row button:nth-child(2)').click();await page.locator('.modal').waitFor();await scan('proposal-edit-modal','.modal',true);await controlStates('modal-save','.modal .primary','.modal');await page.getByRole('button',{name:'关闭',exact:true}).click();
+  // Profile tasks now lead into the unified interview, rather than editing proposal fields here.
+  await go('task/'+ids.task,'.agent-result[aria-label="IP 定位引导入口"]');
+  await scan('profile-guide-entry','.agent-result',true);
+  await controlStates('profile-guide-primary','.agent-result a.primary','.agent-result');
+  assert.match(await page.locator('.agent-result a.primary').getAttribute('href'),/profile|ip/,'entry must retain the IP interview route');
   await go('studio/topics','.tlc-table tbody tr');await scan('topics-default','.tlc',true);
   await controlStates('topics-active-tab','.tlc-views .is-active','.tlc');
   await page.locator('.tlc-table tbody tr input[type=checkbox]').first().check();await scan('topics-selected','.tlc');
@@ -104,9 +109,9 @@ try{
   await page.locator('.modal form').evaluate(form=>form.requestSubmit());await page.locator('.modal').waitFor({state:'hidden'});await page.locator('.toast').waitFor();await scan('knowledge-save-toast','.toast',true);
   // Isolated task events test the one shared dialog; no legacy floating card remains.
   await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-success',route:location.hash.slice(1),label:'隔离生成完成提示样式',path:'/isolated-ui-generate',pending:false,at:Date.now()}})));
-  await page.getByRole('button',{name:'当前任务',exact:true}).click();await page.locator('.task-center[open]').waitFor();await scan('task-center-complete','.task-center',true);
-  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-error',route:location.hash.slice(1),label:'隔离错误提示样式',path:'/isolated-ui-error',pending:false,error:'【仅测 UI】请核对输入资料。',at:Date.now()}})));
-  await page.locator('.task-center-list button').filter({hasText:'隔离错误提示样式'}).click();await scan('task-center-error','.task-center',true);await controlStates('task-center-return','.task-center-task-footer button','.task-center');
+  await page.getByRole('button',{name:'当前任务',exact:true}).click();await page.locator('.task-center[data-open="true"]').waitFor();await scan('task-center-complete','.task-center',true);
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-error',route:location.hash.slice(1),label:'隔离生成错误提示样式',path:'/isolated-ui-generate-error',pending:false,error:'【仅测 UI】请核对输入资料。',at:Date.now()}})));
+  await page.locator('.task-center-list button').filter({hasText:'隔离生成错误提示样式'}).click();await scan('task-center-error','.task-center',true);await controlStates('task-center-return','.task-center-return','.task-center');
   await page.getByRole('button',{name:'关闭任务进度',exact:true}).click();assert.equal(await page.locator('.page-operations').count(),0);
   await go('knowledge/issues/'+ids.issue,'.candidate-notice');await scan('knowledge-issue','.knowledge-page',true);await page.getByRole('button',{name:'审阅并保存',exact:true}).click();await page.locator('.modal').waitFor();await scan('knowledge-review-modal','.modal',true);await page.getByRole('button',{name:'关闭',exact:true}).click();
   await go('studio/assets','.st-asset-card');await scan('assets-default','.studio-v2',true);await controlStates('assets-upload','.st-section-head label.st-primary','.studio-v2');await page.getByRole('textbox',{name:'搜索资源'}).fill('隔离');await scan('assets-filter-value','.studio-v2');

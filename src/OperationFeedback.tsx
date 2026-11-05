@@ -3,8 +3,8 @@ import {api,Item} from './api';
 import Markdown from './Markdown';
 import './feedback.css';
 import TaskCenter from './TaskCenter';
-import {activityTitle,taskActive} from './taskActivity';
-import {joinTaskScope,readTaskScopes,savedBatchScopes,scopeHasActive,taskUnresolved,type TaskScopes} from './taskScopes';
+import {activityTitle,taskActive,taskNeedsAttention} from './taskActivity';
+import {joinTaskScope,readTaskScopes,savedBatchScopes,scopeHasActive,taskUnresolved,visibleScopeTasks,type TaskScopes} from './taskScopes';
 export const activeJob=(j?:Item)=>!!j&&['queued','running'].includes(j.status);
 export function JobFeedback({job,preview=false,collapsible=false}:{job?:Item;preview?:boolean;collapsible?:boolean}){
  const [clock,setClock]=useState(Date.now());
@@ -22,7 +22,7 @@ export default function OperationFeedback({route,jobs,onJob,onComplete,userId}:{
  const [scopes,setScopes]=useState<TaskScopes>(()=>readTaskScopes(userId)),scopeRef=useRef(scopes);scopeRef.current=scopes;
  const [ops,setOps]=useState<Item[]>(()=>{try{return JSON.parse(localStorage.getItem(storageKey)||'[]').map((x:Item)=>x.pending&&!x.linked_id?{...x,pending:false,finished_at:undefined,error:'页面已重载，未取得此操作的最终状态；请回到创作页面核查。'}:x)}catch{return []}});
  const known=useRef(new Map<string,Item>()),retired=useRef(new Set<string>()),requestStarts=useRef(new Map<string,string>()),callbacks=useRef({onJob,onComplete});callbacks.current={onJob,onComplete};
- const alive=useRef(true),openRef=useRef(false),hasShown=useRef(false);
+ const alive=useRef(true),openRef=useRef(false);
  const putScopes=(value:TaskScopes)=>{scopeRef.current=value;setScopes(value);localStorage.setItem('task-center-scopes:'+userId,JSON.stringify(value))};
  const merge=(items:Item[])=>{for(const item of items){const previous=known.current.get(item.id);if(previous&&Number(item.version||0)<Number(previous.version||0))continue;known.current.set(item.id,{...previous,...item})}setRecords([...known.current.values()])};
  const syncBatches=(activateNew=false)=>{let next=scopeRef.current;for(const batch of savedBatchScopes(userId))if(batch.pending||next.groups.some(group=>group.id===batch.id)){const existed=next.groups.some(group=>group.id===batch.id);next=joinTaskScope(next,batch,activateNew&&!existed)}putScopes(next)};
@@ -34,11 +34,11 @@ export default function OperationFeedback({route,jobs,onJob,onComplete,userId}:{
  useEffect(()=>{merge(jobs.filter(x=>['job','studio_run'].includes(x.kind)&&!retired.current.has(x.id)))},[jobs]);
  useEffect(()=>{
   alive.current=true;void restore();let timer:ReturnType<typeof setTimeout>;
-  const show=()=>{hasShown.current=true;openRef.current=true;setOpen(true);void restore()};
+  const show=()=>{openRef.current=true;setOpen(true);void restore()};
   const listen=(event:Event)=>{const x=(event as CustomEvent).detail;if(!x?.id)return;
    const at=new Date(x.at||Date.now()).toISOString();if(x.pending&&!requestStarts.current.has(x.id))requestStarts.current.set(x.id,at);const started=requestStarts.current.get(x.id);if(!x.pending)requestStarts.current.delete(x.id);
    const item=x.job||x.run,meaningful=item||/generate|optimize|illustration|\/send$/.test(x.path||'')||/导出|生成|构思|撰写|优化/.test(x.label||'');
-   if(!meaningful&&!x.error)return;
+   if(!meaningful)return;
    const groupId=x.group_id||x.id,previous=scopeRef.current.groups.find(group=>group.id===groupId);
    const state=item?{...scopeRef.current,groups:scopeRef.current.groups.filter(group=>!group.id.startsWith('recovered:')||!group.members.includes(item.id))}:scopeRef.current;
    if(state.current&&!state.groups.some(group=>group.id===state.current))state.current=groupId;
@@ -47,7 +47,6 @@ export default function OperationFeedback({route,jobs,onJob,onComplete,userId}:{
     const record={id:x.id,kind:'operation',title:x.label,activity_label:x.label,activity_route:x.route,operation_path:x.path?.split('?')[0],pending:!!x.pending,error:x.error,created:old?.created||started||at,started_at:old?.started_at||started,...(!x.pending?{finished_at:at}:{}),...(item?{linked_id:item.id}:{}),group_id:groupId,version:1,updated:at} as Item;
     return [record,...previousOps.filter(row=>row.id!==x.id)].slice(0,100)});
    if(item){retired.current.delete(item.id);const enriched={...item,activity_label:x.label,activity_route:x.route,operation_path:x.path};merge([enriched]);callbacks.current.onJob(item)}
-   if(meaningful&&x.pending&&!hasShown.current){hasShown.current=true;openRef.current=true;setOpen(true)}
   };
   const batches=()=>syncBatches(true);
   window.addEventListener('task-center-open',show);window.addEventListener('operation',listen);window.addEventListener('social-picture-batch',batches);window.addEventListener('article-picture-batch',batches);
@@ -58,10 +57,10 @@ export default function OperationFeedback({route,jobs,onJob,onComplete,userId}:{
   return()=>{alive.current=false;clearTimeout(timer);window.removeEventListener('task-center-open',show);window.removeEventListener('operation',listen);window.removeEventListener('social-picture-batch',batches);window.removeEventListener('article-picture-batch',batches)};
  },[userId]);
  const metadata=new Map(ops.filter(x=>x.linked_id).map(x=>[x.linked_id,x]));
- const allTasks=[...records.filter(x=>!x.archived).map(item=>{const op=metadata.get(item.id);return op?{...item,activity_label:op.activity_label,activity_route:op.activity_route,operation_path:op.operation_path}:item}),...ops.filter(x=>!x.linked_id)];
+ const allTasks=[...records.filter(x=>!x.archived).map(item=>{const op=metadata.get(item.id);return op?{...item,activity_label:op.activity_label,activity_route:op.activity_route,operation_path:op.operation_path}:item}),...ops.filter(x=>!x.linked_id&&x.title!=='保存操作')];
  useEffect(()=>{let changed=false;const groups=scopeRef.current.groups.map(group=>{const members=allTasks.filter(item=>group.members.includes(item.id)||group.operations.includes(item.id));if(!members.length)return group;const unresolved=members.some(taskUnresolved);if(group.unresolved===unresolved)return group;changed=true;return {...group,unresolved}});if(changed)putScopes({...scopeRef.current,groups})},[records,ops,scopes.current]);
- const current=scopes.groups.find(group=>group.id===scopes.current),tasks=current?allTasks.filter(item=>current.members.includes(item.id)||current.operations.includes(item.id)).map((item):Item=>({...item,display_title:current.labels?.[item.id]})).sort((a,b)=>Number(taskActive(b))-Number(taskActive(a))||Date.parse(b.created||b.started_at||'')-Date.parse(a.created||a.started_at||'')):[];
- const available=scopes.groups.filter(group=>group.id===scopes.current||scopeHasActive(group,allTasks));
+ const current=scopes.groups.find(group=>group.id===scopes.current),tasks=current?visibleScopeTasks(current,allTasks).sort((a,b)=>Number(taskActive(b))-Number(taskActive(a))||Date.parse(b.created||b.started_at||'')-Date.parse(a.created||a.started_at||'')):[];
+ const available=scopes.groups.filter(group=>group.id===scopes.current||scopeHasActive(group,allTasks)||visibleScopeTasks(group,allTasks).some(taskNeedsAttention));
  useEffect(()=>{window.dispatchEvent(new CustomEvent('task-center-summary',{detail:{active:tasks.filter(taskActive).length}}))},[records,ops,scopes]);
- return <TaskCenter open={open} tasks={tasks} error={error} scopeTitle={current?.title||''} scopeSummary={current?.summary||''} scopes={available} currentScope={scopes.current} onScope={id=>putScopes({...scopeRef.current,current:id})} onClose={()=>{openRef.current=false;setOpen(false)}} onRefresh={()=>void restore()}/>;
+ return <TaskCenter open={open} tasks={tasks} error={error} scopeTitle={current?.title||''} scopeSummary={current?.slots?`${tasks.filter(item=>item.status==='succeeded').length} / ${tasks.length} 张已完成`:current?.summary||''} scopes={available} currentScope={scopes.current} onScope={id=>putScopes({...scopeRef.current,current:id})} onClose={()=>{openRef.current=false;setOpen(false)}} onRefresh={()=>void restore()}/>;
 }

@@ -105,7 +105,7 @@ def limit_auth(request):
     ATTEMPTS[key]=a+[now]
 
 @app.get('/api/health')
-def health():return {'ok':True,'version':'0.32.5','persistence':'sqlite+markdown','configured':bool(s.all_users())}
+def health():return {'ok':True,'version':'0.32.6','persistence':'sqlite+markdown','configured':bool(s.all_users())}
 
 @app.post('/api/auth/register')
 def register(data:Auth,request:Request):
@@ -856,6 +856,8 @@ def article_illustration_prompt(data:dict,u=Depends(user)):
     from .article_illustration import suggest
     return suggest(u['id'],data)
 from . import creation
+from . import article_image_placement
+article_image_placement.register(app,user)
 creation.register(app,user,admin,error)
 from . import topics
 topics.register(app,user,error)

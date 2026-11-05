@@ -114,7 +114,10 @@ try{
  await page.locator('.article-editor .md-toolbar').getByRole('button',{name:'保存修改',exact:true}).click();
  await page.reload();await page.locator('.article-canvas-main .wa-image-chip img').waitFor();
  assert(await page.locator('.article-canvas-main .wa-image-chip img').evaluate(e=>e.naturalWidth>0));
+ // Asset thumbnails load only when their cards enter the scroll viewport.
+ await rail.locator('.air-picture').first().scrollIntoViewIfNeeded();
  await rail.locator('.air-picture img').waitFor();
+ assert(await rail.locator('.air-picture img').evaluate(e=>e.naturalWidth>0));
  for(const width of [1366,1920]){
   await page.setViewportSize({width,height:1050});
   assert(await page.locator('.article-canvas-workspace').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
@@ -142,6 +145,9 @@ try{
  assert.equal(await wechat.getByRole('button',{name:'同步公众号草稿'}).count(),0);
  await page.getByRole('button',{name:'官网 / 品牌博客',exact:true}).click();
  const gateway=page.getByRole('region',{name:'官网 / 品牌博客连接'});
+ // Website accounts default to the native WordPress connector. This case verifies custom-service persistence.
+ await gateway.getByLabel('WordPress 用户名',{exact:true}).waitFor();
+ await gateway.getByRole('combobox').selectOption('gateway');
  await gateway.getByLabel('HTTPS 发布地址').fill('https://example.com/publish');
  await gateway.getByLabel('访问令牌').fill('isolated-test-credential');
  await gateway.getByRole('checkbox',{name:'启用连接'}).check();
