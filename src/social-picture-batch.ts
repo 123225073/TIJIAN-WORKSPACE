@@ -55,7 +55,7 @@ const acceptPrompt=(slot:Slot,job:any)=>{
 };
 export function advanceSocialBatch(key:string,session:Session){return exclusive(key,async()=>{
  const b=readSocialBatch(key);check(key,session,b);if(!b)return null;
- const call=async(path:string,body?:any,method?:string)=>{check(key,session,b);return api(path,body,method)};
+ const call=async(path:string,body?:any,method?:string)=>{check(key,session,b);return api(path,body,method,{groupId:b.id,groupTitle:`生成 ${b.slots.length} 张${b.purpose==='article'?'文章':'图文'}配图`,groupRoute:b.flow_id?'studio/flow?work='+encodeURIComponent(b.flow_id)+'&step=4':'studio/text'})};
  for(const slot of b.slots){
   if(['succeeded','failed'].includes(slot.status))continue;
   try{
@@ -69,7 +69,7 @@ export function advanceSocialBatch(key:string,session:Session){return exclusive(
    if(['prompt_pending','prompt_unknown','failed'].includes(slot.status))continue;
    if(slot.status==='prompt_ready'){
     slot.status='draft_pending';write(key,b);
-    const draft=await call(draftsPath(b),{tool:'text_image',title:title(b,slot),input:{prompt:slot.prompt},model_id:b.model_id,options:b.options,brand_id:b.brand_id,profile_id:b.profile_id,source_ids:[]});
+    const draft=await call(draftsPath(b),{tool:'text_image',title:title(b,slot),input:{prompt:slot.prompt,...(b.purpose==='article'?{image_style:{id:b.style,prompt:batchStylePrompt(b)}}:{})},model_id:b.model_id,options:b.options,brand_id:b.brand_id,profile_id:b.profile_id,source_ids:[]});
     slot.draft_id=draft.id;slot.version=draft.version;slot.status='prepared';write(key,b);check(key,session,b);
    }else if(slot.status==='draft_pending'){
     const drafts=await call(draftsPath(b));check(key,session,b);

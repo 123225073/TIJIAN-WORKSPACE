@@ -123,7 +123,10 @@ def test_platform_runs_use_the_same_saved_master_and_keep_independent_outputs(cl
         response = client.post(path + '/generate', json=request)
         assert response.status_code == 200, response.text
         job = response.json()
-        assert client.post(path + '/generate', json=request).json()['id'] == job['id']
+        assert job['kind'] == 'job' and job['title'] and job['created'] and job['version']
+        assert 'input' not in job and 'result' not in job
+        reused = client.post(path + '/generate', json=request).json()
+        assert reused['id'] == job['id'] and reused['kind'] == 'job'
         complete = finish(client, job)
         assert complete['status'] == 'done', complete
         results[platform] = complete['result']['content_id']

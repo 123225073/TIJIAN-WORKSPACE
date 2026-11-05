@@ -11,7 +11,7 @@ const accountCheck=(key:string,session:BatchSession,b?:PictureBatch|null)=>{
  if(getToken()!==session.token||!key.startsWith('article-picture-batch:'+session.owner+':')||(b?.owner&&b.owner!==session.owner))throw Error('账号已切换，原账号三图任务已暂停；重新登录原账号后可核查。');
 };
 const sessionAPI=(key:string,session:BatchSession)=>async(path:string,body?:any,method?:string,received?:(result:any)=>void)=>{
- accountCheck(key,session);const result=await api(path,body,method);
+ accountCheck(key,session);const batch=readBatch(key);const result=await api(path,body,method,batch?{groupId:batch.id,groupTitle:'生成 3 张文章配图',groupRoute:batch.flow_id?'studio/flow?work='+encodeURIComponent(batch.flow_id)+'&step=4':'studio/text'}:undefined);
  // This response belongs to the captured request token. Persist its identity to
  // the original owner's key even after logout, then stop before any next call.
  received?.(result);accountCheck(key,session);return result;

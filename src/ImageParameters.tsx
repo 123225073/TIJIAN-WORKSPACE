@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {imagePlan,readRatio} from './image-parameters';
 export {imagePlan} from './image-parameters';
 export default function ImageParameters({choices,options,onChange,disabled=false}:{choices:any;options:any;onChange:(options:any)=>void;disabled?:boolean}){
- const presets=['1:1','2:3','3:2','3:4','4:3','9:16','16:9','2.35:1'];
+ const presets=['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9','9:21','2:1','1:2','3:1','1:3','2.35:1'];
  const [custom,setCustom]=useState(options.requested_ratio||''),[editing,setEditing]=useState(false),[error,setError]=useState('');
  useEffect(()=>{setCustom(options.requested_ratio||'');setError('')},[options.requested_ratio]);
  const plan=imagePlan(choices,options),requested=options.requested_ratio;

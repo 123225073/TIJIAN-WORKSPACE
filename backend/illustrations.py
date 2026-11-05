@@ -38,7 +38,23 @@ def fetch_image(url):
 def sizes(model):
     m,_=g.model_record(model)
     values=['1024x1024','1536x1024','1024x1536']
-    if any(x in m['model'] for x in ['gpt-image-2.5','gpt-image-2']):values+=['1536x864','864x1536','2048x2048','2560x1440','1440x2560']
+    if any(x in m['model'] for x in ['gpt-image-2.5','gpt-image-2']):
+        values+=['1536x864','864x1536','2048x2048','2560x1440','1440x2560']
+    if re.match(r'^gpt-image-2(?:\.5)?(?:$|[-/])',m['model']):
+        # Keep saved sizes valid, then expose native geometry rather than the
+        # GPT Image 1 three-size restriction. Images API dimensions are multiples
+        # of 16, aspect 1:3..3:1, 655360..8294400 pixels, and <=3840 per edge.
+        # https://developers.openai.com/api/docs/guides/image-generation
+        ratios=[(1,1),(3,2),(2,3),(4,3),(3,4),(5,4),(4,5),(16,9),(9,16),
+                (7,3),(3,7),(2,1),(1,2),(3,1),(1,3),(47,20),(20,47)]
+        for a,b in ratios:
+            unit_w,unit_h=16*a,16*b
+            minimum=math.ceil(math.sqrt(655360/(unit_w*unit_h)))
+            maximum=min(3840//max(unit_w,unit_h),math.isqrt(8294400//(unit_w*unit_h)))
+            for edge in (1024,2048,3840):
+                multiple=max(minimum,min(maximum,round(edge/max(unit_w,unit_h))))
+                values.append(f'{unit_w*multiple}x{unit_h*multiple}')
+        values=list(dict.fromkeys(values))
     return values
 
 def generate(model,prompt,size='1024x1024',probe=False,reference=None,quality=None,on_size_adjustment=None,_retry_size=False):

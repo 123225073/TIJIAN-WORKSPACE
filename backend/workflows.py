@@ -546,6 +546,11 @@ def _install_flow_routes(app, user):
 
             return jobs.start(owner, '内容母版 · ' + topic['title'][:80], run, inputs)
 
+    def matrix_job_reply(owner, job_id):
+        job = s.get(owner, job_id)
+        return {key: job[key] for key in ('id', 'kind', 'title', 'status', 'created', 'started_at',
+                'finished_at', 'progress', 'error', 'version', 'updated') if key in job}
+
     @app.post('/api/studio/flows/{flow_id}/matrix/generate')
     def generate_flow_matrix(flow_id: str, data: dict, u=Depends(user)):
         owner = u['id']
@@ -570,7 +575,7 @@ def _install_flow_routes(app, user):
             draft_ids = {draft['id'] for draft in drafts}
             for job in matrix_jobs(owner, flow_id):
                 if job['request_id'] == request or job['draft_id'] in draft_ids and job['status'] in {'queued', 'running'}:
-                    return {'id': job['id'], 'status': job['status']}
+                    return matrix_job_reply(owner, job['id'])
             format_name, words, _ = matrix.CHANNELS[platform]
             brief = matrix.request_brief(topic['title'], master, platform)
             draft = next((d for d in drafts if d.get('matrix_request') == request), None)
@@ -585,7 +590,7 @@ def _install_flow_routes(app, user):
                 'flow_id': flow_id, 'draft_id': draft['id'], 'brief': brief, 'format': format_name,
                 'target_words': words, 'profile_id': draft.get('profile_id', ''),
                 'brand_id': draft.get('brand_id', ''), 'request_id': request})
-            return {'id': result['id'], 'status': result['status']}
+            return matrix_job_reply(owner, result['id'])
 
     def flow_speech(owner, flow_id, content_id=''):
         row = _flow(owner, flow_id)

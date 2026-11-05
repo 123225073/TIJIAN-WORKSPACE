@@ -46,7 +46,8 @@ def notice(options):
         match=re.fullmatch(r'(\d+)[x*](\d+)',size)
         if match:
             w,h=map(int,match.groups());div=math.gcd(w,h);actual=f'{w//div}:{h//div}'
-            actual_resolution='1K' if max(w,h)<=1600 else '2K' if max(w,h)<=3000 else '4K'
+            # Native square 4K is 2880² (the API's pixel limit), not 4096².
+            actual_resolution='4K' if w*h>=7_000_000 else '1K' if max(w,h)<=1600 else '2K' if max(w,h)<=3000 else '4K'
         else:return ''
     else:actual_resolution=str(options.get('resolution','')).upper()
     if requested and actual and abs(math.log(ratio(actual)/ratio(requested)))>.001:changes.append(f'比例 {requested} → {actual}')

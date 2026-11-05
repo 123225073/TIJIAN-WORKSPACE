@@ -117,3 +117,6 @@ __pycache__/
 /public/visuals/*
 !/public/visuals/elevator-atrium-v1.png
 !/public/visuals/SOURCE.md
+
+# Built-in generated image-style reference atlas.
+!/public/visuals/image-style-atlas-v2.png

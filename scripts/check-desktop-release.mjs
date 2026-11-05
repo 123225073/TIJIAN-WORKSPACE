@@ -242,8 +242,18 @@ try{
 
  phase='task center and image styles';
  await view.removeLocatorHandler(optionalTaskCenter);
- await articleRail.getByLabel('画面风格',{exact:true}).waitFor();
- if(await articleRail.getByLabel('画面风格',{exact:true}).locator('option').count()!==8)throw Error('Expected eight packaged article style options');
+ const styleTrigger=articleRail.getByRole('button',{name:/^画面风格：/});
+ await styleTrigger.click();
+ const styleGallery=view.getByRole('dialog',{name:'看图，选择这次的画面风格',exact:true});
+ await styleGallery.waitFor();
+ if(await styleGallery.locator('.image-style-card').count()!==12)throw Error('Expected twelve packaged visual style references');
+ const atlas=await view.evaluate(()=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve([image.naturalWidth,image.naturalHeight]);image.onerror=()=>reject(Error('Built-in style reference missing'));image.src='/visuals/image-style-atlas-v2.png'}));
+ if(atlas[0]!==1774||atlas[1]!==887)throw Error('Packaged style reference asset differs');
+ await view.screenshot({path:path.join(dir,'style-gallery.png')});
+ await styleGallery.getByRole('button',{name:'产品展示',exact:true}).click();
+ await styleGallery.waitFor({state:'detached'});
+ if(!(await styleTrigger.innerText()).includes('产品展示'))throw Error('Visual style choice did not apply');
+ await styleTrigger.click();await view.keyboard.press('Escape');await styleGallery.waitFor({state:'detached'});
  await view.getByRole('button',{name:'当前任务',exact:true}).click();
  const taskCenter=view.getByRole('dialog',{name:'当前任务',exact:true});
  await taskCenter.waitFor();
@@ -282,7 +292,7 @@ try{
  await view.locator('.mr-list article').first().getByRole('button',{name:'功能',exact:true}).click();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'文生视频'}).waitFor();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'图生视频'}).waitFor();
- const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,article_single_canvas:true,article_real_save:true,matrix_collapsible_navigation:true,article_matrix_runs_fixture:true,article_canvas_paid_requests:canvasPaidRequests,unified_task_center:true,publish_parameter_guidance:true,image_style_templates:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
+ const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,article_single_canvas:true,article_real_save:true,matrix_collapsible_navigation:true,article_matrix_runs_fixture:true,article_canvas_paid_requests:canvasPaidRequests,unified_task_center:true,publish_parameter_guidance:true,image_style_templates:true,visual_style_gallery:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
  fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify(result));
  console.log(JSON.stringify({...result,dir}));
  await call('Browser.close').catch(()=>{});

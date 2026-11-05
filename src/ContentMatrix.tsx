@@ -93,9 +93,10 @@ export default function ContentMatrix({flowId,topicId,topicTitle,view,editor,cha
   const current=await save();
   if(!current.body.trim()||!platforms.length)throw Error('请先生成母版，并选择要创作的平台');
   if(!window.confirm(`为 ${platforms.length} 个平台创作文稿？将调用已配置的写作模型。`))return;
+  const operationGroup={groupId:crypto.randomUUID(),groupTitle:`创作 ${platforms.length} 个平台文稿`,groupRoute:location.hash.slice(1)};
   const responses=await Promise.allSettled(platforms.map(async platform=>{
    const key=current.version+':'+platform,request_id=keys.current[key]||(keys.current[key]=crypto.randomUUID());
-   await api(path+'/generate',{platform,master_version:current.version,topic_id:topicId,request_id});delete keys.current[key];
+   await api(path+'/generate',{platform,master_version:current.version,topic_id:topicId,request_id},undefined,operationGroup);delete keys.current[key];
   }));
   if(!alive.current)return;
   setFailed(old=>({...old,...Object.fromEntries(responses.map((result,index)=>[platforms[index],result.status==='rejected'?msg(result.reason):'']))}));
