@@ -2,6 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import {FolderOpen,ImagePlus,RefreshCw,Sparkles,Upload} from 'lucide-react';
 import {api,getToken} from './api';
 import AssetPicker,{AssetThumbnail} from './AssetPicker';
+import ImageStylePicker from './ImageStylePicker';
+import {pictureStyleById} from './picture-styles';
 import {batchBlocksSingle,batchKey} from './article-picture-batch';
 import {advanceSocialBatch,markSocialAttached,readSocialBatch,retrySocialFailed,socialBatchActive,socialBatchKey,startSocialBatch,type SocialBatch} from './social-picture-batch';
 import './article-image-rail.css';
@@ -17,6 +19,7 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,di
  const [session]=useState(()=>({owner,token:getToken()}));
  const [batch,setBatch]=useState<SocialBatch|null>(()=>readSocialBatch(key));
  const [ratio,setRatio]=useState(()=>readSocialBatch(key)?.ratio||'4:3'),[count,setCount]=useState(()=>{const saved=readSocialBatch(key)?.slots.length;return saved&&[1,2,3,4].includes(saved)?saved:3});
+ const [styleId,setStyleId]=useState(()=>{const batch=readSocialBatch(key);return pictureStyleById((socialBatchActive(batch)?batch?.style:localStorage.getItem(historyKey+':style')||batch?.style)||'auto').id});
  const [assets,setAssets]=useState<any[]>([]),[history,setHistory]=useState(()=>readIds(historyKey));
  const [busy,setBusy]=useState(''),[error,setError]=useState(''),[feedback,setFeedback]=useState(''),[library,setLibrary]=useState(false);
  const [reading,setReading]=useState(false);
@@ -66,7 +69,7 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,di
   if(saved.id!==content.id||String(saved.body??saved.text??'')!==live.current.getBody())throw Error('正文正在变化，请保存后再生成配图。');
   // Persist completed IDs before replacing the current batch with another group.
   remember(readSocialBatch(key)?.slots.flatMap(s=>s.asset_id?[s.asset_id]:[])||[]);
-  await startSocialBatch(key,saved,ratio,count,'industry',session,'article');sync();await pass();
+  await startSocialBatch(key,saved,ratio,count,styleId,session,'article');sync();await pass();
  });
  const insert=(asset:any)=>act('insert:'+asset.id,async()=>{
   live.current.onCapture?.();sameAccount();
@@ -84,8 +87,9 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,di
   <div className="air-settings">
    <fieldset disabled={!!busy||!!active||disabled}><legend>画面比例</legend><div className="air-ratios">{ratios.map(([value,title])=><button type="button" key={value} aria-pressed={ratio===value} onClick={()=>setRatio(value)}><span>{value}</span><small>{title}</small></button>)}</div></fieldset>
    <fieldset className="air-count" disabled={!!busy||!!active||disabled}><legend>生成数量</legend><div>{[1,2,3,4].map(n=><button type="button" key={n} aria-pressed={count===n} onClick={()=>setCount(n)}>{n} 张</button>)}</div></fieldset>
+   <ImageStylePicker article value={active?batch!.style:styleId} disabled={!!busy||!!active||disabled} onChange={id=>{try{sameAccount();localStorage.setItem(historyKey+':style',id);setStyleId(id)}catch(e:any){setError(e.message||'风格未保存，请重试。')}}}/>
    <button type="button" className="air-generate st-primary" disabled={!!busy||!!active||disabled} onClick={()=>void generate()}><Sparkles size={16}/>{busy==='generate'?'正在准备…':active?`生成中 · ${finished}/${batch!.slots.length}`:`生成 ${count} 张配图`}</button>
-   <p className="air-hint">沿用文章风格 · 默认画质 · 按用量计费</p>
+   <p className="air-hint">整组风格一致 · 默认画质 · 按用量计费</p>
   </div>
   {error&&<p className="air-message air-error" role="alert">{error}</p>}
   {feedback&&<p className="air-message" role="status">{feedback}</p>}

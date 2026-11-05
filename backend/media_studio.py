@@ -710,6 +710,14 @@ def _validate(owner, data, complete=False):
         allowed.update({'edit_marks','image_layers'})
         if inputs.get('edit_marks') or inputs.get('image_layers'):
             required=[key for key in required if key!='prompt']
+    if tool in ('text_image', 'image_edit'):
+        allowed.add('image_style')
+        if 'image_style' in inputs:
+            style = inputs['image_style']
+            _strict(style, ['id', 'prompt'])
+            if not re.fullmatch(r'[a-z][a-z0-9_-]{0,39}', _text(style.get('id'), '画面风格', 40)):
+                raise StudioError('画面风格无效，请重新选择')
+            _text(style.get('prompt'), '风格说明', 600, True)
     if tool == 'avatar_create':
         allowed = {'image_id', 'video_id'}
     _strict(inputs, allowed)
@@ -1178,6 +1186,10 @@ def _build(owner, draft, service):
 def _update(owner, id, **values):
     with s.LOCK:
         item = _object(owner, id, 'studio_run')
+        # Only a real transition records an end time. Reading or refreshing an
+        # old completed record must never manufacture a historical duration.
+        if values.get('status') in {'succeeded', 'partial', 'failed', 'cancelled', 'expired', 'interrupted'} and values['status'] != item.get('status'):
+            values.setdefault('finished_at', s.now())
         return s.put(owner, 'studio_run', {**item, **values}, id, expected=item['version'])
 
 
@@ -1360,9 +1372,16 @@ def generate(owner, data, enqueue=None):
             raise StudioError('草稿所用的视频模型已下架，请刷新草稿并确认新型号后再生成')
         _validate(owner, clean, complete=True)
         prompt_original=None
+        style_prompt = str(clean['input'].get('image_style', {}).get('prompt') or '').strip() if draft['tool'] in ('text_image', 'image_edit') else ''
+        if draft['tool']=='text_image' and style_prompt:
+            prompt_original=str(clean['input'].get('prompt') or '')
+            prompt=prompt_original.strip()+'\n\n画面风格参考：'+style_prompt
+            if len(prompt)>1500:raise StudioError('原要求与风格说明合计超过1500字，请精简原要求后重试；尚未提交生成')
+            clean={**clean,'input':{**clean['input'],'prompt':prompt}}
         if draft['tool']=='image_edit':
             prompt_original=str(clean['input'].get('prompt') or '')
             parts=[str(clean['input'].get('prompt') or '').strip()]
+            if style_prompt:parts.append('画面风格参考：'+style_prompt)
             if clean['input'].get('image_layers'):
                 parts.append('首张输入图已按画布位置叠加图片对象。请将这些对象自然融合到原图中，保留其位置和主体特征；未指定部分尽量保持原图。')
             for index,mark in enumerate(clean['input'].get('edit_marks') or [],1):
@@ -1850,6 +1869,8 @@ def _work(owner, id, batch_refresh=False):
     phase = 'prepare'
     try:
         run = _object(owner, id, 'studio_run')
+        if run.get('status') == 'queued' and not run.get('started_at') and not batch_refresh:
+            run = _update(owner, id, started_at=s.now())
         if isinstance(run.get('batch'), list):
             _batch_work(owner, id, run, allow_submit=not batch_refresh and run.get('tool') != 'compose')
             return
@@ -2583,6 +2604,30 @@ def register(app, user, admin, error):
         # fixture pools still execute inline for existing deterministic tests.
         enqueue = _background_enqueue(background_tasks, _work)
         return invoke(generate, u['id'], data, enqueue)
+
+    @app.get('/api/studio/activity')
+    def activity(u=Depends(user)):
+        # The task center needs bounded metadata, not prompts, outputs, media,
+        # snapshots or credentials. Ownership is checked before decoding rows.
+        keys = ('id', 'kind', 'title', 'status', 'created', 'started_at', 'finished_at',
+                'cancel_requested_at', 'interrupted_at', 'progress', 'error',
+                'progress_history', 'tool', 'task_id', 'version', 'updated')
+        fields = ','.join(f"'{key}',json_extract(data,'$.{key}')" for key in keys if key not in {'id', 'kind', 'version', 'updated'})
+        fields += ",'input',json_object('action',json_extract(data,'$.input.action'),'flow_id',json_extract(data,'$.input.flow_id'))"
+        with s.conn() as c:
+            rows = c.execute("SELECT id,kind,version,updated,json_object(" + fields + ") AS data FROM objects WHERE owner=? "
+                             "AND kind IN ('job','studio_run') AND json_extract(data,'$.archived') IS NOT 1 "
+                             "ORDER BY CASE WHEN json_extract(data,'$.status') IN ('queued','preparing','submitting','running','saving') THEN 0 ELSE 1 END, updated DESC LIMIT 60", (u['id'],)).fetchall()
+        items = []
+        for row in rows:
+            item = s.unpack(row)
+            public = {key: item[key] for key in keys if key in item}
+            if item.get('kind') == 'job':
+                public['input'] = {key: item.get('input', {}).get(key) for key in ('action', 'flow_id') if item.get('input', {}).get(key)}
+            if isinstance(item.get('batch'), list):
+                public['batch'] = [{'status': entry.get('status')} for entry in item['batch']]
+            items.append(public)
+        return {'items': items}
 
     @app.get('/api/studio/runs')
     def runs(u=Depends(user)):

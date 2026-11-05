@@ -1,0 +1,15 @@
+.wp-panel .publish-connection-guide{margin:18px 0;padding:20px 22px;border:1px solid var(--ts-line,#39495b);border-radius:12px;background:var(--ts-elevated,#202c3c);color:var(--ts-text,#edf2fa)}
+.wp-panel .publish-guide-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:9px}
+.wp-panel .publish-guide-heading h4{margin:0;font-size:16px;font-weight:650;line-height:1.5;color:var(--ts-text,#edf2fa)}
+.wp-panel .publish-connection-guide p{margin:7px 0;font-size:13px;line-height:1.85;color:var(--ts-muted,#b7c5d7)}
+.wp-panel .publish-connection-guide a{display:inline-flex;align-items:center;color:var(--ts-accent,#a9c8ff);font-size:13px;font-weight:600;line-height:1.7;text-decoration:underline;text-underline-offset:3px}
+.wp-panel .publish-connection-guide a:focus-visible{outline:2px solid var(--ts-accent,#a9c8ff);outline-offset:4px;border-radius:3px}
+.wp-panel .publish-connection-guide ol{counter-reset:publish-guide;list-style:none;padding:0;margin:16px 0;display:grid;gap:14px}
+.wp-panel .publish-connection-guide li{counter-increment:publish-guide;display:grid;grid-template-columns:26px minmax(0,1fr);column-gap:10px;row-gap:3px;font-size:13px;line-height:1.75}
+.wp-panel .publish-connection-guide li:before{content:counter(publish-guide);grid-row:1/3;display:grid;place-items:center;align-self:start;width:24px;height:24px;border-radius:7px;background:var(--ts-accent-soft,#304967);color:var(--ts-accent,#a9c8ff);font-weight:650;font-size:12px}
+.wp-panel .publish-connection-guide li strong{color:var(--ts-text,#edf2fa);font-size:14px;font-weight:650}
+.wp-panel .publish-connection-guide li span{color:var(--ts-muted,#b7c5d7);min-width:0;overflow-wrap:anywhere}
+.wp-panel .publish-guide-links{display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px;font-size:12px;color:var(--ts-muted,#b7c5d7)}
+.wp-panel .publish-connection-guide .publish-guide-note{padding-top:12px;margin-top:13px;border-top:1px solid var(--ts-line,#39495b);font-size:12px}
+.wp-panel .publish-field-hint{margin:0;color:var(--ts-muted,#b7c5d7);font-size:12px;font-weight:400;line-height:1.75}
+@media(max-width:650px){.wp-panel .publish-connection-guide{padding:16px}.wp-panel .publish-guide-heading{align-items:start;flex-direction:column}}

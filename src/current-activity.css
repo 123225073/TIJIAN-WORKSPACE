@@ -1,3 +1,4 @@
 .top-actions .current-activity{display:inline-flex;gap:7px;align-items:center;max-width:200px;white-space:nowrap;background:#243751;border-color:#4a6485;color:#d7e7ff;min-height:36px;font-size:12px;padding:8px 12px}
 .top-actions .current-activity:disabled{background:transparent;color:#b4c5dc;border-color:transparent}
+.top-actions .current-activity b{font-size:11px;min-width:19px;text-align:center;background:#45638b;color:#fff;border-radius:4px;padding:2px 5px}
 @media(max-width:650px){.top-actions .current-activity{padding:7px}.top-actions .current-activity svg:last-child{display:none}}

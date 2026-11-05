@@ -2,6 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import {api,Item} from './api';
 import Markdown from './Markdown';
 import './feedback.css';
+import TaskCenter from './TaskCenter';
+import {taskActive} from './taskActivity';
 export const activeJob=(j?:Item)=>!!j&&['queued','running'].includes(j.status);
 export function JobFeedback({job,preview=false,collapsible=false}:{job?:Item;preview?:boolean;collapsible?:boolean}){
  const [clock,setClock]=useState(Date.now());
@@ -12,21 +14,39 @@ export function JobFeedback({job,preview=false,collapsible=false}:{job?:Item;pre
  return <div className={'inline-job '+(job.status==='failed'?'failed':'')} role="status" aria-live="polite"><span>{active&&<i className="working-dot"/>}{status}{active&&job.started_at?' · '+Math.max(0,Math.floor((clock-Date.parse(job.started_at))/1000))+' 秒':''}</span>{active&&<div className="activity-track" aria-label="任务正在处理"><i/></div>}{job.status==='done'&&job.result?.text&&<small>{job.result.text}</small>}{job.stream_note&&<small>{job.stream_note}</small>}{collapsible?<details className="job-process"><summary>过程与实时输出{active?' · 持续更新':''}</summary><ol>{(job.progress_history||[]).map((step:any,i:number)=><li key={i}>{step.text}</li>)}</ol>{output||<small>{active?'收到回复后，会在这里逐步显示。':'本次过程已结束。'}</small>}<small>这里显示执行进度和回复草稿。</small></details>:output}{active&&<button className="quiet" onClick={()=>void api('/jobs/'+job.id+'/cancel',{}).catch(()=>{})}>停止</button>}</div>
 }
 
-// Covers write API operations, including forms and pages that do not own a job panel.
+// One observer owns operation progress; closing the center never changes execution.
 export default function OperationFeedback({route,jobs,onJob,onComplete,userId}:{route:string;jobs:Item[];onJob:(j:Item)=>void;onComplete:()=>void;userId:string}){
- const storageKey='operations:'+userId;
- const [ops,setOps]=useState<any[]>(()=>{try{return JSON.parse(sessionStorage.getItem(storageKey)||'[]')}catch{return []}}),known=useRef(new Map<string,Item>()),callbacks=useRef({onJob,onComplete});callbacks.current={onJob,onComplete};
- useEffect(()=>{sessionStorage.setItem(storageKey,JSON.stringify(ops.filter(o=>o.job).map(o=>({...o,job:{id:o.job.id,kind:'job',status:o.job.status}}))))},[ops,storageKey]);
- useEffect(()=>{jobs.forEach(j=>known.current.set(j.id,j))},[jobs]);
+ const storageKey='task-center-operations:'+userId;
+ const [open,setOpen]=useState(false),[error,setError]=useState(''),[records,setRecords]=useState<Item[]>([]);
+ const [ops,setOps]=useState<Item[]>(()=>{try{return JSON.parse(localStorage.getItem(storageKey)||'[]').map((x:Item)=>x.pending&&!x.linked_id?{...x,pending:false,finished_at:undefined,error:'页面已重载，未取得此操作的最终状态；请回到创作页面核查。'}:x)}catch{return []}});
+ const known=useRef(new Map<string,Item>()),retired=useRef(new Set<string>()),requestStarts=useRef(new Map<string,string>()),callbacks=useRef({onJob,onComplete});callbacks.current={onJob,onComplete};
+ const alive=useRef(true),openRef=useRef(false),hasShown=useRef(false);
+ const merge=(items:Item[])=>{for(const item of items){const previous=known.current.get(item.id);if(previous&&Number(item.version||0)<Number(previous.version||0))continue;known.current.set(item.id,{...previous,...item})}setRecords([...known.current.values()])};
+ const restore=async()=>{const before=new Set(known.current.keys());try{const response=await api<{items:Item[]}>('/studio/activity');if(alive.current){const ids=new Set(response.items.map(x=>x.id));for(const id of before)if(!ids.has(id)){known.current.delete(id);retired.current.add(id)}merge(response.items);setError('')}}catch{if(alive.current)setError('暂时无法更新任务记录，请稍后刷新。')}};
+ useEffect(()=>{localStorage.setItem(storageKey,JSON.stringify(ops.slice(0,40)))},[ops,storageKey]);
+ useEffect(()=>{merge(jobs.filter(x=>['job','studio_run'].includes(x.kind)&&!retired.current.has(x.id)))},[jobs]);
  useEffect(()=>{
-  const listen=(e:Event)=>{const x=(e as CustomEvent).detail;setOps(rows=>[x,...rows.filter(r=>r.id!==x.id&&!(r.route===x.route&&(x.error&&r.error===x.error||r.path&&r.path===x.path&&!r.pending&&!activeJob(r.job))))].slice(0,8));if(x.job){known.current.set(x.job.id,x.job);callbacks.current.onJob(x.job)}};
-  window.addEventListener('operation',listen);let stopped=false,timer:any;
-  const tick=async()=>{await Promise.all([...known.current.values()].filter(activeJob).map(async old=>{try{const j=await api<Item>('/jobs/'+old.id);known.current.set(j.id,j);if(stopped)return;callbacks.current.onJob(j);if(!activeJob(j))callbacks.current.onComplete()}catch{}}));if(!stopped)timer=setTimeout(tick,700)};void tick();
-  return()=>{stopped=true;clearTimeout(timer);window.removeEventListener('operation',listen)};
- },[]);
- useEffect(()=>{const timer=setInterval(()=>setOps(rows=>{const now=Date.now(),next=rows.filter(x=>{const j=jobs.find(v=>v.id===x.job?.id)||x.job;return x.pending||activeJob(j)||x.error||now-(j?.finished_at?Date.parse(j.finished_at):x.at||now)<7000});return next.length===rows.length?rows:next}),1000);return()=>clearInterval(timer)},[jobs]);
- const pageOps=ops.filter(x=>x.route===route),latestError=pageOps.find(x=>x.error);
- const visible=pageOps.filter(x=>!x.error||x===latestError).slice(0,3);
- if(!visible.length)return null;
- return <section className="page-operations" aria-label="本页操作进度">{visible.map(x=>{const j=x.job&&(jobs.find(v=>v.id===x.job.id)||x.job);const dedicated=(route.startsWith('studio/flow')&&x.path?.includes('/matrix'))||j&&(j.task_id&&route==='task/'+j.task_id||route.startsWith('studio/topics')&&['studio_topics','studio_delivery'].includes(j.input?.action));if(dedicated)return null;return <div key={x.id} className={x.error?'operation-error':''}><strong>{x.label}</strong>{j?<JobFeedback job={j} preview={activeJob(j)&&!j.task_id}/>:<span role={x.error?'alert':'status'}>{x.pending&&<i className="working-dot"/>}{x.error|| (x.pending?'正在处理，请稍候…':'已完成')}</span>}{x.error&&<button className="quiet operation-recover" onClick={()=>window.dispatchEvent(new CustomEvent('operation-recover',{cancelable:true,detail:{path:x.path,error:x.error,route}}))}>定位并处理</button>}{!x.pending&&!activeJob(j)&&<button className="quiet" onClick={()=>setOps(v=>v.filter(o=>o.id!==x.id))}>收起</button>}</div>})}</section>
+  alive.current=true;void restore();let timer:ReturnType<typeof setTimeout>;
+  const show=()=>{hasShown.current=true;openRef.current=true;setOpen(true);void restore()};
+  const listen=(event:Event)=>{const x=(event as CustomEvent).detail;if(!x?.id)return;
+   const at=new Date(x.at||Date.now()).toISOString();if(x.pending&&!requestStarts.current.has(x.id))requestStarts.current.set(x.id,at);const started=requestStarts.current.get(x.id);if(!x.pending)requestStarts.current.delete(x.id);
+   const item=x.job||x.run,meaningful=item||/generate|optimize|illustration|\/send$/.test(x.path||'')||/导出|生成|构思|撰写|优化/.test(x.label||'');
+   if(!meaningful&&!x.error)return;
+   setOps(previous=>{const old=previous.find(row=>row.id===x.id);
+    const record={id:x.id,kind:'operation',title:x.label,activity_label:x.label,activity_route:x.route,operation_path:x.path?.split('?')[0],pending:!!x.pending,error:x.error,created:old?.created||started||at,started_at:old?.started_at||started,...(!x.pending?{finished_at:at}:{}),...(item?{linked_id:item.id}:{}),version:1,updated:at} as Item;
+    return [record,...previous.filter(row=>row.id!==x.id)].slice(0,40)});
+   if(item){retired.current.delete(item.id);const enriched={...item,activity_label:x.label,activity_route:x.route,operation_path:x.path};merge([enriched]);callbacks.current.onJob(item)}
+   if(meaningful&&x.pending&&!hasShown.current){hasShown.current=true;openRef.current=true;setOpen(true)}
+  };
+  window.addEventListener('task-center-open',show);window.addEventListener('operation',listen);
+  const tick=async()=>{const ids=[...known.current.values()].filter(taskActive).map(x=>x.id).slice(0,100);
+   if(ids.length)try{const response=await api<{items:Item[]}>('/state/updates?ids='+encodeURIComponent(ids.join(',')));if(alive.current){let completed=false;const received=new Set(response.items.map(x=>x.id));for(const id of ids)if(!received.has(id)){known.current.delete(id);retired.current.add(id)}for(const item of response.items){if(!['job','studio_run'].includes(item.kind))continue;const old=known.current.get(item.id);if(old&&taskActive(old)&&!taskActive(item))completed=true;callbacks.current.onJob(item)}merge(response.items.filter(x=>['job','studio_run'].includes(x.kind)));if(completed)callbacks.current.onComplete()}}catch{if(alive.current&&openRef.current)setError('暂时无法更新进度；任务仍会继续，请稍后刷新。')}
+   if(alive.current)timer=setTimeout(tick,1500);
+  };void tick();
+  return()=>{alive.current=false;clearTimeout(timer);window.removeEventListener('task-center-open',show);window.removeEventListener('operation',listen)};
+ },[userId]);
+ const metadata=new Map(ops.filter(x=>x.linked_id).map(x=>[x.linked_id,x]));
+ const tasks=[...records.filter(x=>!x.archived).map(item=>{const op=metadata.get(item.id);return op?{...item,activity_label:op.activity_label,activity_route:op.activity_route,operation_path:op.operation_path}:item}),...ops.filter(x=>!x.linked_id)].sort((a,b)=>Number(taskActive(b))-Number(taskActive(a))||Date.parse(b.created||b.started_at||'')-Date.parse(a.created||a.started_at||'')).slice(0,80);
+ useEffect(()=>{window.dispatchEvent(new CustomEvent('task-center-summary',{detail:{active:tasks.filter(taskActive).length}}))},[records,ops]);
+ return <TaskCenter open={open} tasks={tasks} error={error} onClose={()=>{openRef.current=false;setOpen(false)}} onRefresh={()=>void restore()}/>;
 }

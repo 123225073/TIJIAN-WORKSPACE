@@ -102,10 +102,12 @@ try{
   await page.locator('.modal input[name=title]').fill('隔离保存反馈');await page.locator('.modal textarea[name=body]').fill('【隔离资料】用于验证实际保存通知，禁止自动整理。');
   // Isolated save only; automatic synthesis was disabled by the seed.
   await page.locator('.modal form').evaluate(form=>form.requestSubmit());await page.locator('.modal').waitFor({state:'hidden'});await page.locator('.toast').waitFor();await scan('knowledge-save-toast','.toast',true);
-  // The import navigates to its new record, so its old-route progress card is gone.
-  // Exercise this separate React chrome with an explicitly labelled UI event fixture.
-  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-success',route:location.hash.slice(1),label:'隔离完成提示样式',path:'/isolated-ui-success',pending:false,at:Date.now()}})));await page.locator('.page-operations').waitFor();await scan('operation-complete','.page-operations',true);
-  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-error',route:location.hash.slice(1),label:'隔离错误提示样式',path:'/isolated-ui-error',pending:false,error:'【仅测 UI】请核对输入资料。',at:Date.now()}})));await page.locator('.operation-error').waitFor();await scan('operation-error','.page-operations',true);await controlStates('operation-recover','.operation-recover','.page-operations');
+  // Isolated task events test the one shared dialog; no legacy floating card remains.
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-success',route:location.hash.slice(1),label:'隔离生成完成提示样式',path:'/isolated-ui-generate',pending:false,at:Date.now()}})));
+  await page.getByRole('button',{name:'当前任务',exact:true}).click();await page.locator('.task-center[open]').waitFor();await scan('task-center-complete','.task-center',true);
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('operation',{detail:{id:'isolated-ui-error',route:location.hash.slice(1),label:'隔离错误提示样式',path:'/isolated-ui-error',pending:false,error:'【仅测 UI】请核对输入资料。',at:Date.now()}})));
+  await page.locator('.task-center-list button').filter({hasText:'隔离错误提示样式'}).click();await scan('task-center-error','.task-center',true);await controlStates('task-center-return','.task-center-task-footer button','.task-center');
+  await page.getByRole('button',{name:'关闭任务进度',exact:true}).click();assert.equal(await page.locator('.page-operations').count(),0);
   await go('knowledge/issues/'+ids.issue,'.candidate-notice');await scan('knowledge-issue','.knowledge-page',true);await page.getByRole('button',{name:'审阅并保存',exact:true}).click();await page.locator('.modal').waitFor();await scan('knowledge-review-modal','.modal',true);await page.getByRole('button',{name:'关闭',exact:true}).click();
   await go('studio/assets','.st-asset-card');await scan('assets-default','.studio-v2',true);await controlStates('assets-upload','.st-section-head label.st-primary','.studio-v2');await page.getByRole('textbox',{name:'搜索资源'}).fill('隔离');await scan('assets-filter-value','.studio-v2');
   await go('task/'+ids.writing,'.wa-rich-editor');await scan('writing-paper-and-chrome','.aw-results',true);

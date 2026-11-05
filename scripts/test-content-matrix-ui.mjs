@@ -23,6 +23,8 @@ try{
  const flow=await api('/studio/flow',{new:true,version:0,brief:'核对家用梯井道尺寸',stage:1,topic_id:topic.id,profile_id:profile.id});
  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH||'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',args:['--disable-gpu']});
  page=await browser.newPage({viewport:{width:1500,height:1050}});page.setDefaultTimeout(18000);
+ // Task-center behavior has dedicated tests; close its optional progress view to continue canvas acceptance.
+ await page.addLocatorHandler(page.getByRole('dialog',{name:'当前任务',exact:true}),async()=>{await page.getByRole('button',{name:'关闭任务进度',exact:true}).click()});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort());
  await page.addInitScript(value=>sessionStorage.setItem('tijian-session',value),token);

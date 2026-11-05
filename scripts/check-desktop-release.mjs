@@ -19,6 +19,8 @@ try{
  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);
  const view=browser.contexts().flatMap(context=>context.pages()).find(candidate=>candidate.url().startsWith('http://127.0.0.1:'));
  if(!view)throw Error('Packaged browser page unavailable');debugView=view;
+ const optionalTaskCenter=view.getByRole('dialog',{name:'当前任务',exact:true});
+ await view.addLocatorHandler(optionalTaskCenter,async()=>{await view.getByRole('button',{name:'关闭任务进度',exact:true}).click()});
  const cdp=await view.context().newCDPSession(view);
  const call=async(method,params={})=>{let timer;try{return await Promise.race([cdp.send(method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(phase+': '+method+' timeout')),45000)})])}finally{clearTimeout(timer)}};
  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
@@ -238,6 +240,23 @@ try{
  await view.setViewportSize({width:1500,height:1050});
  console.log('Verified actual packaged single article canvas and persistence; matrix runs are isolated display fixtures; paid requests: 0');
 
+ phase='task center and image styles';
+ await view.removeLocatorHandler(optionalTaskCenter);
+ await articleRail.getByLabel('画面风格',{exact:true}).waitFor();
+ if(await articleRail.getByLabel('画面风格',{exact:true}).locator('option').count()!==8)throw Error('Expected eight packaged article style options');
+ await view.getByRole('button',{name:'当前任务',exact:true}).click();
+ const taskCenter=view.getByRole('dialog',{name:'当前任务',exact:true});
+ await taskCenter.waitFor();
+ if(await view.locator('.page-operations').count())throw Error('Legacy floating operation panels remain');
+ await view.screenshot({path:path.join(dir,'task-center.png')});
+ await taskCenter.getByRole('button',{name:'关闭任务进度',exact:true}).click();
+ await taskCenter.waitFor({state:'detached'});
+ await view.getByRole('button',{name:'当前任务',exact:true}).click();
+ await taskCenter.waitFor();
+ await view.keyboard.press('Escape');
+ await taskCenter.waitFor({state:'detached'});
+ console.log('Verified actual packaged task center close/reopen and built-in image style selector; no generation requested');
+
  phase='publication accounts';
  await view.getByLabel('内容矩阵步骤').getByRole('link',{name:'发布与账号'}).click();
   await view.getByRole('button',{name:'账号管理',exact:true}).click();
@@ -245,6 +264,14 @@ try{
  await view.getByRole('button',{name:'官网 / 品牌博客',exact:true}).click();
  await view.getByRole('region',{name:'官网 / 品牌博客连接'}).getByText('待配置连接').waitFor();
  await view.screenshot({path:path.join(dir,'publish-accounts.png')});
+ await view.getByLabel('发布参数获取指南',{exact:true}).waitFor();
+ if(await view.getByRole('region',{name:'官网 / 品牌博客连接'}).locator('pre,code').count())throw Error('Technical protocol or JSON remains in account settings');
+ await view.getByRole('button',{name:'小红书',exact:true}).click();
+ const publishGuide=view.getByLabel('发布参数获取指南',{exact:true});
+ await publishGuide.getByRole('link',{name:/小红书创作服务平台/}).waitFor();
+ if(!(await publishGuide.innerText()).includes('发布服务商'))throw Error('Publishing credential source is not explained');
+ await view.screenshot({path:path.join(dir,'publish-guide.png')});
+
  phase='OAIREGBOX admin';
  await view.goto(new URL('/admin.html',view.url()).href);
  await view.getByRole('button',{name:'视频、图片与数字人模型',exact:true}).click();
@@ -255,7 +282,7 @@ try{
  await view.locator('.mr-list article').first().getByRole('button',{name:'功能',exact:true}).click();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'文生视频'}).waitFor();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'图生视频'}).waitFor();
- const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,article_single_canvas:true,article_real_save:true,matrix_collapsible_navigation:true,article_matrix_runs_fixture:true,article_canvas_paid_requests:canvasPaidRequests,isolated_data:true,api_settings:true,homepage_blank_chat:true};
+ const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,article_single_canvas:true,article_real_save:true,matrix_collapsible_navigation:true,article_matrix_runs_fixture:true,article_canvas_paid_requests:canvasPaidRequests,unified_task_center:true,publish_parameter_guidance:true,image_style_templates:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
  fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify(result));
  console.log(JSON.stringify({...result,dir}));
  await call('Browser.close').catch(()=>{});

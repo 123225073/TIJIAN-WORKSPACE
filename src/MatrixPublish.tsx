@@ -3,6 +3,7 @@ import {api} from './api';
 import AssetPicker,{AssetThumbnail} from './AssetPicker';
 import {mediaKind,type Asset} from './ResourcePreview';
 import WechatPublishPanel from './WechatPublishPanel';
+import {GatewayConnectionGuide} from './PublishConnectionGuide';
 
 type Props={flowId:string;platform:string;contentId:string;contentVersion:number;dirty?:boolean};
 const labels:Record<string,string>={website:'官网 / 品牌博客',wechat:'微信公众号',xiaohongshu:'小红书',zhihu:'知乎',baijiahao:'百家号',toutiao:'今日头条',jianshu:'简书',sohu:'搜狐号'};
@@ -56,18 +57,17 @@ function GatewayPublish({flowId,platform,contentId,contentVersion,dirty,accounts
   <div className="wp-heading"><div><h3>{labels[platform]}{accountsOnly?'连接':'发布'}</h3><p>{!accountsOnly&&`已保存文稿 v${contentVersion} · `}{!loaded?'正在读取连接':configured?(enabled?'已保存并启用':'已停用'):'待配置连接'}</p></div>{!accountsOnly&&<div className="matrix-publish-actions"><a href={accountsHref}>管理发布账号</a><button type="button" className="st-primary" disabled={busy||!!dirty||!configured||!enabled||connectionChanged||!!receipt} onClick={dispatch}>提交发布</button></div>}</div>
   {dirty&&<p role="status">请先保存当前修改。</p>}
   {accountsOnly&&<div className="wp-settings matrix-account-form">
-   <p>{platform==='website'?'填写你的网站 CMS 或发布服务提供的 HTTPS 接口。不同官网可配置各自的地址。':'填写已经授权此平台账号的发布服务接口。具体账号和发布权限在该服务中管理。'}</p>
+   <GatewayConnectionGuide platform={platform} mode={mode} endpoint={endpoint}/>
    <form onSubmit={e=>{e.preventDefault();setNotice('');void action(async()=>{const token=secret.current?.value;const value=await api(base+'/config',{platform,endpoint,...(token?{token}:{}),enabled,mode,...(mode==='wordpress'?{username}:{})});setConfigured(!!value.configured);setRevision(value.revision);setEndpoint(value.endpoint);setUsername(value.username||'');setSavedConnection(JSON.stringify([value.endpoint,value.enabled!==false,value.mode||'gateway',value.username||'']));if(secret.current)secret.current.value='';setNotice('连接设置已保存')})}}>
     <fieldset className="matrix-publish-config" disabled={busy||!loaded}>
     {platform==='website'&&<label>接入方式<select value={mode} onChange={e=>setMode(e.target.value==='wordpress'?'wordpress':'gateway')}><option value="gateway">自定义 HTTPS 发布接口</option><option value="wordpress">WordPress 官网</option></select></label>}
-    <label>{mode==='wordpress'?'WordPress 网站地址':'HTTPS 发布地址'}<input type="url" required value={endpoint} onChange={e=>setEndpoint(e.target.value)}/></label>
-    {mode==='wordpress'&&<label>WordPress 用户名<input required value={username} onChange={e=>setUsername(e.target.value)}/></label>}
-    <label>{mode==='wordpress'?'WordPress 应用程序密码':'访问令牌'}<input type="password" ref={secret} autoComplete="new-password" placeholder={configured?'留空保留已保存的凭据':'输入发布凭据'}/></label>
+    <label>{mode==='wordpress'?'WordPress 网站地址':'HTTPS 发布地址'}<input aria-label={mode==='wordpress'?'WordPress 网站地址':'HTTPS 发布地址'} type="url" required value={endpoint} onChange={e=>setEndpoint(e.target.value)}/><small className="publish-field-hint">{mode==='wordpress'?'填写你自己的 HTTPS 网站地址。':'复制发布服务商提供的完整发文地址，不是平台官网或创作中心地址。'}</small></label>
+    {mode==='wordpress'&&<label>WordPress 用户名<input aria-label="WordPress 用户名" required value={username} onChange={e=>setUsername(e.target.value)}/><small className="publish-field-hint">来自网站后台「用户 → 个人资料 → 用户名」。</small></label>}
+    <label>{mode==='wordpress'?'WordPress 应用程序密码':'访问令牌'}<input aria-label={mode==='wordpress'?'WordPress 应用程序密码':'访问令牌'} type="password" ref={secret} autoComplete="new-password" placeholder={configured?'留空保留已保存的凭据':'输入发布凭据'}/><small className="publish-field-hint">{mode==='wordpress'?'来自该用户个人资料中的「应用程序密码」，请勿填写网页登录密码。':'来自同一发布服务商，与上方地址配套；已保存后不会回显。'}</small></label>
     <label className="matrix-publish-checkbox"><input type="checkbox" checked={enabled} onChange={e=>setEnabled(e.target.checked)}/>启用连接</label>
     <button type="submit">保存连接</button>
     </fieldset>
    </form>
-   {mode==='wordpress'?<p>在 WordPress 用户资料中创建应用程序密码。账号需要上传媒体和发布文章的权限。</p>:<details><summary>官网 / 发布服务接入格式</summary><p>HTTPS POST，Bearer 令牌。请求包含 platform、title、body、html、summary、content_version 和 attachments。图片在 HTML 中用 cid:图片编号引用，附件提供 Base64。请求头 Idempotency-Key 用于去重。</p><pre>{'{ "status": "published", "id": "article-123", "url": "https://example.com/article-123" }'}</pre><p>处理中可返回 accepted，建立草稿可返回 draft。</p></details>}
   </div>}
   {receipt&&<p role="status">{stateLabel[receipt.status]||'请到发布服务核对结果'}{link&&<> · <a href={link} target="_blank" rel="noreferrer">查看结果 ↗</a></>}</p>}
   {!accountsOnly&&(receipt?.status==='sending'||error)&&<button type="button" disabled={busy} onClick={()=>void action(readReceipt)}>刷新发布记录</button>}

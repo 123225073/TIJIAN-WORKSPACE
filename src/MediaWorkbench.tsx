@@ -4,6 +4,8 @@ import {api} from './api';
 import {sendKey} from './inputKeys';
 import {AssetThumbnail,StudioModal} from './AssetPicker';
 import MediaReferences from './MediaReferences';
+import ImageStylePicker from './ImageStylePicker';
+import {imageStyleInput} from './picture-styles';
 import VideoSettings from './VideoSettings';
 import VideoPromptLibrary from './VideoPromptLibrary';
 import RunFailureActions from './RunFailureActions';
@@ -102,6 +104,7 @@ export default function MediaWorkbench(p:any){
   {optError&&<p className="mw-error" role="alert">{optError}</p>}{candidate&&<button onClick={()=>setModal('candidate')}>查看优化版本</button>}
   <small className="mw-shortcut">{draft.tool==='image_edit'?'区域修改说明在右侧逐条保存':'Enter 继续 · Ctrl+Enter 换行'}</small>
  </section>
+ {imageTool&&<ImageStylePicker value={draft.inputs.image_style?.id} disabled={busy} onChange={id=>update({image_style:imageStyleInput(id)})}/>}
  {draft.tool==='text_image'&&<MediaReferences draft={draft} model={selectedModel?.reference_limits?.image?selectedModel:p.imageReferenceModel||{reference_limits:{image:0}}} assets={assets} update={(values:any)=>p.onImageReferences(values.image_ids||[])} reload={p.reloadAssets} busy={busy}/>}
 
  {video&&<VideoSettings draft={draft} model={selectedModel} assets={assets} assetsHref={p.assetsHref}

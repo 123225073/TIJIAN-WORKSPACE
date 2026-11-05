@@ -7,6 +7,11 @@ export const hasToken=()=>!!token;
 export const getToken=()=>token;
 export const setToken=(value:string)=>{token=value;sessionStorage.setItem(sessionKey,value);if(!value&&!adminSession)void (window as any).tijianDesktop?.rememberLogin({action:'clear'}).catch(()=>{});};
 const operationLabel=(path:string)=>{
+ if(path.includes('/article-illustration-prompt'))return '构思文章配图';
+ if(path.includes('/article-illustrations'))return '生成文章配图';
+ if(path==='/studio/generate')return '生成媒体作品';
+ if(path.includes('/studio/text/generate'))return '撰写文章';
+ if(path.includes('/matrix')&&path.includes('generate'))return '创作平台文稿';
  if(path.includes('/topics/generate'))return '生成选题建议';
  if(path.includes('/deliveries/')&&path.endsWith('/generate'))return '生成平台交付稿';
  if(path.endsWith('/studio/deliveries'))return '创建平台交付稿';
@@ -60,7 +65,7 @@ async function request<T>(path:string,body?:any,method?:string):Promise<T>{
   const r=await fetch('/api'+path,{method:verb,headers:{Authorization:'Bearer '+requestToken,...(body instanceof FormData?{}:{'Content-Type':'application/json'})},body:body?body instanceof FormData?body:JSON.stringify(body):undefined});
   if(!r.ok){const d=await r.json().catch(()=>({}));if(r.status===401&&requestToken===token){setToken('');window.dispatchEvent(new Event('session-expired'));}const failure=new Error(typeof d.detail==='string'?d.detail:Array.isArray(d.detail)?d.detail.map((x:any)=>String(x.loc?.at(-1)||'输入')+'：'+(x.type==='string_too_short'?'长度不足，请按字段要求填写':x.msg)).join('；'):'请求失败，请检查输入') as Error&{status:number};failure.status=r.status;throw failure;}
   const result=await r.json();
-  if(tracked&&requestToken===token)operation({id,route,label,path,pending:false,...(result?.kind==='job'?{job:result}:{})});
+  if(tracked&&requestToken===token)operation({id,route,label,path,pending:false,...(result?.kind==='job'?{job:result}:result?.kind==='studio_run'?{run:result}:result?.run?.kind==='studio_run'?{run:result.run}:{})});
   return result;
  }catch(e){if(tracked&&requestToken===token)operation({id,route,label,path,pending:false,error:e instanceof Error?e.message:'操作失败'});throw e;}
 }

@@ -1,10 +1,10 @@
 import {api,getToken} from './api';
 import {imagePlan} from './image-parameters';
 import {readerArticleText} from './wechat-rich';
-import {pictureStyles,socialStyles} from './picture-styles';
+import {imageStyleTemplates,pictureStyleById,socialStyles} from './picture-styles';
 
 type Slot={index:number;status:string;request_id:string;prompt?:string;job_id?:string;draft_id?:string;version?:number;run_id?:string;asset_id?:string;error?:string;attempt:number};
-export type SocialBatch={id:string;owner:string;content_id:string;flow_id:string;body:string;title:string;brand_id:string;profile_id:string;ratio:string;actual_ratio?:string;parameter_notice?:string;style:string;purpose?:'article'|'social';model_id:string;options:any;slots:Slot[];attached:string[]};
+export type SocialBatch={id:string;owner:string;content_id:string;flow_id:string;body:string;title:string;brand_id:string;profile_id:string;ratio:string;actual_ratio?:string;parameter_notice?:string;style:string;style_prompt?:string;purpose?:'article'|'social';model_id:string;options:any;slots:Slot[];attached:string[]};
 type Session={owner:string;token:string};
 export const socialBatchKey=(owner:string,id:string)=>'social-picture-batch:'+owner+':'+id;
 export const readSocialBatch=(key:string):SocialBatch|null=>JSON.parse(localStorage.getItem(key)||'null');
@@ -22,22 +22,22 @@ export async function startSocialBatch(key:string,content:any,ratio:string,count
  const body=readerArticleText(String(content.body||content.text||'')).trim();if(!body)throw Error('请先填写文案正文，再生成配图。');
  if(body.length>30000)throw Error('正文超过 30000 字符，请先精简配图依据。');
  if(!['3:4','1:1','4:3','9:16','16:9'].includes(ratio)||![1,2,3,4,6,9].includes(count))throw Error('请选择有效的尺寸和数量。');
- const style=(purpose==='article'?pictureStyles:socialStyles).find(s=>s.id===styleId);if(!style)throw Error('请选择配图风格。');
+ const style=(purpose==='article'?imageStyleTemplates:socialStyles).find(s=>s.id===styleId);if(!style)throw Error('请选择配图风格。');
  const catalog=await api('/studio/catalog');check(key,session);
  const tool=catalog.tools?.find((t:any)=>t.id==='text_image'),model=tool?.models?.find((m:any)=>m.id===tool.binding&&m.configured);
  if(!model||tool.enabled===false)throw Error('请先在设置中配置默认生图模型。');
  const plan=imagePlan(model.options||{},{requested_ratio:ratio});
- const batch:SocialBatch={id:crypto.randomUUID(),owner:session.owner,content_id:content.id,flow_id:content.flow_id||'',body,title:content.title||'文案配图',brand_id:content.brand_id||'',profile_id:content.profile_id||'',ratio,actual_ratio:plan.actual||'模型默认',parameter_notice:plan.notice,style:styleId,...(purpose==='article'?{purpose}:{}),model_id:model.id,options:plan.options,slots:Array.from({length:count},(_,index)=>({index,status:'new',request_id:crypto.randomUUID(),attempt:1})),attached:[]};
+ const batch:SocialBatch={id:crypto.randomUUID(),owner:session.owner,content_id:content.id,flow_id:content.flow_id||'',body,title:content.title||'文案配图',brand_id:content.brand_id||'',profile_id:content.profile_id||'',ratio,actual_ratio:plan.actual||'模型默认',parameter_notice:plan.notice,style:styleId,style_prompt:style.prompt,...(purpose==='article'?{purpose}:{}),model_id:model.id,options:plan.options,slots:Array.from({length:count},(_,index)=>({index,status:'new',request_id:crypto.randomUUID(),attempt:1})),attached:[]};
  write(key,batch);return batch;
 })}
 const draftsPath=(b:SocialBatch)=>b.flow_id?'/studio/flows/'+encodeURIComponent(b.flow_id)+'/drafts':'/studio/drafts';
 const title=(b:SocialBatch,s:Slot)=>`独立配图 ${b.id} ${s.index+1} ${s.attempt}`;
-const batchStylePrompt=(b:SocialBatch)=>b.purpose==='article'&&b.style==='industry'?'清爽专业的电梯行业插画：米白背景、墨绿主色和少量暖金色重点，设备结构与人物动作合理，构图克制，主体清楚，适合公众号或品牌文章。':b.purpose==='article'?(pictureStyles.find(s=>s.id===b.style)||pictureStyles[0]).prompt:(socialStyles.find(s=>s.id===b.style)||socialStyles[0]).prompt;
+const batchStylePrompt=(b:SocialBatch)=>b.style_prompt||(b.purpose==='article'?pictureStyleById(b.style).prompt:(socialStyles.find(s=>s.id===b.style)||socialStyles[0]).prompt);
 export function socialPicturePrompt(b:SocialBatch,index:number){
  if(b.purpose==='article'){
   const count=b.slots.length;
   const role=count===1?'用一个清晰的行业场景概括文章最核心的观点。':index===0?'文章开篇配图：用一个真实可理解的行业场景呈现读者关心的问题。':index===count-1?'文章结尾配图：以不同于开篇的构图呈现文章结论或可执行的下一步。':`正文第 ${index} 幅配图：按照全文顺序选择一个不同重点，用人物动作、设备关系、流程或对照场景说明。`;
-  return `为这篇电梯行业文章制作 ${count} 幅配图中的第 ${index+1} 幅。${role}\n${batchStylePrompt(b)}\n整组沿用文章已有插画的色彩与笔触；若没有已有插图，以米白、墨绿和少量暖金色形成清爽专业的行业插画。先理解全文，再为当前图片选择与正文相关的一个清晰主题，避免每张重复封面。画面有明确主体、自然的空间关系、舒适留白和鲜明的层次；适合嵌入公众号或品牌文章，避免海报式大字、密集小字及装饰性伪文字。设备结构和施工动作应合理；没有资料支持时不画具体品牌、价格、数字、资质、项目证据或技术结论。生成示意图不能冒充真实项目照片。只返回不超过1200字的具体画面提示词。`;
+  return `为这篇电梯行业文章制作 ${count} 幅配图中的第 ${index+1} 幅。${role}\n${batchStylePrompt(b)}\n整组使用上述风格并保持统一色板、材质和笔触。先理解全文，再为当前图片选择与正文相关的一个清晰主题，避免每张重复封面。画面有明确主体、自然的空间关系、舒适留白和鲜明的层次；适合嵌入公众号或品牌文章，避免海报式大字、密集小字及装饰性伪文字。设备结构和施工动作应合理；没有资料支持时不画具体品牌、价格、数字、资质、项目证据或技术结论。生成示意图不能冒充真实项目照片。只返回不超过1200字的具体画面提示词。`;
  }
  const style=socialStyles.find(s=>s.id===b.style)||socialStyles[0];
  const count=b.slots.length;
