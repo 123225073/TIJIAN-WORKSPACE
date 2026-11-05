@@ -107,7 +107,7 @@ export default function ContentMatrix({flowId,topicId,topicTitle,view,editor,cha
  const latest=(id:string)=>runs.find(run=>run.platform===id&&run.content_id&&run.status==='done');
  const publicationItems=selected.flatMap(item=>{const run=latest(item.id);return run?.content_id&&run.content_version?[{platform:item.id,content_id:run.content_id,content_version:run.content_version}]:[]});
  if(!flowId||!topicId)return <p className="cf-step-body">先在「IP 与选题」中确定主题。</p>;
- return <div className={'cf-matrix'+(editor?' cf-matrix-embedded':'')}>
+ return <div className={'cf-matrix matrix-view-'+view+(editor?' cf-matrix-embedded':'')}>
   {error&&<p className="cf-error" role="alert">{error}<button onClick={()=>void perform(()=>read())}>重新读取</button></p>}
   {conflict&&<section className="matrix-master-conflict" role="alert"><strong>母版已在其他窗口更新，本机修改仍然保留。</strong><p>选择要继续使用的版本；另一份将保存在本机恢复记录中。</p><button onClick={()=>reconcile(false)}>采用服务器稿</button><button onClick={()=>reconcile(true)}>保留本机稿，继续编辑</button></section>}
   {!master||!changes?<p role="status">正在读取文稿…</p>:view==='master'&&!editor?<>

@@ -102,3 +102,29 @@
 .matrix-master-recovery{font-size:13px;color:var(--cf-muted)}
 .matrix-master-recovery pre{white-space:pre-wrap;line-height:1.8;padding:14px;max-height:350px;overflow:auto}
 .matrix-writing-status button{margin-left:12px}
+
+/* The navigation stays available without taking space from the article. */
+.studio-nav-item .matrix-nav-chevron{margin-left:auto;flex:none;opacity:.75}
+.cf-document-page>.cf-workspace>.cf-detail>.cf-detail-top{display:none}
+.cf-document-page>.cf-head{gap:4px 18px;padding-bottom:10px}
+.cf-document-page>.cf-head .cf-title h1{font-size:26px;line-height:1.35}
+.cf-document-page>.cf-head .cf-overview{font-size:12px;gap:16px}
+.cf-document-page>.cf-head .cf-work-controls :is(select,button){min-height:36px;padding-block:7px}
+.cf-document-page .cf-matrix{gap:16px;padding:20px}
+.matrix-view-master>.matrix-document-header,.matrix-view-master>.cf-matrix-actions,.matrix-view-master>.matrix-master-recovery{width:min(100%,920px);margin-inline:auto;box-sizing:border-box}
+.matrix-view-master>.matrix-document-header{align-items:center}
+.matrix-view-master>.matrix-document-header h2{font-size:17px;margin-bottom:3px;font-weight:600}
+.matrix-view-master>.matrix-document-header p{font-size:12px}
+.matrix-master-paper{box-sizing:border-box;width:min(100%,920px);margin-inline:auto;padding:42px 54px;border-radius:8px;background:#fcfbf7;box-shadow:0 3px 14px #050a1017;min-height:420px}
+.ts-theme .shell .cf-matrix .matrix-master-paper>.markdown{overflow:visible;max-height:none;height:auto}
+.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor){width:100%;max-width:none;box-sizing:border-box;overflow:visible;height:auto;line-height:1.9;font-size:16px;font-weight:400}
+.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor) h1{font-size:27px;line-height:1.5;margin:0 0 26px;letter-spacing:-.02em}
+.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor) h2{font-size:21px;line-height:1.5;margin:30px 0 14px;padding-left:12px;border-left:3px solid #33816d}
+.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor) h3{font-size:18px;margin:24px 0 12px}
+.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor) p{margin:0 0 18px;line-height:1.9;font-weight:400}
+.matrix-view-master>.cf-matrix-actions{font-size:12px;padding-top:0}
+.matrix-platform-document>header{padding:10px 16px;background:transparent}
+.matrix-platform-document>header h3{font-size:15px}
+.matrix-platform-document>header button{font-size:12px;padding:7px 10px}
+@media(max-width:900px){.cf-document-page .cf-matrix{padding:14px}.matrix-master-paper{padding:30px}.matrix-view-master>.matrix-document-header{align-items:flex-start}}
+@media(max-width:600px){.matrix-master-paper{padding:24px 18px}.cf-document-page>.cf-head .cf-title h1{font-size:23px}.matrix-view-master>.matrix-document-header{flex-direction:column}.ts-theme .shell .cf-matrix .matrix-master-paper :is(.markdown,.wa-rich-editor) h1{font-size:23px}}

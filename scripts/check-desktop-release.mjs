@@ -11,14 +11,14 @@ const product=JSON.parse(fs.readFileSync('package.json','utf8')).build.productNa
 const exe=process.env.TIJIAN_CHECK_EXE?path.resolve(process.env.TIJIAN_CHECK_EXE):path.resolve('release',version,'win-unpacked',product+'.exe');
 const child=spawn(exe,['--enable-logging=stderr','--remote-debugging-address=127.0.0.1','--remote-debugging-port='+port],{windowsHide:true,stdio:['ignore','ignore','pipe'],env:{...process.env,TIJIAN_DESKTOP_DATA:dir}});
 const desktopLog=fs.createWriteStream(path.join(dir,'electron.log'));child.stderr.pipe(desktopLog);
-let exited=false;child.once('exit',()=>exited=true);let phase='startup';
+let exited=false;child.once('exit',()=>exited=true);let phase='startup';let debugView;
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 try{
  let page;for(let i=0;i<150;i++){if(exited)throw Error('Desktop exited before loading');try{const pages=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();page=pages.find(x=>x.type==='page'&&x.url.startsWith('http://127.0.0.1:'));if(page)break}catch{}await pause(200)}
  if(!page)throw Error('Desktop renderer not ready');
  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);
  const view=browser.contexts().flatMap(context=>context.pages()).find(candidate=>candidate.url().startsWith('http://127.0.0.1:'));
- if(!view)throw Error('Packaged browser page unavailable');
+ if(!view)throw Error('Packaged browser page unavailable');debugView=view;
  const cdp=await view.context().newCDPSession(view);
  const call=async(method,params={})=>{let timer;try{return await Promise.race([cdp.send(method,params),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error(phase+': '+method+' timeout')),45000)})])}finally{clearTimeout(timer)}};
  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value};
@@ -136,6 +136,108 @@ try{
  await view.getByRole('button',{name:'下一步，选择平台'}).click();
  await view.getByRole('checkbox',{name:/微信公众号/}).waitFor();
  await view.screenshot({path:path.join(dir,'content-matrix.png')});
+ phase='packaged single article canvas';
+ // Matrix runs are isolated display fixtures, never model-generated results.
+ // Articles and every edit/save below use the actual packaged backend.
+ const canvasFixture=await evaluate(`(async()=>{
+  const headers={Authorization:'Bearer '+sessionStorage.getItem('tijian-session'),'Content-Type':'application/json'};
+  const request=async(url,body,method)=>{const response=await fetch('/api'+url,{headers,method:method||(body?'POST':'GET'),body:body?JSON.stringify(body):undefined});if(!response.ok){const detail=await response.text();throw Error(url+' '+response.status+' '+detail.slice(0,1200))}return response.json()};
+  const flowId=new URLSearchParams(location.hash.split('?')[1]).get('work');
+  const current=await request('/studio/flows/'+flowId+'/matrix');
+  const master=await request('/studio/flows/'+flowId+'/matrix',{version:current.master.version,topic_id:current.master.topic_id,body:current.master.body,platforms:['wechat','zhihu']},'PUT');
+  const body='## 先核对现场条件\\n\\n安装包单画布验收文稿，仅用于隔离测试。先记录井道尺寸，再核对配置与服务边界。\\n\\n## 把责任范围写清楚\\n\\n请逐项核对现场记录、报价明细与双方确认的资料。';
+  const content=[];
+  for(const [platform,format,title] of [['wechat','公众号文章','安装包验收 · 公众号文章'],['zhihu','知乎回答','安装包验收 · 知乎文章']]){
+   const independent=await request('/objects/content',{title,format,body,topic_id:master.topic_id,creation_channel:platform});
+   const imported=await request('/studio/flows/'+flowId+'/imports',{field:'content_id',source_id:independent.id});
+   if(!imported.content?.id||imported.content.flow_id!==flowId)throw Error('Article fixture import did not establish actual flow ownership');
+   content.push(imported.content);
+  }
+  localStorage.removeItem('tijian-matrix:'+flowId+':'+master.topic_id);
+  return {flowId,topicId:master.topic_id,content,token:sessionStorage.getItem('tijian-session')};
+ })()`);
+ let canvasPaidRequests=0;
+ const paidCanvasPaths=new Set(['/api/studio/generate','/api/studio/text/article-illustration-prompt']);
+ const canvasRequestObserver=request=>{
+  const pathname=new URL(request.url()).pathname;
+  if(request.method()==='POST'&&(paidCanvasPaths.has(pathname)||/\/matrix\/(?:generate|write-master)$/.test(pathname)))canvasPaidRequests++;
+ };
+ view.on('request',canvasRequestObserver);
+ const fixtureMatrixPath='/api/studio/flows/'+canvasFixture.flowId+'/matrix';
+ const fixtureMatrixRoute=async route=>{
+  if(new URL(route.request().url()).pathname!==fixtureMatrixPath||route.request().method()!=='GET'){await route.continue();return}
+  const response=await route.fetch(),matrix=await response.json();
+  const owned=await view.request.get(new URL('/api/state/updates?ids='+canvasFixture.content.map(item=>item.id).join(','),view.url()).href,{headers:{Authorization:'Bearer '+canvasFixture.token}});
+  if(!owned.ok())throw Error('Cannot read real packaged article fixture objects');
+  const rows=(await owned.json()).items;
+  matrix.runs=canvasFixture.content.map((item,index)=>{
+   const content=rows.find(row=>row.id===item.id);if(!content)throw Error('Missing packaged article fixture');
+   return {id:'isolated-display-run-'+index,draft_id:'isolated-display-draft-'+index,status:'done',platform:item.creation_channel,master_version:matrix.master.version,content_id:content.id,content_version:content.version,content,title:content.title};
+  });
+  await route.fulfill({response,json:matrix});
+ };
+ await view.route('**/api/studio/flows/*/matrix',fixtureMatrixRoute);
+ await evaluate('location.hash='+JSON.stringify('studio/flow?work='+canvasFixture.flowId+'&step=4'));
+ await call('Page.reload');
+ const platformDocuments=view.getByLabel('平台文稿',{exact:true});
+ await platformDocuments.getByRole('button',{name:/微信公众号.*稿件已生成/}).waitFor({timeout:20000});
+ const canvas=view.locator('.article-editor.article-canvas');
+ const articleRail=canvas.locator('.article-image-rail');
+ await canvas.getByRole('textbox',{name:'公众号文章正文',exact:true}).waitFor();
+ await articleRail.getByRole('heading',{name:'文章配图',exact:true}).waitFor();
+ if(await canvas.locator('.md-body').count())throw Error('Packaged WeChat canvas exposed Markdown/source panes');
+ if(await canvas.locator('.article-title-conflict').count())throw Error('Ordinary first H2 was incorrectly treated as a duplicate article title');
+ await canvas.getByRole('tab',{name:'阅读预览',exact:true}).click();
+ await canvas.locator('iframe[title="公众号排版预览"]').waitFor();
+ if(await canvas.locator('.article-canvas-main [contenteditable=true]').count()||await canvas.locator('.article-canvas-main .article-visual-paper').count())throw Error('WeChat preview and editor are displayed together');
+ await canvas.getByRole('tab',{name:'编辑文章',exact:true}).click();
+ await canvas.getByRole('textbox',{name:'公众号文章正文',exact:true}).waitFor();
+ await view.screenshot({path:path.join(dir,'article-wechat-canvas.png')});
+ await platformDocuments.getByRole('button',{name:/知乎.*稿件已生成/}).click();
+ const zhihuCanvas=canvas.getByRole('textbox',{name:'文章正文',exact:true});
+ await zhihuCanvas.waitFor();
+ if(await canvas.locator('.md-body').count()||await canvas.locator('.article-canvas-main .article-rich-editor').count()!==1)throw Error('Packaged non-WeChat matrix page must contain exactly one visible article canvas');
+ const editedCanvasText='安装包真实保存验收：先核对现场条件，再核对服务范围。';
+ await zhihuCanvas.fill(editedCanvasText);
+ await canvas.getByRole('tab',{name:'阅读预览',exact:true}).click();
+ if(await canvas.locator('.article-canvas-main [contenteditable=true]').count()||await canvas.locator('.article-canvas-main .article-rich-editor').count()!==1||await canvas.locator('.md-body').count())throw Error('Non-WeChat reading view is not exclusive');
+ await canvas.getByRole('tab',{name:'编辑文章',exact:true}).click();
+ if((await zhihuCanvas.innerText()).trim()!==editedCanvasText)throw Error('Switching article mode lost unsaved text');
+ const zhihuObject=canvasFixture.content.find(item=>item.creation_channel==='zhihu');
+ const savedCanvasResponse=view.waitForResponse(response=>new URL(response.url()).pathname==='/api/objects/'+zhihuObject.id&&response.request().method()==='PATCH');
+ await canvas.locator('.md-toolbar').getByRole('button',{name:'保存修改',exact:true}).click();
+ const canvasSave=await savedCanvasResponse;if(!canvasSave.ok())throw Error('Actual packaged article save failed');
+ const actualSavedCanvas=await canvasSave.json();
+ const submittedCanvasBody=canvasSave.request().postDataJSON().body;
+ if(typeof submittedCanvasBody!=='string'||submittedCanvasBody.replace(/^#{1,6}\s*/gm,'').trim()!==editedCanvasText)throw Error('Article save did not submit the edited visible text');
+ const persistedCanvas=await evaluate("(async()=>{const response=await fetch('/api/state/updates?ids="+zhihuObject.id+"',{headers:{Authorization:'Bearer '+sessionStorage.getItem('tijian-session')}});if(!response.ok)throw Error('Packaged article reread failed');return (await response.json()).items.find(item=>item.id==='"+zhihuObject.id+"')})()");
+ if(persistedCanvas?.body!==submittedCanvasBody||persistedCanvas.version!==actualSavedCanvas.version)throw Error('Real packaged Zhihu content did not persist the exact submitted Markdown and version');
+ const matrixMenu=view.getByRole('button',{name:'内容矩阵',exact:true});
+ const sidebarSteps=view.getByLabel('内容矩阵步骤');
+ const canvasRoute=view.url();
+ await matrixMenu.click();
+ if(await sidebarSteps.count()||view.url()!==canvasRoute)throw Error('Matrix menu must collapse without changing the current work');
+ await call('Page.reload');
+ await platformDocuments.getByRole('button',{name:/知乎.*稿件已生成/}).waitFor({timeout:20000});
+ if(await sidebarSteps.count())throw Error('Collapsed matrix navigation did not survive reload');
+ await matrixMenu.click();
+ if(await sidebarSteps.getByRole('link').count()!==5)throw Error('Matrix navigation did not expand its five steps');
+ await platformDocuments.getByRole('button',{name:/知乎.*稿件已生成/}).click();
+ await zhihuCanvas.waitFor();
+ if((await zhihuCanvas.innerText()).trim()!==editedCanvasText)throw Error('Saved packaged article did not survive reload');
+ for(const width of [1366,1920]){
+  await view.setViewportSize({width,height:1050});
+  const layout=await canvas.locator('.article-canvas-workspace').evaluate(node=>{const paper=node.querySelector('.article-canvas-main').getBoundingClientRect(),rail=node.querySelector('.article-canvas-images').getBoundingClientRect(),body=node.querySelector('.article-rich-editor');return {fits:node.scrollWidth<=node.clientWidth+1,separate:paper.right<=rail.left,noInnerScroll:body.scrollHeight<=body.clientHeight+1}});
+  if(!layout.fits||!layout.separate||!layout.noInnerScroll)throw Error('Packaged article canvas layout failed at '+width+'px: '+JSON.stringify(layout));
+  await articleRail.getByRole('button',{name:/生成 3 张配图/}).waitFor();
+  await view.screenshot({path:path.join(dir,'article-zhihu-canvas-'+width+'.png')});
+ }
+ if(canvasPaidRequests!==0)throw Error('Article canvas acceptance unexpectedly requested a paid operation');
+ view.off('request',canvasRequestObserver);
+ await view.unroute('**/api/studio/flows/*/matrix',fixtureMatrixRoute);
+ await view.setViewportSize({width:1500,height:1050});
+ console.log('Verified actual packaged single article canvas and persistence; matrix runs are isolated display fixtures; paid requests: 0');
+
  phase='publication accounts';
  await view.getByLabel('内容矩阵步骤').getByRole('link',{name:'发布与账号'}).click();
   await view.getByRole('button',{name:'账号管理',exact:true}).click();
@@ -153,10 +255,14 @@ try{
  await view.locator('.mr-list article').first().getByRole('button',{name:'功能',exact:true}).click();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'文生视频'}).waitFor();
  await view.getByRole('dialog',{name:'绑定前台功能'}).getByRole('checkbox',{name:'图生视频'}).waitFor();
- const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,isolated_data:true,api_settings:true,homepage_blank_chat:true};
+ const result={passed:true,version,actual_packaged_desktop:true,library_api:true,system_capabilities:true,h3_video:true,video_prompt_library:true,content_matrix:true,article_single_canvas:true,article_real_save:true,matrix_collapsible_navigation:true,article_matrix_runs_fixture:true,article_canvas_paid_requests:canvasPaidRequests,isolated_data:true,api_settings:true,homepage_blank_chat:true};
  fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify(result));
  console.log(JSON.stringify({...result,dir}));
  await call('Browser.close').catch(()=>{});
+}catch(error){
+ fs.writeFileSync(path.join(dir,'failure.json'),JSON.stringify({phase,error:String(error)}));
+ if(debugView)await debugView.screenshot({path:path.join(dir,'failure.png')}).catch(()=>{});
+ console.error('Packaged acceptance failed in '+phase+'; evidence: '+dir);throw error;
 }finally{
  for(let i=0;i<30&&!exited;i++)await pause(100);
  if(!exited){const stop=spawn('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});await new Promise(r=>stop.once('exit',r))}
