@@ -146,10 +146,10 @@ try{
   const request=async(url,body,method)=>{const response=await fetch('/api'+url,{headers,method:method||(body?'POST':'GET'),body:body?JSON.stringify(body):undefined});if(!response.ok){const detail=await response.text();throw Error(url+' '+response.status+' '+detail.slice(0,1200))}return response.json()};
   const flowId=new URLSearchParams(location.hash.split('?')[1]).get('work');
   const current=await request('/studio/flows/'+flowId+'/matrix');
-  const master=await request('/studio/flows/'+flowId+'/matrix',{version:current.master.version,topic_id:current.master.topic_id,body:current.master.body,platforms:['wechat','zhihu']},'PUT');
+  const master=await request('/studio/flows/'+flowId+'/matrix',{version:current.master.version,topic_id:current.master.topic_id,body:current.master.body,platforms:['wechat','zhihu','xiaohongshu']},'PUT');
   const body='## 先核对现场条件\\n\\n安装包单画布验收文稿，仅用于隔离测试。先记录井道尺寸，再核对配置与服务边界。\\n\\n## 把责任范围写清楚\\n\\n请逐项核对现场记录、报价明细与双方确认的资料。';
   const content=[];
-  for(const [platform,format,title] of [['wechat','公众号文章','安装包验收 · 公众号文章'],['zhihu','知乎回答','安装包验收 · 知乎文章']]){
+  for(const [platform,format,title] of [['wechat','公众号文章','安装包验收 · 公众号文章'],['zhihu','知乎回答','安装包验收 · 知乎文章'],['xiaohongshu','小红书文案','安装包验收 · 小红书文章']]){
    const independent=await request('/objects/content',{title,format,body,topic_id:master.topic_id,creation_channel:platform});
    const imported=await request('/studio/flows/'+flowId+'/imports',{field:'content_id',source_id:independent.id});
    if(!imported.content?.id||imported.content.flow_id!==flowId)throw Error('Article fixture import did not establish actual flow ownership');
@@ -234,6 +234,11 @@ try{
   await articleRail.getByRole('button',{name:/生成 3 张配图/}).waitFor();
   await view.screenshot({path:path.join(dir,'article-zhihu-canvas-'+width+'.png')});
  }
+ await platformDocuments.getByRole('button',{name:/小红书.*稿件已生成/}).click();
+ await articleRail.getByRole('heading',{name:'文章配图',exact:true}).waitFor();
+ if(await canvas.locator('.social-picture-panel').count()||await canvas.getByRole('button',{name:'一键配图',exact:true}).count())throw Error('Xiaohongshu retained the legacy picture panel');
+ if(await articleRail.getByRole('button',{name:'16:9 宽屏'}).getAttribute('aria-pressed')!=='true')throw Error('Xiaohongshu did not use unified image defaults');
+ await view.screenshot({path:path.join(dir,'article-xiaohongshu-unified.png')});
  if(canvasPaidRequests!==0)throw Error('Article canvas acceptance unexpectedly requested a paid operation');
  view.off('request',canvasRequestObserver);
  await view.unroute('**/api/studio/flows/*/matrix',fixtureMatrixRoute);

@@ -77,6 +77,7 @@ try{
  assert.equal((await api('/studio/flows/'+flow.id+'/matrix')).master.body.replace(/^# /,''),master);
  await page.getByRole('button',{name:'下一步，选择平台'}).click();
  await page.getByRole('checkbox',{name:/知乎/}).check();
+ await page.getByRole('checkbox',{name:/小红书/}).check();
  assert.equal(await page.getByLabel('平台文稿',{exact:true}).count(),0);
  await page.screenshot({path:path.join(data,'matrix-platform-selection.png'),fullPage:true});
  await page.getByRole('button',{name:'下一步，平台创作'}).click();
@@ -88,8 +89,8 @@ try{
  await platformTabs.getByRole('button',{name:/微信公众号.*稿件已生成/}).waitFor();
  await platformTabs.getByRole('button',{name:/知乎.*稿件已生成/}).waitFor();
  matrix=await api('/studio/flows/'+flow.id+'/matrix');
- assert.deepEqual(new Set(matrix.runs.map(run=>run.platform)),new Set(['wechat','zhihu']));
- assert.equal(new Set(matrix.runs.map(run=>run.content_id)).size,2);
+ assert.deepEqual(new Set(matrix.runs.map(run=>run.platform)),new Set(['wechat','zhihu','xiaohongshu']));
+ assert.equal(new Set(matrix.runs.map(run=>run.content_id)).size,3);
  assert.equal(matrix.master.body.replace(/^# /,''),master);
  await page.getByRole('textbox',{name:'公众号文章正文'}).waitFor();
  assert.equal(await page.locator('.md-body textarea').count(),0);
@@ -104,6 +105,24 @@ try{
  await page.getByRole('tab',{name:'编辑文章'}).click();
  await zhihu.getByText('保留未保存内容。',{exact:true}).waitFor();
  await page.screenshot({path:path.join(data,'matrix-zhihu-canvas.png'),fullPage:true});
+ await platformTabs.getByRole('button',{name:/小红书.*稿件已生成/}).click();
+ const xhsRail=page.locator('.article-image-rail');await xhsRail.waitFor();
+ assert.equal(await page.locator('.social-picture-panel').count(),0);
+ assert.equal(await page.getByRole('button',{name:'一键配图',exact:true}).count(),0);
+ assert.equal(await xhsRail.getByRole('button',{name:'16:9 宽屏'}).getAttribute('aria-pressed'),'true');
+ await xhsRail.locator('input[type=file]').setInputFiles(path.join(root,'public/visuals/elevator-atrium-v1.png'));
+ await xhsRail.getByRole('button',{name:'插入文末',exact:true}).waitFor();
+ assert.equal(await page.locator('.article-canvas-main .wa-image-chip img').count(),0);
+ await xhsRail.getByRole('button',{name:'一键插入文章',exact:true}).click();
+ await page.locator('.article-canvas-main .wa-image-chip img').waitFor();
+ await page.locator('.article-editor .md-toolbar').getByRole('button',{name:'保存修改',exact:true}).click();
+ await page.locator('.article-editor .md-toolbar').getByText(/已保存 v/).waitFor();
+ await page.reload();
+ await platformTabs.getByRole('button',{name:/小红书.*稿件已生成/}).click();
+ await page.locator('.article-canvas-main .wa-image-chip img').waitFor();
+ assert(await page.locator('.article-canvas-main .wa-image-chip img').evaluate(e=>e.naturalWidth>0));
+ await page.screenshot({path:path.join(data,'matrix-xiaohongshu-unified.png'),fullPage:true});
+
  await platformTabs.getByRole('button',{name:/微信公众号.*稿件已生成/}).click();
  await page.getByRole('region',{name:'发布当前平台稿件',exact:true}).getByRole('button',{name:'发布到微信公众号',exact:true}).waitFor();
  const rail=page.locator('.article-image-rail');
@@ -134,8 +153,8 @@ try{
  await paper.getByText(master,{exact:true}).waitFor();
  await sidebar.getByRole('link',{name:'发布与账号'}).click();
  await page.getByRole('button',{name:/一键发布全部就绪平台/}).waitFor();
- await page.waitForFunction(()=>document.querySelectorAll('.matrix-publication-row').length===2);
- assert.equal(await page.locator('.matrix-publication-row').count(),2);
+ await page.waitForFunction(()=>document.querySelectorAll('.matrix-publication-row').length===3);
+ assert.equal(await page.locator('.matrix-publication-row').count(),3);
  assert.equal(await page.locator('.matrix-publication-row button:enabled').count(),0);
  await page.screenshot({path:path.join(data,'matrix-publication.png'),fullPage:true});
  await page.getByRole('button',{name:'账号管理',exact:true}).click();
@@ -161,6 +180,6 @@ try{
  assert.equal(await gateway.getByLabel('访问令牌').inputValue(),'');
  await page.screenshot({path:path.join(data,'matrix-publish-accounts.png'),fullPage:true});
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({passed:true,fixture:data,checks:['equal section hierarchy','five sidebar steps','one streaming master','direct master save','separate platform selection and documents','two independent generations','individual and batch publication controls','WeChat visual proof','accounts persisted','reload']}));
+ console.log(JSON.stringify({passed:true,fixture:data,checks:['equal section hierarchy','five sidebar steps','one streaming master','direct master save','separate platform selection and documents','three independent platform generations','Xiaohongshu unified rail and optional insertion preserved on reload','individual and batch publication controls','WeChat visual proof','accounts persisted','reload']}));
 }catch(e){if(page)await page.screenshot({path:path.join(data,'failure.png'),fullPage:true}).catch(()=>{});console.error(logs);throw e}
 finally{backend.kill();await browser?.close()}

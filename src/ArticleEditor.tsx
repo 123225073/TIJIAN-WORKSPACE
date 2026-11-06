@@ -20,8 +20,8 @@ import {repairLegacySpeechTitle,speechFromContent} from './speech-helper';
 
 export default function ArticleEditor({asset,t,onSaveReady,matrixPublication=false,onSaved}:{asset:any;t:any;onSaveReady?:(save:(()=>Promise<any>)|null)=>void;matrixPublication?:boolean;onSaved?:()=>void}){
  const key='studio-content-edit:'+t.state.user.id+':'+asset.id;
- const wechat=['公众号文章','公众号'].includes(asset.format),social=['小红书文案','朋友圈文案'].includes(asset.format),oral=asset.format==='口播脚本';
- const richMode=wechat||matrixPublication;
+ const wechat=['公众号文章','公众号'].includes(asset.format),social=asset.format==='朋友圈文案',oral=asset.format==='口播脚本';
+ const richMode=wechat||matrixPublication||asset.format==='小红书文案';
  const draft=useArticleDraft({content:asset,key,fields:row=>({title:row.title??'',author:row.author??'',body:row.body??row.text??'',image_asset_ids:Array.isArray(row.image_asset_ids)?row.image_asset_ids:[],...(wechat?{wechat_style:{...defaultWechatStyle,template:'editorial',...row.wechat_style}}:{})}),path:'/objects/'+asset.id,refresh:async()=>{await t.refresh();onSaved?.()}});
  useEffect(()=>{onSaveReady?.(draft.save);return()=>onSaveReady?.(null)},[onSaveReady,draft.save]);
  const [titleRepaired,setTitleRepaired]=useState(false);

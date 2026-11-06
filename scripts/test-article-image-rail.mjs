@@ -79,6 +79,24 @@ try{
  await test('插入遇到保存冲突时不标记完成、不重复生成，图片和正文保留',async()=>{
   const {page,context,f}=await open();await page.getByRole('button',{name:'1 张',exact:true}).click();await page.getByRole('button',{name:'生成 1 张配图',exact:true}).click();await done(page);await page.getByRole('button',{name:'插入文末',exact:true}).waitFor();await page.evaluate(()=>window.failInsert=true);await page.getByRole('button',{name:'插入文末',exact:true}).click();await page.getByRole('alert').filter({hasText:'正文保存冲突'}).waitFor();assert.deepEqual(await page.evaluate(()=>window.insertions),[]);assert.equal(await page.evaluate(()=>window.originalBody),body);assert.deepEqual(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).attached,key),[]);assert.equal(await page.locator('.air-gallery article').count(),1);await page.evaluate(()=>window.failInsert=false);await page.getByRole('button',{name:'插入文末',exact:true}).click();assert.equal((await page.evaluate(()=>window.insertions)).length,1);assert.equal(f.runs.length,1);await context.close();
  });
+ await test('旧小红书批次在统一面板恢复，保留图片且不重复生成，新批次采用统一设置',async()=>{
+  const {page,context,f}=await open({running:true});
+  await page.getByRole('button',{name:'1 张',exact:true}).click();
+  await page.getByRole('button',{name:'生成 1 张配图',exact:true}).click();
+  await page.waitForFunction(key=>JSON.parse(localStorage.getItem(key)||'null')?.slots.every(s=>s.status==='running'),key);
+  const before=await page.evaluate(key=>{const b=JSON.parse(localStorage.getItem(key));delete b.purpose;b.style='photo';localStorage.setItem(key,JSON.stringify(b));return b},key);
+  await page.reload();await page.getByRole('button',{name:'生成中 · 0/1',exact:true}).waitFor();
+  assert.equal(f.runs.length,1);assert.equal(f.requests.filter(r=>r.p==='/studio/text/article-illustration-prompt').length,1);
+  assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).slots[0].request_id,key),before.slots[0].request_id);
+  f.running=false;await done(page);await page.locator('.air-gallery article').waitFor();
+  assert.equal(f.runs.length,1);assert.deepEqual(await page.evaluate(()=>window.insertions),[]);
+  await page.getByRole('button',{name:/^画面风格：/}).click();
+  await page.getByRole('dialog',{name:'看图，选择这次的画面风格',exact:true}).getByRole('button',{name:'自动匹配文章风格',exact:true}).click();
+  await page.getByRole('button',{name:'生成 1 张配图',exact:true}).click();await done(page);
+  await page.waitForFunction(()=>document.querySelectorAll('.air-gallery article').length===2);
+  assert.equal(f.runs.length,2);assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).purpose,key),'article');
+  assert.deepEqual(await page.evaluate(()=>window.insertions),[]);await context.close();
+ });
  await test('原社交提示词保持小红书卡片行为，文章分支没有污染旧流程',async()=>{
   const {page,context,f}=await open();const prompt=await page.evaluate(()=>window.socialPicturePrompt({body:'测试文章',slots:[{},{},{},{}],style:'cards'},0));assert(prompt.includes('为小红书制作一组 4 张图'));assert(prompt.includes('小红书现代知识卡片'));assert.equal(f.requests.filter(r=>r.method!=='GET').length,0);await context.close();
  });

@@ -2,7 +2,6 @@ import {useEffect,useRef,useState} from 'react';
 import {CheckCircle2,ImagePlus,LoaderCircle,RefreshCw,Sparkles,TriangleAlert} from 'lucide-react';
 import {api,getToken} from './api';
 import {advanceSocialBatch,readSocialBatch,socialBatchActive,socialBatchKey,startSocialBatch} from './social-picture-batch';
-import {socialStyles} from './picture-styles';
 import {readerArticleText} from './wechat-rich';
 import {batchBlocksSingle,batchKey} from './article-picture-batch';
 import './matrix-image-batch.css';
@@ -39,11 +38,11 @@ export default function MatrixImageBatch({flowId,topicId,targets,disabled=false}
      if(batch&&batch.id!==item.prior_batch_id)throw Error('此平台出现了另一组配图，请先打开核查；本次未重复生成。');
      if(!batch||(!socialBatchActive(batch)&&batch.id===item.prior_batch_id)){
       // Keep old article pictures visible before replacing the latest batch.
-      if(batch?.purpose==='article'){
+      if(batch){
        const historyKey='article-image-rail:'+session.owner+':'+item.content_id;
        const old=JSON.parse(localStorage.getItem(historyKey)||'[]');localStorage.setItem(historyKey,JSON.stringify([...new Set([...(Array.isArray(old)?old:[]),...batch.slots.flatMap(slot=>slot.asset_id?[slot.asset_id]:[])])]));
       }
-      batch=await startSocialBatch(batchKey,item.snapshot,'16:9',3,item.platform==='xiaohongshu'?(socialStyles.find(style=>style.id==='photo')||socialStyles[0]).id:'auto',session,item.platform==='xiaohongshu'?'social':'article');
+      batch=await startSocialBatch(batchKey,item.snapshot,'16:9',3,'auto',session,'article');
      }
      if(!batch)throw Error('配图任务尚未创建，请重新核查。');
      patch(item.content_id,{batch_id:batch.id,status:'running',total:batch.slots.length});

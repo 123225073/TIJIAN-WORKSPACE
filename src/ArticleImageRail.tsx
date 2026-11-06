@@ -34,11 +34,12 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,on
  const readAssets=async()=>{sameAccount();const result=await api('/studio/assets');sameAccount();if(mounted.current)setAssets((result.items||[]).filter((a:any)=>a.asset_type==='image'&&a.status==='ready'));};
  const sync=()=>{
   const next=readSocialBatch(key);if(mounted.current)setBatch(next);
-  if(next?.purpose==='article')remember(next.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]));
+  if(next)remember(next.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]));
  };
+ // Legacy social batches retain their frozen prompts and request IDs while using this unified panel.
  const pass=async(manual=false)=>{
   if(polling.current)return;
-  const current=readSocialBatch(key);if(!current||current.purpose!=='article'||(!manual&&!socialBatchActive(current)))return;
+  const current=readSocialBatch(key);if(!current||(!manual&&!socialBatchActive(current)))return;
   polling.current=true;if(manual&&mounted.current)setReading(true);
   try{
    sameAccount();await advanceSocialBatch(key,session);sameAccount();sync();
@@ -80,7 +81,7 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,on
  const insertAll=(smart:boolean)=>act(smart?'arrange':'insert-all',async()=>{
   const expected=live.current.getBody();
   const current=readSocialBatch(key);
-  const candidates=current?.purpose==='article'?current.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]):shown.map(a=>a.id).slice(0,12);
+  const candidates=current?current.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]):shown.map(a=>a.id).slice(0,12);
   const ids=[...new Set(candidates)].filter(id=>!expected.includes('/api/studio/assets/'+id+'/file'));
   if(!ids.length)throw Error('这组配图已在正文中，或尚未生成完成。');
   let placements=defaultImagePlacements(expected,ids);
@@ -103,12 +104,12 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,on
   await markSocialAttached(key,ids,session);sync();
   setFeedback(smart?'已按文章段落与配图主题插入。可在图片上使用上移、下移调整，请保存文章。':'已按前、中、后均匀插入。可在图片上调整位置，请保存文章。');
  });
- const active=batch?.purpose==='article'&&socialBatchActive(batch),finished=batch?.purpose==='article'?batch.slots.filter(s=>s.status==='succeeded').length:0;
- const failed=batch?.purpose==='article'?batch.slots.filter(s=>s.status==='failed'):[];
+ const active=socialBatchActive(batch),finished=batch?batch.slots.filter(s=>s.status==='succeeded').length:0;
+ const failed=batch?batch.slots.filter(s=>s.status==='failed'):[];
  const referenced=Array.from(live.current.getBody().matchAll(/\/api\/studio\/assets\/([a-f0-9]{32,64})\/file/g),m=>m[1]);
- const ids=[...new Set([...(batch?.purpose==='article'?batch.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]):[]),...history,...(content.image_asset_ids||[]),...referenced])];
+ const ids=[...new Set([...(batch?batch.slots.flatMap(s=>s.asset_id?[s.asset_id]:[]):[]),...history,...(content.image_asset_ids||[]),...referenced])];
  const shown=ids.map(id=>assets.find(a=>a.id===id)).filter(Boolean);
- const pending=batch?.purpose==='article'?batch.slots.filter(s=>s.status!=='succeeded'):[];
+ const pending=batch?batch.slots.filter(s=>s.status!=='succeeded'):[];
  return <section className="article-image-rail" aria-label="文章配图">
   <header className="air-heading"><span className="air-icon"><ImagePlus size={20}/></span><div><h3>文章配图</h3><p>读懂文章，自动构思画面</p></div></header>
   <div className="air-settings">
@@ -120,7 +121,7 @@ export default function ArticleImageRail({content,owner,save,getBody,onInsert,on
   </div>
   {error&&<p className="air-message air-error" role="alert">{error}</p>}
   {feedback&&<p className="air-message" role="status">{feedback}</p>}
-  {batch?.purpose==='article'&&batch.parameter_notice&&<p className="air-message">{batch.parameter_notice}</p>}
+  {batch?.parameter_notice&&<p className="air-message">{batch.parameter_notice}</p>}
   {(!!pending.length||!!failed.length)&&<div className="air-progress" aria-live="polite">
    <div className="air-progress-title"><strong>{finished} / {batch!.slots.length} 张已完成</strong><button type="button" disabled={reading||!!busy} onClick={()=>void pass(true)}><RefreshCw size={13}/>{reading?'核查中…':'核查进度'}</button></div>
    {pending.map(slot=><div key={slot.index} className={slot.status==='failed'?'air-slot air-slot-error':'air-slot'}><span>配图 {slot.index+1}</span><span>{labels[slot.status]||'任务处理中'}</span>{slot.error&&<small>{slot.error}</small>}</div>)}
